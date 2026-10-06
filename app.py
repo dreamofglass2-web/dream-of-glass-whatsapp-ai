@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request
 
-app = Flask(__name__)
+app = Flask(_ _name_ _)
 
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "dream_of_glass_verify")
 
