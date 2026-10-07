@@ -431,7 +431,29 @@ def webhook():
                         ),
                         input=history,
                     )
+                        try:
+                        details = extract_shower_details(history)
 
+                        price = calculate_shower_price(
+                            configuration=details.get("configuration"),
+                            width_cm=details.get("width_cm"),
+                            second_width_cm=details.get("second_width_cm"),
+                            height_cm=details.get("height_cm"),
+                            glass_type=details.get("glass_type"),
+                            finish=details.get("finish"),
+                            handle_type=details.get("handle_type"),
+                        )
+
+                        app.logger.info(
+                            "Internal pricing status: %s",
+                            "calculated" if price is not None else "not_ready",
+                        )
+
+                    except Exception:
+                        app.logger.exception(
+                            "Internal pricing check failed"
+                        )
+                    
                     reply_text = ai_response.output_text
                     history.append(
                         {
