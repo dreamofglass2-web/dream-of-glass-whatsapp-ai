@@ -132,7 +132,31 @@ SHOWER_BOM = {
         "מוט חיזוק": 1,
     },
 }
-   
+def calculate_hardware_cost(configuration, finish="ניקל"):
+    bom = SHOWER_BOM.get(configuration)
+
+    if not bom:
+        return None
+
+    multiplier = FINISH_MULTIPLIERS.get(finish)
+
+    if multiplier is None:
+        return None
+
+    total = 0
+
+    for item, quantity in bom.items():
+        if item == "ידית ראשית":
+            return None
+
+        unit_cost = HARDWARE_COSTS.get(item)
+
+        if unit_cost is None:
+            return None
+
+        total += unit_cost * quantity
+
+    return round(total * multiplier, 2)   
 @app.route("/", methods=["GET"])
 def home():
     return "Dream of Glass WhatsApp AI is running", 200
