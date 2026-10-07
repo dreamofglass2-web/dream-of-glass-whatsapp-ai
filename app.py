@@ -431,7 +431,7 @@ def webhook():
                         ),
                         input=history,
                     )
-                        try:
+                    try:
                         details = extract_shower_details(history)
 
                         price = calculate_shower_price(
