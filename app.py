@@ -134,7 +134,11 @@ SHOWER_BOM = {
         "מוט חיזוק": 1,
     },
 }
-def calculate_hardware_cost(configuration, finish="ניקל"):
+def calculate_hardware_cost(
+    configuration,
+    finish="ניקל",
+    handle_type=None,
+):
     bom = SHOWER_BOM.get(configuration)
 
     if not bom:
@@ -148,8 +152,22 @@ def calculate_hardware_cost(configuration, finish="ניקל"):
     total = 0
 
     for item, quantity in bom.items():
-        if item == "ידית ראשית":
-            return None
+        if item in ("ידית כפתור", "ידית ראשית"):
+            if item == "ידית ראשית" and handle_type is None:
+                return None
+
+            if item == "ידית כפתור" and handle_type is None:
+                return None
+
+            if handle_type not in ("ידית כפתור", "ידית מגבת"):
+                return None
+
+            if item == "ידית ראשית":
+                total += HARDWARE_COSTS[handle_type] * quantity
+            else:
+                total += HARDWARE_COSTS[handle_type] * quantity
+
+            continue
 
         unit_cost = HARDWARE_COSTS.get(item)
 
@@ -168,6 +186,7 @@ def calculate_shower_price(
     glass_type="none",
     finish="none",
     second_width_cm=None,
+    handle_type=none,
 ):
     if glass_type not in GLASS_COSTS:
         return None
@@ -203,7 +222,9 @@ def calculate_shower_price(
         return None
 
     hardware_cost = calculate_hardware_cost(
-        configuration, finish
+        configuration,
+        finish,
+        handle_type,
     )
 
     if hardware_cost is None:
@@ -229,6 +250,7 @@ def test_price():
         height_cm=200,
         glass_type="שקופה",
         finish="ניקל",
+        handle_type="ידית כפתור",
     )
 
     return {
