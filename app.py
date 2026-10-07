@@ -1,12 +1,16 @@
 import os
-from flask import Flask, request
+import logging
+
 import requests
+from flask import Flask, request
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "dream_of_glass_verify")
-WHATSAPP_TOKEN = os.environ.get("whatsapp_token")
+WHATSAPP_TOKEN = os.environ.get("whatsapp_token", "")
 PHONE_NUMBER_ID = "1280310741842089"
+
 
 @app.route("/", methods=["GET"])
 def home():
@@ -21,58 +25,83 @@ def webhook():
         challenge = request.args.get("hub.challenge")
 
         if mode == "subscribe" and token == VERIFY_TOKEN:
-            return challenge, 200
+            return challenge or "", 200
 
         return "Verification failed", 403
 
-    data = request.get_json(silent=True)
-    print(data)
-try:
-        for entry in (data or {}).get("entry", []):
+    data = request.get_json(silent=True) or {}
+
+    try:
+        for entry in data.get("entry", []):
             for change in entry.get("changes", []):
-                for message in change.get("value", {}).get("messages", []):
+                value = change.get("value", {})
+
+                for message in value.get("messages", []):
                     if message.get("type") != "text":
                         continue
 
                     customer_phone = message.get("from")
-                    if not customer_phone or not WHATSAPP_TOKEN:
+                    if not customer_phone:
                         continue
 
-                    response = requests.post(
-                        f"https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages",
-                        headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
-                        json={
-                            "messaging_product": "whatsapp",
-                            "to": customer_phone,
-                            "type": "text",
-                            "text": {"body": "היי, בשמחה רבה 😊 במה אפשר לעזור לך?"},
-                        },
-                        timeout=15,
+                    if not WHATSAPP_TOKEN:
+                        app.logger.error("Missing WhatsApp token")
+                        continue
+
+                    send_whatsapp_message(
+                        customer_phone,
+                        "היי, בשמחה רבה 😊 לפני שאשלח לך הצעת מחיר, "
+                        "אשאל אותך כמה שאלות קצרות כדי לוודא שאני "
+                        "מתאים לך בדיוק את המוצר הנכון ונותן מחיר מדויק. "
+                        "במה אפשר לעזור לך?"
                     )
-                    print("WhatsApp send status:", response.status_code)
-except Exception as error:
-        print("WhatsApp error:", str(error))
-return "EVENT_RECEIVED", 200
+
+    except Exception:
+        app.logger.exception("Webhook processing error")
+
+    return "EVENT_RECEIVED", 200
+
+
+def send_whatsapp_message(customer_phone, message_text):
+    url = (
+        f"https://graph.facebook.com/v26.0/"
+        f"{PHONE_NUMBER_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": customer_phone,
+        "type": "text",
+        "text": {"body": message_text},
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=15,
+    )
+
+    app.logger.info(
+        "WhatsApp send status: %s",
+        response.status_code,
+    )
+    response.raise_for_status()
+
+
+@app.route("/privacy", methods=["GET"])
+def privacy():
+    return (
+        "<h1>Privacy Policy</h1>"
+        "<p>Contact: dream.of.glass2@gmail.com</p>"
+    ), 200
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", "10000"))
     app.run(host="0.0.0.0", port=port)
-@app.route("/privacy")
-def privacy():
-    return """
-    <html>
-    <head>
-        <title>Privacy Policy - Dream of Glass</title>
-    </head>
-    <body>
-        <h1>Privacy Policy</h1>
-        <p>Dream of Glass uses customer information only for responding to inquiries, providing quotations, coordinating measurements, installations, and customer service.</p>
-        <p>Information may include name, phone number, messages, photos, measurements, and details voluntarily provided by customers through WhatsApp.</p>
-        <p>We do not sell customer personal information.</p>
-        <p>Information is used only as necessary to provide our services and operate our customer communication system.</p>
-        <p>Customers may contact Dream of Glass to request information regarding their personal data or request its deletion.</p>
-        <p>Contact: dream.of.glass2@gmail.com</p>
-    </body>
-    </html>
-    """, 200
