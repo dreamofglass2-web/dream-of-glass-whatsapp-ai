@@ -216,7 +216,7 @@ def calculate_shower_price(
     if price_before_vat < 2000:
         return None
 
-    return round(price_before_vat, 2)
+    return int((price_before_vat + 5) // 10 * 10)
 
 
 @app.route("/test-price", methods=["GET"])
