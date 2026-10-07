@@ -186,7 +186,7 @@ def calculate_shower_price(
     glass_type="none",
     finish="none",
     second_width_cm=None,
-    handle_type=none,
+    handle_type=None,
 ):
     if glass_type not in GLASS_COSTS:
         return None
