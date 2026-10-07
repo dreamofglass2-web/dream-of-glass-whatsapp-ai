@@ -52,16 +52,35 @@ def webhook():
                     if not customer_phone:
                         continue
 
+                    customer_message = (
+                        message.get("text", {}).get("body", "").strip()
+                    )
+                    if not customer_message:
+                        continue
+
                     if not WHATSAPP_TOKEN:
                         app.logger.error("Missing WhatsApp token")
                         continue
 
+                    ai_response = client.responses.create(
+                        model="gpt-5-mini",
+                        instructions=(
+                            "אתה נציג המכירות בוואטסאפ של העסק חלומות מזכוכית. "
+                            "ענה בעברית טבעית, מקצועית וקצרה. "
+                            "המטרה שלך היא להבין במה הלקוח מעוניין ולשאול בכל הודעה "
+                            "רק שאלה אחת שחסרה כדי להתקדם להצעת מחיר. "
+                            "אל תמציא מחירים, מידות, מפרטים או מידע שלא קיבלת. "
+                            "אם הלקוח שואל על מחיר ועדיין חסרים פרטים, "
+                            "שאל את השאלה החשובה הבאה במקום לנחש מחיר."
+                        ),
+                        input=customer_message,
+                    )
+
+                    reply_text = ai_response.output_text
+
                     send_whatsapp_message(
                         customer_phone,
-                        "היי, בשמחה רבה 😊 לפני שאשלח לך הצעת מחיר, "
-                        "אשאל אותך כמה שאלות קצרות כדי לוודא שאני "
-                        "מתאים לך בדיוק את המוצר הנכון ונותן מחיר מדויק. "
-                        "במה אפשר לעזור לך?"
+                        reply_text,
                     )
 
     except Exception:
