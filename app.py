@@ -90,6 +90,7 @@ def send_whatsapp_message(customer_phone, message_text):
     app.logger.info(
         "WhatsApp send status: %s",
         response.status_code,
+    )
     print("META RESPONSE:", response.status_code, response.text, flush=True)
     response.raise_for_status()
 
