@@ -2,6 +2,7 @@ import os
 import logging
 
 import requests
+from openai import OpenAI
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -10,6 +11,8 @@ logging.basicConfig(level=logging.INFO)
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "dream_of_glass_verify")
 WHATSAPP_TOKEN = os.environ.get("whatsapp_token", "")
 PHONE_NUMBER_ID = "1280310741842089"
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 @app.route("/", methods=["GET"])
