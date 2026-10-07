@@ -1,10 +1,12 @@
 import os
 from flask import Flask, request
+import requests
 
 app = Flask(__name__)
 
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "dream_of_glass_verify")
-
+WHATSAPP_TOKEN = os.environ.get("whatsapp_token")
+PHONE_NUMBER_ID = "1280310741842089"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -25,7 +27,31 @@ def webhook():
 
     data = request.get_json(silent=True)
     print(data)
+try:
+        for entry in (data or {}).get("entry", []):
+            for change in entry.get("changes", []):
+                for message in change.get("value", {}).get("messages", []):
+                    if message.get("type") != "text":
+                        continue
 
+                    customer_phone = message.get("from")
+                    if not customer_phone or not WHATSAPP_TOKEN:
+                        continue
+
+                    response = requests.post(
+                        f"https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages",
+                        headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
+                        json={
+                            "messaging_product": "whatsapp",
+                            "to": customer_phone,
+                            "type": "text",
+                            "text": {"body": "היי, בשמחה רבה 😊 במה אפשר לעזור לך?"},
+                        },
+                        timeout=15,
+                    )
+                    print("WhatsApp send status:", response.status_code)
+    except Exception as error:
+        print("WhatsApp error:", str(error))
     return "EVENT_RECEIVED", 200
 
 
