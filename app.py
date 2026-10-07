@@ -13,7 +13,7 @@ WHATSAPP_TOKEN = os.environ.get("whatsapp_token", "")
 PHONE_NUMBER_ID = "1280310741842089"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
-
+conversation_history = {}
 
 @app.route("/", methods=["GET"])
 def home():
@@ -61,7 +61,16 @@ def webhook():
                     if not WHATSAPP_TOKEN:
                         app.logger.error("Missing WhatsApp token")
                         continue
+                    history = conversation_history.setdefault(
+                        customer_phone, []
+                    )
 
+                    history.append(
+                        {
+                            "role": "user",
+                            "content": customer_message,
+                        }
+                    )
                     ai_response = client.responses.create(
                         model="gpt-5-mini",
                         instructions=(
@@ -73,10 +82,16 @@ def webhook():
                             "אם הלקוח שואל על מחיר ועדיין חסרים פרטים, "
                             "שאל את השאלה החשובה הבאה במקום לנחש מחיר."
                         ),
-                        input=customer_message,
+                        input=history,
                     )
 
                     reply_text = ai_response.output_text
+                    history.append(
+                        {
+                            "role": "assistant",
+                            "content": reply_text,
+                        }
+                    )
 
                     send_whatsapp_message(
                         customer_phone,
