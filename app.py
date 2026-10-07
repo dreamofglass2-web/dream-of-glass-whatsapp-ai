@@ -303,7 +303,13 @@ def extract_shower_details(history):
             "handle_type יכול להיות רק ידית כפתור, ידית מגבת או null. "
             "אם הלקוח לא בחר במפורש, החזר null."
         ),
-        input=history,
+        input=[
+            {
+                "role": "system",
+                "content": "Return a valid json object only.",
+            },
+            *history,
+        ],
         text={"format": {"type": "json_object"}},
     )
 
