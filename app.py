@@ -52,7 +52,7 @@ try:
                     print("WhatsApp send status:", response.status_code)
 except Exception as error:
         print("WhatsApp error:", str(error))
-    return "EVENT_RECEIVED", 200
+return "EVENT_RECEIVED", 200
 
 
 if __name__ == "__main__":
