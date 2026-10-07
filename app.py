@@ -261,6 +261,27 @@ def test_price():
 @app.route("/", methods=["GET"])
 def home():
     return "Dream of Glass WhatsApp AI is running", 200
+@app.route("/test-extraction", methods=["GET"])
+def test_extraction():
+    test_history = [
+        {
+            "role": "user",
+            "content": (
+                "אני רוצה מקלחון פינתי 90 על 90, "
+                "גובה 200, שני קבועים ושתי דלתות, "
+                "זכוכית שקופה, פרזול ניקל "
+                "וידיות כפתור."
+            ),
+        }
+    ]
+
+    details = extract_shower_details(test_history)
+
+    return {
+        "details": details,
+        "status": "test_only",
+    }, 200
+
 
 def extract_shower_details(history):
     response = client.responses.create(
