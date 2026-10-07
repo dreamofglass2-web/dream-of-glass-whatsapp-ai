@@ -75,10 +75,11 @@ SHOWER_BOM = {
     },
     "פינתי 2 קבועים + 2 דלתות": {
         "ציר זכוכית זכוכית": 4,
-        "זווית זכוכית זכוכית": 4,
-        "אטם בלון": 2,
-        "מגב רצפה": 1,
+        "זווית קיר זכוכית": 4,
+        "ידית כפתור": 2,
         "מגנט פינתי": 1,
+        "מגב רצפה": 1,
+        "אטם בלון": 2,
     },
     "חזית קבוע + דלת": {
         "ציר קיר זכוכית": 2,
@@ -210,7 +211,7 @@ def calculate_shower_price(
     glass_area = glass_width * height / 10000
     glass_cost = glass_area * GLASS_COSTS[glass_type]
 
-    price_before_vat = glass_cost + hardware_cost + 1500
+    price_before_vat = glass_cost + hardware_cost + 1500 + 150
 
     if price_before_vat < 2000:
         return None
