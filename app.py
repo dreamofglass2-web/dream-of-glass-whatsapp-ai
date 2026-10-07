@@ -50,7 +50,7 @@ try:
                         timeout=15,
                     )
                     print("WhatsApp send status:", response.status_code)
-    except Exception as error:
+except Exception as error:
         print("WhatsApp error:", str(error))
     return "EVENT_RECEIVED", 200
 
