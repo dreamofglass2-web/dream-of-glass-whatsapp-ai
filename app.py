@@ -216,6 +216,24 @@ def calculate_shower_price(
         return None
 
     return round(price_before_vat, 2)
+
+
+@app.route("/test-price", methods=["GET"])
+def test_price():
+    price = calculate_shower_price(
+        configuration="פינתי 2 קבועים + 2 דלתות",
+        width_cm=90,
+        second_width_cm=90,
+        height_cm=200,
+        glass_type="שקופה",
+        finish="ניקל",
+    )
+
+    return {
+        "configuration": "פינתי 2 קבועים + 2 דלתות",
+        "price_before_vat": price,
+        "status": "internal_test_only",
+    }, 200
 @app.route("/", methods=["GET"])
 def home():
     return "Dream of Glass WhatsApp AI is running", 200
