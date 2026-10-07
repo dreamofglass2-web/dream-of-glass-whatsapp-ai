@@ -288,7 +288,7 @@ def extract_shower_details(history):
         model="gpt-5-mini",
         instructions=(
             "חלץ מתוך השיחה פרטים על המקלחון. "
-            "החזר אובייקט JSON בלבד. "
+            "Return a valid json object only. "
             "אל תנחש פרטים חסרים. השתמש ב-null. "
             "סוג התצורה חייב להתאים בדיוק לאחת האפשרויות הבאות: "
             + ", ".join(SHOWER_BOM.keys())
