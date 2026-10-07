@@ -28,6 +28,11 @@ def webhook():
             return challenge or "", 200
 
         return "Verification failed", 403
+    app.logger.info(
+        "WEBHOOK POST RECEIVED content_type=%s content_length=%s",
+        request.content_type,
+        request.content_length,
+    )
 
     data = request.get_json(silent=True) or {}
 
