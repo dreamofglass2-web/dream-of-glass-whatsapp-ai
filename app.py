@@ -277,9 +277,39 @@ def test_extraction():
 
     details = extract_shower_details(test_history)
 
+    required_fields = [
+        "configuration",
+        "width_cm",
+        "height_cm",
+        "glass_type",
+        "finish",
+    ]
+
+    missing = [
+        field for field in required_fields
+        if details.get(field) is None
+    ]
+
+    if missing:
+        price = None
+        status = "missing_details"
+    else:
+        price = calculate_shower_price(
+            configuration=details["configuration"],
+            width_cm=details["width_cm"],
+            second_width_cm=details.get("second_width_cm"),
+            height_cm=details["height_cm"],
+            glass_type=details["glass_type"],
+            finish=details["finish"],
+            handle_type=details.get("handle_type"),
+        )
+
+        status = "calculated" if price is not None else "needs_review"
+
     return {
         "details": details,
-        "status": "test_only",
+        "price_before_vat": price,
+        "status": status,
     }, 200
 
 
