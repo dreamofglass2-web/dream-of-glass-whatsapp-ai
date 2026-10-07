@@ -262,6 +262,32 @@ def test_price():
 def home():
     return "Dream of Glass WhatsApp AI is running", 200
 
+def extract_shower_details(history):
+    response = client.responses.create(
+        model="gpt-5-mini",
+        instructions=(
+            "חלץ מתוך השיחה פרטים על המקלחון. "
+            "החזר אובייקט JSON בלבד. "
+            "אל תנחש פרטים חסרים. השתמש ב-null. "
+            "סוג התצורה חייב להתאים בדיוק לאחת האפשרויות הבאות: "
+            + ", ".join(SHOWER_BOM.keys())
+            + ". סוג זכוכית חייב להתאים לאחת האפשרויות: "
+            + ", ".join(GLASS_COSTS.keys())
+            + ". גוון פרזול חייב להתאים לאחת האפשרויות: "
+            + ", ".join(FINISH_MULTIPLIERS.keys())
+            + ". המידות הן בסנטימטרים. "
+            "החזר את השדות: "
+            "configuration, width_cm, second_width_cm, "
+            "height_cm, glass_type, finish, handle_type. "
+            "handle_type יכול להיות רק ידית כפתור, ידית מגבת או null. "
+            "אם הלקוח לא בחר במפורש, החזר null."
+        ),
+        input=history,
+        text={"format": {"type": "json_object"}},
+    )
+
+    return json.loads(response.output_text)
+
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
