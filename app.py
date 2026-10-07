@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 
 import requests
 from openai import OpenAI
@@ -164,8 +165,8 @@ def calculate_shower_price(
     configuration,
     width_cm,
     height_cm,
-    glass_type="שקופה",
-    finish="ניקל",
+    glass_type="none",
+    finish="none",
     second_width_cm=None,
 ):
     if glass_type not in GLASS_COSTS:
