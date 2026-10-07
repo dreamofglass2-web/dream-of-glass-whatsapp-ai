@@ -156,7 +156,66 @@ def calculate_hardware_cost(configuration, finish="ניקל"):
 
         total += unit_cost * quantity
 
-    return round(total * multiplier, 2)   
+    return round(total * multiplier, 2)
+
+
+def calculate_shower_price(
+    configuration,
+    width_cm,
+    height_cm,
+    glass_type="שקופה",
+    finish="ניקל",
+    second_width_cm=None,
+):
+    if glass_type not in GLASS_COSTS:
+        return None
+
+    if configuration not in SHOWER_BOM:
+        return None
+
+    try:
+        width = float(width_cm)
+        height = float(height_cm)
+        second_width = (
+            float(second_width_cm)
+            if second_width_cm is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        return None
+
+    if width <= 0 or height <= 0 or height > 220:
+        return None
+
+    if configuration.startswith("פינתי"):
+        if second_width is None:
+            return None
+        if width > 120 or second_width > 120:
+            return None
+        glass_width = width + second_width
+    elif configuration.startswith("חזית"):
+        if width > 200:
+            return None
+        glass_width = width
+    else:
+        return None
+
+    hardware_cost = calculate_hardware_cost(
+        configuration, finish
+    )
+
+    if hardware_cost is None:
+        return None
+
+    glass_area = glass_width * height / 10000
+    glass_cost = glass_area * GLASS_COSTS[glass_type]
+
+    price_before_vat = glass_cost + hardware_cost + 1500
+
+    if price_before_vat < 2000:
+        return None
+
+    return round(price_before_vat, 2)
 @app.route("/", methods=["GET"])
 def home():
     return "Dream of Glass WhatsApp AI is running", 200
