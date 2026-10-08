@@ -24,6 +24,7 @@ client = OpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
 executor = ThreadPoolExecutor(max_workers=2)
 lock = threading.RLock()
 histories = {}
+customer_context = {}  # Temporary context; use a database for production.
 seen = {}
 phone_locks = {}
 
@@ -49,6 +50,24 @@ SLIDING = {'הזזה קבוע + דלת':600,'הזזה 2 קבועים + 2 דלת�
 # These images must be public HTTPS URLs for photos of your actual hardware.
 HANDLE_BUTTON_IMAGE_URL = os.getenv('HANDLE_BUTTON_IMAGE_URL', '')
 HANDLE_TOWEL_IMAGE_URL = os.getenv('HANDLE_TOWEL_IMAGE_URL', '')
+
+# Optional public HTTPS sample images, configured later in Render.
+# Example: {"שקופה":"https://example.com/clear.jpg"}
+def load_glass_images():
+    try:
+        images = json.loads(os.getenv('GLASS_SAMPLE_IMAGES_JSON', '{}'))
+        if not isinstance(images, dict):
+            return {}
+        return {name: url for name, url in images.items()
+                if name in GLASS_COSTS and isinstance(url, str)
+                and url.startswith('https://')}
+    except (ValueError, TypeError):
+        app.logger.warning('Invalid GLASS_SAMPLE_IMAGES_JSON')
+        return {}
+
+GLASS_SAMPLE_IMAGES = load_glass_images()
+GLASS_TYPES_TEXT = '، '.join(GLASS_COSTS.keys())
+
 
 SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חלומות מזכוכית" בוואטסאפ. מטרתך לנהל בעצמך שיחה אנושית, מועילה ומדויקת, ולא לדקלם שאלון או לדחוף למכירה. כתוב עברית ישראלית טבעית, לרוב 1–3 משפטים קצרים ושאלה אחת לכל היותר. בלי רשימות, כותרות, נקודתיים ומקפים מיותרים, ובלי לפתוח שוב ושוב ב"מעולה". אם הלקוח כתב רק "היי", ענה בברכה אנושית פשוטה ושאל איך אפשר לעזור, בלי למנות מוצרים.
 
@@ -77,11 +96,28 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 
 ידיות: במקלחון עם שתי דלתות אפשר שתי ידיות כפתור, שתי ידיות מגבת או שילוב של אחת מכל סוג. זכור את השילוב. אל תשאל איזו דלת תקבל איזו ידית, אפשר להחליט בשטח. אם הלקוח שואל על ההבדל, הסבר שידית כפתור קטנה וידית מגבת ארוכה ויכולה לשמש גם לתליית מגבת. תמונות יישלחו רק אם המערכת מסרה שהן זמינות בפועל.
 
+פרטי העסק: אנחנו מרמלה. כששואלים מאיפה אנחנו, איפה העסק או מהיכן מגיעים, ענה בפשטות "אנחנו מרמלה 😊". אם שואלים על אזור השירות, ציין בנפרד את אזור השירות; אל תבלבל בין מיקום העסק לאזור הפעילות.
+
+סוגי זכוכית: כששואלים אילו סוגי זכוכית יש, הצג את כל סוגי הזכוכית הזמינים ברשימה מלאה וקריאה, בלי להשמיט סוגים ובלי להמציא אחרים. אם הלקוח מבקש המלצה, עזור לו לבחור לפי שקיפות, פרטיות, מראה וסגנון. אל תחשוף מחירי עלות פנימיים. אם הלקוח מבקש תמונות או דוגמאות, המערכת תשלח רק תמונות שקושרו בפועל לסוגי הזכוכית; אם עדיין אין תמונות, אמור ביושר שכרגע אין דוגמאות מצולמות זמינות לשליחה, והמשך לעזור בהסבר מילולי. אל תבטיח שתשלח תמונות בהמשך מיוזמתך.
+
 מוצרים נוספים: מראות, מחיצות, חיפוי זכוכית למטבח, אמבטיונים, דלתות ומעקות. עבודות מיוחדות, דלתות ומעקות מחייבים בדיקה אנושית. אזור שירות נתניה עד אשקלון כולל ירושלים. הזמנת מינימום 2000 ש"ח. אל תחשוף עלויות פנימיות. אל תמציא מפרטים, מחירים או התחייבויות.
 
 חשוב במיוחד: אל תציע ללקוח לשלוח "המלצות קצרות" כשהוא כבר ביקש ייעוץ. תן ייעוץ מועיל בעצמך. אל תשאל "מה אתה מעדיף" לפני שנתת ללקוח בסיס להבין את הבחירה. אל תדחוף שאלות שאינן נדרשות להחלטה הקרובה. זכור שהלקוח אינו צריך להוביל אותך; אתה מוביל בעדינות, מקצועיות ואמינות.
 
-החזר JSON בלבד עם השדות reply, product, configuration, width_cm, second_width_cm, height_cm, glass_type, finish, handles, quote_requested, solution_agreed, needs_human, send_handle_images. השתמש ב-null לפרט לא ידוע. handles הוא מערך של 'ידית כפתור'/'ידית מגבת' לפי מספר הידיות, או null. quote_requested אמת אם ביקש מחיר במהלך השיחה ועדיין לא קיבל מענה. solution_agreed אמת רק כשהתצורה נבחרה או אושרה. send_handle_images אמת רק כשהלקוח ביקש לראות דוגמאות או הסבר חזותי על ידיות. המידות בסנטימטרים. אל תסיק תצורה ממידות בלבד. כל הפרטים צריכים לשקף את השיחה כולה, לא רק את ההודעה האחרונה. אל תכלול את הניתוח הפנימי ב-reply.''' 
+מנגנון החלטה מחייב לפני ניסוח:
+קבע תחילה שלב שיחה אחד: greeting, discovery, early_planning, technical_fit, quote_preparation, decision, closing.
+קבע פעולה אחת: acknowledge_and_ask, explain_and_ask, advise, answer_directly, quote, offer_next_step.
+שאל את עצמך איזה מידע חסר עכשיו, ולא מה כל המידע שאפשר לאסוף. אין צורך בשאלה בכל תגובה.
+ב-early_planning אל תציג בחירה בין סוגי מקלחונים. אם טרם ידוע מיקום הכניסה לחדר, התעניין בו; אם כבר ידוע, התקדם לפרט תכנוני אחר ולא תחזור על אותה שאלה.
+ב-technical_fit אל תציע תצורה ספציפית בלי מידע על מבנה החלל ומגבלות פתיחת הדלת. אל תבקש מהלקוח להחליט החלטה מקצועית שאין לו בסיס להבין.
+ב-quote_preparation הלקוח כבר ביקש מחיר. תן עדיפות להשלמת הנתון הקריטי הבא ולא לשאלות על תיאום מדידה או מי מקבל החלטה.
+ב-decision אפשר לברר בעדינות אם הלקוח צריך להתייעץ, אבל רק אחרי שיש לו מספיק מידע והצעה להבין ולהעריך.
+לפני התשובה בצע בדיקה עצמית: האם חזרתי על שאלה? האם המלצתי מוקדם מדי? האם הנחתי פרט שלא נאמר? האם אני מקדם את מטרת הלקוח?
+אל תכתוב את הבדיקה העצמית ללקוח.
+אם לקוח ביקש מחיר ומערכת התמחור כבויה, אל תמציא מחיר ואל תציג כאילו חישבת אותו. אחרי איסוף הנתונים הסבר שהצעת המחיר הסופית דורשת אישור, בלי להבטיח פעולה אוטומטית שלא קיימת.
+אם לקוח שואל משהו ישירות, ענה קודם לשאלה ורק אחר כך שאל שאלה מקדמת אם צריך.
+
+החזר JSON בלבד עם השדות stage, action, next_missing_fact, reply, product, configuration, width_cm, second_width_cm, height_cm, glass_type, finish, handles, quote_requested, solution_agreed, needs_human, send_handle_images, send_glass_images. השתמש ב-null לפרט לא ידוע. handles הוא מערך של 'ידית כפתור'/'ידית מגבת' לפי מספר הידיות, או null. quote_requested אמת אם ביקש מחיר במהלך השיחה ועדיין לא קיבל מענה. solution_agreed אמת רק כשהתצורה נבחרה או אושרה. send_handle_images אמת רק כשהלקוח ביקש לראות דוגמאות או הסבר חזותי על ידיות. send_glass_images אמת רק כשהלקוח ביקש תמונות או דוגמאות חזותיות של סוגי זכוכית. המידות בסנטימטרים. אל תסיק תצורה ממידות בלבד. כל הפרטים צריכים לשקף את השיחה כולה, לא רק את ההודעה האחרונה. stage הוא שלב השיחה, action היא הפעולה הנכונה, next_missing_fact הוא הפרט החשוב הבא או null. אל תכלול את הניתוח הפנימי ב-reply.''' 
 
 def calculate_quote(data):
     configuration = data.get('configuration')
@@ -147,7 +183,16 @@ def process_message(phone, body):
             history = list(histories.get(phone, []))
         history.append({'role':'user','content':body})
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
-        instructions = SYSTEM + '\nתמונות ידיות זמינות לשליחה: ' + ('כן' if image_ready else 'לא')
+        glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
+        with lock:
+            prior = customer_context.get(phone, {})
+        instructions = (SYSTEM + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+                        + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(GLASS_SAMPLE_IMAGES) if glass_images_ready else 'אין עדיין')
+                        + '\nתמונות ידיות זמינות לשליחה: '
+                        + ('כן' if image_ready else 'לא')
+                        + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
+                        + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
+                        + json.dumps(prior, ensure_ascii=False))
         try:
             response = client.responses.create(
                 model=MODEL,
@@ -159,6 +204,14 @@ def process_message(phone, body):
             reply = str(data.get('reply') or '').strip()
             if not reply:
                 raise ValueError('Empty reply')
+            allowed_stages = {'greeting','discovery','early_planning','technical_fit',
+                              'quote_preparation','decision','closing'}
+            stage = data.get('stage')
+            if stage not in allowed_stages:
+                app.logger.warning('Unknown stage from model: %r', stage)
+            # A greeting must remain an open, natural greeting, not a product menu.
+            if len(history) == 1 and body.strip().rstrip('!?. ') in ('היי','שלום','אהלן','בוקר טוב','ערב טוב'):
+                reply = 'היי, מה שלומך? 😊 איך אפשר לעזור לך?'
             # Quotes are off by default; even when enabled, send only validated quotes.
             if SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
@@ -168,8 +221,20 @@ def process_message(phone, body):
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
+            if glass_images_ready and data.get('send_glass_images') is True:
+                for glass_name, image_url in GLASS_SAMPLE_IMAGES.items():
+                    try:
+                        send_whatsapp(phone, image_url=image_url, caption=glass_name)
+                    except requests.RequestException:
+                        app.logger.exception('Could not send glass sample %s', glass_name)
             with lock:
                 histories[phone] = (history + [{'role':'assistant','content':reply}])[-36:]
+                customer_context[phone] = {
+                    key: data.get(key) for key in (
+                        'stage','action','next_missing_fact','product','configuration',
+                        'width_cm','second_width_cm','height_cm','glass_type','finish',
+                        'handles','quote_requested','solution_agreed','needs_human')
+                }
         except Exception:
             app.logger.exception('Message processing failed')
             try:
