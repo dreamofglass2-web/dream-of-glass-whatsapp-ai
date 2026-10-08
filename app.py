@@ -130,7 +130,7 @@ def process_message(phone, body):
             response = client.responses.create(
                 model=MODEL,
                 instructions=instructions + "\nReturn a valid JSON object only.",
-                input=history[-36:],
+                input=[{"role": "developer", "content": "Return a valid JSON object."}] + history[-36:],
                 text={'format':{'type':'json_object'}},
             )
             data = json.loads(response.output_text)
