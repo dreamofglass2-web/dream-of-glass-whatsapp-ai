@@ -29,6 +29,9 @@ seen = {}
 phone_locks = {}
 pending = {}  # phone -> [(message_id, body, monotonic_arrival)]
 processing = set()
+worker_thread = None
+worker_pid = None
+worker_start_lock = threading.Lock()
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
 TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
 TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
@@ -54,6 +57,7 @@ def queue_message(phone, body, message_id):
             for mid, _ in sorted(seen.items(), key=lambda item: item[1])[:2000]:
                 seen.pop(mid, None)
         pending.setdefault(phone, []).append((message_id, body, time.monotonic()))
+        app.logger.info("QUEUE_ADDED phone_suffix=%s pending=%s", phone[-4:], len(pending[phone]))
 
 
 def next_batch():
@@ -63,6 +67,7 @@ def next_batch():
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
                 continue
             processing.add(phone)
+            app.logger.info("BATCH_READY phone_suffix=%s count=%s", phone[-4:], len(messages))
             return phone, list(messages)
     return None
 
@@ -292,12 +297,14 @@ def process_message(phone, body, batch_rows=None):
                         + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
                         + json.dumps(prior, ensure_ascii=False))
         try:
+            app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
             response = client.responses.create(
                 model=MODEL,
                 instructions=instructions,
                 input=[{'role':'developer','content':'Return a valid JSON object. Follow the JSON output contract in the instructions.'}] + history[-36:],
                 text={'format':{'type':'json_object'}},
             )
+            app.logger.info("AI_RESPONSE phone_suffix=%s", phone[-4:])
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             if not reply:
@@ -330,6 +337,7 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 app.logger.info('New messages arrived during composition; postponing reply')
                 return False
+            app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
@@ -357,6 +365,7 @@ def process_message(phone, body, batch_rows=None):
             return False
 
 def batch_worker():
+    app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     while True:
         try:
             batch = next_batch()
@@ -378,7 +387,18 @@ def batch_worker():
             time.sleep(2)
 
 
-threading.Thread(target=batch_worker, daemon=True, name='whatsapp-batch-worker').start()
+def ensure_worker_started():
+    """Start in the process that actually serves requests, not at import/preload."""
+    global worker_thread, worker_pid
+    with worker_start_lock:
+        pid = os.getpid()
+        if worker_pid != pid or worker_thread is None or not worker_thread.is_alive():
+            worker_thread = threading.Thread(target=batch_worker, daemon=True,
+                                             name='whatsapp-batch-worker')
+            worker_pid = pid
+            worker_thread.start()
+            app.logger.info("WORKER_INITIALIZED pid=%s", pid)
+
 
 @app.route('/', methods=['GET'])
 def home():
@@ -386,7 +406,13 @@ def home():
 
 @app.route('/health', methods=['GET'])
 def health():
-    return {'status':'ok','quotes_enabled':SEND_QUOTES}, 200
+    ensure_worker_started()
+    with lock:
+        queued = sum(len(items) for items in pending.values())
+        active = len(processing)
+    return {'status':'ok','quotes_enabled':SEND_QUOTES,
+            'worker_alive':bool(worker_thread and worker_thread.is_alive()),
+            'queued_messages':queued,'processing_chats':active}, 200
 
 @app.route('/webhook', methods=['GET','POST'])
 def webhook():
@@ -394,12 +420,18 @@ def webhook():
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return request.args.get('hub.challenge', ''), 200
         return 'Verification failed', 403
+    ensure_worker_started()
     data = request.get_json(silent=True) or {}
+    received = 0
+    statuses = 0
+    ignored = 0
     for entry in data.get('entry', []):
         for change in entry.get('changes', []):
             value = change.get('value') or {}
+            statuses += len(value.get('statuses', []))
             for message in value.get('messages', []):
                 if message.get('type') != 'text':
+                    ignored += 1
                     continue
                 phone = message.get('from')
                 body = ((message.get('text') or {}).get('body') or '').strip()
@@ -408,9 +440,11 @@ def webhook():
                     continue
                 try:
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
+                    received += 1
                 except Exception:
                     app.logger.exception('Could not queue incoming message')
                     return 'Queue unavailable', 503
+    app.logger.info('WEBHOOK_RECEIVED text_messages=%s statuses=%s ignored=%s', received, statuses, ignored)
     return 'EVENT_RECEIVED', 200
 
 @app.route('/privacy', methods=['GET'])
