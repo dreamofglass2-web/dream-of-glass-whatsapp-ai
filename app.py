@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import time
+import re
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -109,6 +110,12 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 
 חשוב במיוחד: אל תציע ללקוח לשלוח "המלצות קצרות" כשהוא כבר ביקש ייעוץ. תן ייעוץ מועיל בעצמך. אל תשאל "מה אתה מעדיף" לפני שנתת ללקוח בסיס להבין את הבחירה. אל תדחוף שאלות שאינן נדרשות להחלטה הקרובה. זכור שהלקוח אינו צריך להוביל אותך; אתה מוביל בעדינות, מקצועיות ואמינות.
 
+כללי שיחה חדשים, בעדיפות גבוהה במיוחד:
+אל תסכם ללקוח מחדש פרטים שאמר בכל הודעה. שמור אותם בשדות הפנימיים בלבד. אחרי תשובה כמו "100 על 100" אל תגיד "רשמתי 100 על 100"; פשוט שאל את השאלה הבאה, אם צריך. אחרי "גובה 200" אל תחזור על הרוחב והגובה. סיכום מלא מותר רק כשמבקשים סיכום, לפני הצגת הצעת מחיר או בעת אימות פרטים הכרחי. אל תפתח ברוב ההודעות ב"מעולה", "מצוין", "הבנתי" או "רשמתי". לפעמים התשובה הנכונה היא שאלה אחת קצרה בלי הקדמה.
+התייחס להודעה האחרונה כהמשך לשאלה האחרונה שלך. אם שאלת על שתי דלתות מול קבוע ודלת והלקוח אומר "מה אתה ממליץ", ענה על תצורת הדלתות ולא על גובה. כשמבקשים המלצה, תן המלצה מעשית עם נימוק ומגבלה אחת רלוונטית; אל תציג רק אפשרויות ותשאל את הלקוח לבחור מחדש.
+הובל את המכירה מתוך הבעיה של הלקוח, לא מתוך רשימת שדות חסרים. אם הלקוח עדיין בשיפוץ מוקדם, אל תתעקש על גובה, ידיות ופרזול לפני שיש בסיס להתאמה. אם הוא כבר בחר תצורה ומבקש הצעת מחיר, אסוף רק את הנתונים החסרים, אחד בכל פעם, ואז התקדם למחיר מאומת. אם המחיר האוטומטי כבוי, אל תבטיח הצעה טלפונית או פנייה לנציג שלא באמת הופעלה; הסבר בקצרה שהמחיר דורש אישור.
+אל תחזור על שאלה שנשאלה וטרם נענתה אם הלקוח שאל במקומה שאלה אחרת. ענה קודם לשאלתו. אם הלקוח כבר נתן פרט, אסור לבקש אותו שוב אלא אם קיימת סתירה אמיתית.
+
 מנגנון החלטה מחייב לפני ניסוח:
 קבע תחילה שלב שיחה אחד: greeting, discovery, early_planning, technical_fit, quote_preparation, decision, closing.
 קבע פעולה אחת: acknowledge_and_ask, explain_and_ask, advise, answer_directly, quote, offer_next_step.
@@ -180,6 +187,19 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     app.logger.info('WhatsApp send status: %s', result.status_code)
     result.raise_for_status()
 
+def polish_reply(reply, history):
+    """Light-touch output guard. Never remove substantive answers or quote details."""
+    reply = reply.strip()
+    reply = re.sub(r'^(?:(?:מעולה|מצוין|יופי)[,!،. ]+)', '', reply)
+    reply = re.sub(r'^(?:רשמתי|קיבלתי)[,،. ]+', '', reply)
+    # Only remove a repetitive recap if it directly precedes a simple next question.
+    if history and '?' in reply:
+        first, separator, rest = reply.partition('.')
+        if separator and rest.strip().startswith(('איזה ', 'מה ', 'יש ', 'תרצו ', 'אתם ')):
+            if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
+                reply = rest.strip()
+    return reply.strip()
+
 def process_message(phone, body):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
@@ -206,7 +226,7 @@ def process_message(phone, body):
                 text={'format':{'type':'json_object'}},
             )
             data = json.loads(response.output_text)
-            reply = str(data.get('reply') or '').strip()
+            reply = polish_reply(str(data.get('reply') or ''), history)
             if not reply:
                 raise ValueError('Empty reply')
             allowed_stages = {'greeting','discovery','early_planning','technical_fit',
