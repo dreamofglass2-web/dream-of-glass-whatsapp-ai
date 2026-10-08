@@ -8,7 +8,8 @@ import hmac
 import secrets
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, request, session, redirect, url_for, render_template_string, abort
@@ -94,6 +95,59 @@ def load_conversation(phone):
         return list(histories.get(phone, [])), dict(customer_context.get(phone, {}))
 
 
+def extract_customer_name(history):
+    """Read an explicitly supplied customer name, never infer from an AI response."""
+    patterns = (
+        r'(?:קוראים\s+לי|השם\s+שלי\s+הוא|שמי)\s+([א-ת]{2,}(?:\s+[א-ת]{2,})?)',
+        r'(?:אני\s+)([א-ת]{2,})\s*(?:[,.!]|$)',
+    )
+    for item in reversed(history):
+        if item.get('role') != 'user':
+            continue
+        text = str(item.get('content') or '')
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                name = match.group(1).strip()
+                # Stop before sentence continuations (e.g. "דניאל ואני מעוניין").
+                name = re.split(r'\s+(?:ואני|ואנחנו|ואני\b|אבל|כי|ומעוניין|ומעוניינת)', name, 1)[0]
+                if name not in ('מעוניין', 'מעוניינת', 'רוצה', 'צריך', 'צריכה', 'מחפש', 'מחפשת'):
+                    return name[:100]
+    return ''
+
+
+CALLBACK_TRIGGERS = ('לדבר עם', 'שיחזרו אלי', 'שיחזרו אליי', 'שיתקשרו אלי',
+                     'שיתקשרו אליי', 'תתקשרו אלי', 'תתקשרו אליי', 'שיחה עם נציג',
+                     'שיחה עם בן אדם', 'תחזרו אלי', 'תחזרו אליי', 'תתקשר אלי',
+                     'תתקשר אליי', 'תתקשרו אליי', 'בטלפון עם')
+
+
+def callback_time_from_text(body):
+    """Resolve an explicit today/tomorrow clock time in Israel; do not invent one."""
+    match = re.search(r'(?:בשעה\s*)?(\d{1,2})(?::(\d{2}))?\s*(בבוקר|בצהריים|אחר הצהריים|בערב|בלילה)?', body)
+    if not match:
+        return None
+    # Numbers without "בשעה"/a daypart/day word can be prices or dimensions.
+    if not (re.search(r'בשעה\s*\d', body) or match.group(3)):
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2) or 0)
+    part = match.group(3) or ''
+    if minute > 59 or hour > 23:
+        return None
+    if part in ('בערב', 'בלילה', 'אחר הצהריים') and hour < 12:
+        hour += 12
+    if hour > 23:
+        return None
+    now = datetime.now(ZoneInfo('Asia/Jerusalem'))
+    if 'מחר' in body:
+        day = now.date() + timedelta(days=1)
+    elif 'היום' in body:
+        day = now.date()
+    else:
+        return f'שעה {hour:02d}:{minute:02d}, תאריך טרם תואם'
+    return f'{day.strftime("%d/%m/%Y")} בשעה {hour:02d}:{minute:02d}'
+
+
 def save_conversation(phone, history, context):
     with lock:
         histories[phone] = history[-36:]
@@ -102,14 +156,16 @@ def save_conversation(phone, history, context):
         ensure_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""INSERT INTO glass_leads(phone, conversation, context, product)
-                    VALUES (%s, %s::jsonb, %s::jsonb, %s)
+                cur.execute("""INSERT INTO glass_leads(phone, name, conversation, context, product)
+                    VALUES (%s, %s, %s::jsonb, %s::jsonb, %s)
                     ON CONFLICT(phone) DO UPDATE SET
                         conversation=EXCLUDED.conversation, context=EXCLUDED.context,
+                        name=CASE WHEN glass_leads.name = '' THEN EXCLUDED.name ELSE glass_leads.name END,
                         product=CASE WHEN EXCLUDED.product <> '' THEN EXCLUDED.product
                                      ELSE glass_leads.product END,
                         updated_at=now()""",
-                    (phone, json.dumps(history[-36:], ensure_ascii=False),
+                    (phone, extract_customer_name(history),
+                     json.dumps(history[-36:], ensure_ascii=False),
                      json.dumps(context, ensure_ascii=False), str(context.get('product') or '')))
     except Exception:
         app.logger.exception('Database save failed; message was still handled')
@@ -125,8 +181,10 @@ def save_callback(phone, preferred_time=None):
                     ON CONFLICT(phone) DO UPDATE SET status='ממתין לחזרה',
                       callback_time=EXCLUDED.callback_time, updated_at=now()""",
                     (phone, preferred_time or 'ממתין לתיאום'))
+        return True
     except Exception:
         app.logger.exception('Callback lead could not be stored')
+        return False
 
 
 def queue_message(phone, body, message_id):
@@ -495,21 +553,24 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'יש 7 שנות אחריות מלאות על הפרזול, שעשוי פליז פרימיום.'
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
-            if any(t in body for t in ('לדבר עם מישהו', 'שיחזרו אלי', 'שיתקשרו אלי', 'תתקשרו אלי', 'שיחה עם נציג', 'שיחה עם בן אדם')):
-                with lock:
-                    callback_leads[phone] = {'phone': phone, 'requested_at': datetime.now(timezone.utc).isoformat(), 'preferred_time': None, 'status': 'awaiting_time'}
-                save_callback(phone)
-                reply = 'בשמחה, מתי נוח לך שנחזור אליך?'
-            elif phone in callback_leads and callback_leads[phone]['status'] == 'awaiting_time' and not any(t in body for t in ('לדבר עם מישהו', 'שיתקשרו אלי')):
-                with lock:
-                    callback_leads[phone]['preferred_time'] = body
-                    callback_leads[phone]['status'] = 'callback_requested'
-                save_callback(phone, body)
-                reply = 'תודה, רשמתי את הזמן שנוח לך. נעביר את הבקשה לבדיקה ונעדכן בהתאם.'
+            callback_requested = any(t in body for t in CALLBACK_TRIGGERS)
+            callback_followup = (not callback_requested and
+                                 (callback_leads.get(phone, {}).get('status') == 'awaiting_time' or
+                                  (len(history) >= 2 and history[-2].get('role') == 'assistant' and
+                                   'מתי נוח לך שנחזור' in history[-2].get('content', ''))))
+            preferred_callback_time = callback_time_from_text(body) if callback_requested else None
+            if callback_requested:
+                if preferred_callback_time:
+                    reply = f'בשמחה 😊 ארשום בקשה לחזור אליך {preferred_callback_time} למספר שממנו כתבת לנו.'
+                else:
+                    reply = 'בשמחה 😊 מתי נוח לך שנחזור אליך למספר שממנו כתבת לנו?'
+            elif callback_followup:
+                preferred_callback_time = callback_time_from_text(body) or body.strip()[:120]
+                reply = 'תודה, ארשום את הזמן שביקשת לחזרה למספר שממנו כתבת לנו.'
             if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
             # Only send validated shower quotes, never an AI-invented number.
-            if not direct_identity and not showroom_question and not competitor_exit and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
+            if not direct_identity and not showroom_question and not competitor_exit and not callback_requested and not callback_followup and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
@@ -523,6 +584,19 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 app.logger.info('New messages arrived during composition; postponing reply')
                 return False
+            # Save the callback before claiming it has been registered. Never
+            # persist a discarded batch if a newer correction arrived.
+            if callback_requested or callback_followup:
+                saved = save_callback(phone, preferred_callback_time)
+                if saved:
+                    with lock:
+                        callback_leads[phone] = {
+                            'status': 'callback_requested' if preferred_callback_time else 'awaiting_time',
+                            'preferred_time': preferred_callback_time,
+                        }
+                else:
+                    reply = ('קיבלתי את הבקשה, אבל יש כרגע תקלה ברישום החזרה. '
+                             'לא אוכל לאשר שהיא נשמרה. אפשר לנסות שוב בעוד כמה דקות?')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
