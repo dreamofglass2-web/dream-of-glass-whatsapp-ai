@@ -445,6 +445,11 @@ def webhook():
                     
                     try:
                         details = extract_shower_details(history)
+                        
+                        app.logger.info(
+                            "Extracted shower details: %s",
+                            details,
+                        )
 
                         price = calculate_shower_price(
                             configuration=details.get("configuration"),
