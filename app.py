@@ -1,651 +1,405 @@
 import os
-import logging
 import json
+import logging
+import re
+import threading
+from collections import Counter
 
 import requests
-from openai import OpenAI
 from flask import Flask, request
+from openai import OpenAI
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "dream_of_glass_verify")
-WHATSAPP_TOKEN = os.environ.get("whatsapp_token", "")
-PHONE_NUMBER_ID = "1280310741842089"
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+VERIFY_TOKEN = os.environ.get('VERIFY_TOKEN', 'dream_of_glass_verify')
+WHATSAPP_TOKEN = os.environ.get('whatsapp_token', '')
+PHONE_NUMBER_ID = '1280310741842089'
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
+# Keep this False until you approve live quotes after testing.
+SEND_QUOTES = os.environ.get('SEND_QUOTES', 'false').lower() == 'true'
+VAT_RATE = float(os.environ.get('VAT_RATE', '0.18'))
+
 conversation_history = {}
-SALES_STAGES = {
-    "discovery": "הבנת הצורך של הלקוח",
-    "consultation": "ייעוץ והתאמת פתרון",
-    "qualification": "איסוף פרטים טכניים",
-    "quotation": "הצגת הצעת מחיר",
-    "negotiation": "טיפול בשאלות והתנגדויות",
-    "closing": "סגירת עסקה ותיאום מדידה",
-    "handoff": "העברה לבעל העסק",
-}
-
 customer_sales_state = {}
+processed_messages = set()
+state_lock = threading.RLock()
+
 GLASS_COSTS = {
-    "שקופה": 150,
-    "אקסטרה קליר": 220,
-    "אנטיסן אפור": 220,
-    "פיפיטה": 220,
-    "חלבי": 220,
-    "אסיד": 220,
-    "אנטיסן ברונזה": 240,
-    "גלינה קליר": 380,
-    "אסיד קליר": 380,
+    'שקופה': 150, 'אקסטרה קליר': 220, 'אנטיסן אפור': 220,
+    'פיפיטה': 220, 'חלבי': 220, 'אסיד': 220,
+    'אנטיסן ברונזה': 240, 'גלינה קליר': 380, 'אסיד קליר': 380,
 }
-
 HARDWARE_COSTS = {
-    "ציר קיר זכוכית": 50,
-    "ציר זכוכית זכוכית": 75,
-    "ידית כפתור": 30,
-    "ידית מגבת": 80,
-    "מוט חיזוק": 65,
-    "זווית קיר זכוכית": 25,
-    "זווית זכוכית זכוכית": 30,
-    "מגנט פינתי": 30,
-    "מגנט חזית": 30,
-    "אטם בלון": 8,
-    "מגב רצפה": 8,
-    "אטם כיסא": 8,
-    "ציר הרמוניקה": 85,
-    "ציר פרימה": 100,
-    "ציר סיכורית": 150,
-    "פרופיל אלומיניום": 50,
-    "ידית 19.2": 80,
+    'ציר קיר זכוכית': 50, 'ציר זכוכית זכוכית': 75,
+    'ידית כפתור': 30, 'ידית מגבת': 80, 'מוט חיזוק': 65,
+    'זווית קיר זכוכית': 25, 'זווית זכוכית זכוכית': 30,
+    'מגנט פינתי': 30, 'מגנט חזית': 30, 'אטם בלון': 8,
+    'מגב רצפה': 8, 'אטם כיסא': 8, 'ציר הרמוניקה': 85,
+    'ציר פרימה': 100, 'ציר סיכורית': 150,
+    'פרופיל אלומיניום': 50, 'ידית 19.2': 80,
 }
-
 FINISH_MULTIPLIERS = {
-    "ניקל": 1.00,
-    "שחור": 1.10,
-    "ניקל מוברש": 1.10,
-    "גרפיט": 1.10,
-    "ברונזה": 1.10,
-    "זהב": 1.10,
-    "לבן": 1.10,
+    'ניקל': 1.0, 'שחור': 1.1, 'ניקל מוברש': 1.1,
+    'גרפיט': 1.1, 'ברונזה': 1.1, 'זהב': 1.1, 'לבן': 1.1,
 }
-
-SLIDING_SET_COSTS = {
-    "קבוע + דלת": 600,
-    "2 קבועים + 2 דלתות": 1200,
-}
-
+SLIDING_SET_COSTS = {'קבוע + דלת': 600, '2 קבועים + 2 דלתות': 1200}
 SHOWER_BOM = {
-    "חצי הרמוניקה + חצי קבוע + דלת": {
-        "ציר קיר זכוכית": 2,
-        "ציר זכוכית זכוכית": 2,
-        "ציר הרמוניקה": 2,
-        "ידית כפתור": 2,
-        "ידית ראשית": 1,
-        "מגנט פינתי": 1,
-        "אטם בלון": 2,
-        "אטם כיסא": 1,
-        "מגב רצפה": 1,
+    'חצי הרמוניקה + חצי קבוע + דלת': {
+        'ציר קיר זכוכית': 2, 'ציר זכוכית זכוכית': 2,
+        'ציר הרמוניקה': 2, 'ידית כפתור': 2, 'ידית ראשית': 1,
+        'מגנט פינתי': 1, 'אטם בלון': 2, 'אטם כיסא': 1,
+        'מגב רצפה': 1,
     },
-    "פינתי 2 קבועים + 2 דלתות": {
-        "ציר זכוכית זכוכית": 4,
-        "זווית קיר זכוכית": 4,
-        "ידית כפתור": 2,
-        "מגנט פינתי": 1,
-        "מגב רצפה": 1,
-        "אטם בלון": 2,
+    'פינתי 2 קבועים + 2 דלתות': {
+        'ציר זכוכית זכוכית': 4, 'זווית קיר זכוכית': 4,
+        'ידית כפתור': 2, 'מגנט פינתי': 1, 'מגב רצפה': 1,
+        'אטם בלון': 2,
     },
-    "חזית קבוע + דלת": {
-        "ציר קיר זכוכית": 2,
-        "זווית קיר זכוכית": 2,
-        "מגנט חזית": 1,
-        "אטם בלון": 1,
-        "מגב רצפה": 1,
-        "ידית כפתור": 1,
+    'חזית קבוע + דלת': {
+        'ציר קיר זכוכית': 2, 'זווית קיר זכוכית': 2,
+        'מגנט חזית': 1, 'אטם בלון': 1, 'מגב רצפה': 1,
+        'ידית כפתור': 1,
     },
-    "פינתי הרמוניקה": {
-        "ציר הרמוניקה": 4,
-        "ציר קיר זכוכית": 4,
-        "ידית כפתור": 4,
-        "מגנט פינתי": 1,
-        "אטם בלון": 2,
-        "אטם כיסא": 2,
-        "מגב רצפה": 1,
+    'פינתי הרמוניקה': {
+        'ציר הרמוניקה': 4, 'ציר קיר זכוכית': 4,
+        'ידית כפתור': 4, 'מגנט פינתי': 1, 'אטם בלון': 2,
+        'אטם כיסא': 2, 'מגב רצפה': 1,
     },
-    "חזית 2 דלתות": {
-        "ציר קיר זכוכית": 4,
-        "ידית כפתור": 2,
-        "מגנט חזית": 1,
-        "אטם בלון": 2,
-        "מגב רצפה": 1,
+    'חזית 2 דלתות': {
+        'ציר קיר זכוכית': 4, 'ידית כפתור': 2,
+        'מגנט חזית': 1, 'אטם בלון': 2, 'מגב רצפה': 1,
     },
-    "פינתי 2 דלתות": {
-        "ציר קיר זכוכית": 4,
-        "ידית כפתור": 2,
-        "מגנט פינתי": 1,
-        "אטם בלון": 2,
-        "מגב רצפה": 1,
+    'פינתי 2 דלתות': {
+        'ציר קיר זכוכית': 4, 'ידית כפתור': 2,
+        'מגנט פינתי': 1, 'אטם בלון': 2, 'מגב רצפה': 1,
     },
-    "פינתי קבוע + דלת": {
-        "ציר קיר זכוכית": 2,
-        "זווית קיר זכוכית": 2,
-        "ידית כפתור": 1,
-        "אטם בלון": 1,
-        "מגב רצפה": 1,
-        "מגנט פינתי": 1,
+    'פינתי קבוע + דלת': {
+        'ציר קיר זכוכית': 2, 'זווית קיר זכוכית': 2,
+        'ידית כפתור': 1, 'אטם בלון': 1, 'מגב רצפה': 1,
+        'מגנט פינתי': 1,
     },
-    "פינתי 2 קבועים + דלת": {
-        "זווית קיר זכוכית": 4,
-        "ציר זכוכית זכוכית": 2,
-        "ידית כפתור": 1,
-        "אטם בלון": 1,
-        "מגנט פינתי": 1,
-        "מגב רצפה": 1,
+    'פינתי 2 קבועים + דלת': {
+        'זווית קיר זכוכית': 4, 'ציר זכוכית זכוכית': 2,
+        'ידית כפתור': 1, 'אטם בלון': 1,
+        'מגנט פינתי': 1, 'מגב רצפה': 1,
     },
-    "קבוע בלבד": {
-        "זווית קיר זכוכית": 2,
-        "מוט חיזוק": 1,
-    },
+    'קבוע בלבד': {'זווית קיר זכוכית': 2, 'מוט חיזוק': 1},
 }
-def calculate_hardware_cost(
-    configuration,
-    finish="ניקל",
-    handle_type=None,
-):
+
+PRODUCTS = ('מקלחון', 'אמבטיון', 'מראה', 'מחיצת זכוכית',
+            'חיפוי זכוכית למטבח', 'דלת זכוכית', 'מעקה זכוכית', 'אחר')
+
+
+def handle_slots(configuration):
+    bom = SHOWER_BOM.get(configuration, {})
+    return bom.get('ידית כפתור', 0) + bom.get('ידית ראשית', 0)
+
+
+def calculate_hardware_cost(configuration, finish='ניקל', handles=None):
     bom = SHOWER_BOM.get(configuration)
-
-    if not bom:
-        return None
-
     multiplier = FINISH_MULTIPLIERS.get(finish)
-
-    if multiplier is None:
+    if bom is None or multiplier is None:
         return None
-
-    total = 0
-
-    for item, quantity in bom.items():
-        if item in ("ידית כפתור", "ידית ראשית"):
-            if item == "ידית ראשית" and handle_type is None:
-                return None
-
-            if item == "ידית כפתור" and handle_type is None:
-                return None
-
-            if handle_type not in ("ידית כפתור", "ידית מגבת"):
-                return None
-
-            if item == "ידית ראשית":
-                total += HARDWARE_COSTS[handle_type] * quantity
-            else:
-                total += HARDWARE_COSTS[handle_type] * quantity
-
+    count = handle_slots(configuration)
+    if not isinstance(handles, list) or len(handles) != count:
+        return None
+    if any(h not in ('ידית כפתור', 'ידית מגבת') for h in handles):
+        return None
+    total = sum(HARDWARE_COSTS[h] for h in handles)
+    for part, quantity in bom.items():
+        if part in ('ידית כפתור', 'ידית ראשית'):
             continue
-
-        unit_cost = HARDWARE_COSTS.get(item)
-
+        unit_cost = HARDWARE_COSTS.get(part)
         if unit_cost is None:
             return None
-
         total += unit_cost * quantity
-
     return round(total * multiplier, 2)
 
 
-def calculate_shower_price(
-    configuration,
-    width_cm,
-    height_cm,
-    glass_type="none",
-    finish="none",
-    second_width_cm=None,
-    handle_type=None,
-):
-    if glass_type not in GLASS_COSTS:
+def calculate_shower_price(configuration, width_cm, height_cm, glass_type,
+                           finish, second_width_cm=None, handles=None):
+    if glass_type not in GLASS_COSTS or configuration not in SHOWER_BOM:
         return None
-
-    if configuration not in SHOWER_BOM:
-        return None
-
     try:
         width = float(width_cm)
         height = float(height_cm)
-        second_width = (
-            float(second_width_cm)
-            if second_width_cm is not None
-            else None
-        )
-    except (TypeError, ValueError):
+        second_width = float(second_width_cm) if second_width_cm is not None else None
+    except (ValueError, TypeError):
         return None
-
     if width <= 0 or height <= 0 or height > 220:
         return None
-
-    if configuration.startswith("פינתי"):
-        if second_width is None:
-            return None
-        if width > 120 or second_width > 120:
+    if configuration.startswith('פינתי'):
+        if second_width is None or second_width <= 0 or width > 120 or second_width > 120:
             return None
         glass_width = width + second_width
-    elif configuration.startswith("חזית"):
+    elif configuration.startswith('חזית'):
         if width > 200:
             return None
         glass_width = width
     else:
+        # Fixed-only, accordion variants and sliding systems need approved BOM/geometry.
         return None
-
-    hardware_cost = calculate_hardware_cost(
-        configuration,
-        finish,
-        handle_type,
-    )
-
-    if hardware_cost is None:
+    hardware = calculate_hardware_cost(configuration, finish, handles)
+    if hardware is None:
         return None
-
     glass_area = glass_width * height / 10000
-    glass_cost = glass_area * GLASS_COSTS[glass_type]
-
-    price_before_vat = glass_cost + hardware_cost + 1500 + 150
-
-    if price_before_vat < 2000:
-        return None
-
-    return int((price_before_vat + 5) // 10 * 10)
+    before_vat = glass_area * GLASS_COSTS[glass_type] + hardware + 1500 + 150
+    # Minimum job is NIS 2,000 before VAT. Never silently reject smaller quotes.
+    return int((max(before_vat, 2000) + 5) // 10 * 10)
 
 
-@app.route("/test-price", methods=["GET"])
-def test_price():
-    price = calculate_shower_price(
-        configuration="פינתי 2 קבועים + 2 דלתות",
-        width_cm=90,
-        second_width_cm=90,
-        height_cm=200,
-        glass_type="שקופה",
-        finish="ניקל",
-        handle_type="ידית כפתור",
+def llm_json(instructions, history):
+    response = client.responses.create(
+        model='gpt-5-mini',
+        instructions=instructions + ' Return a valid JSON object only.',
+        input=[{'role': 'system', 'content': 'Return a valid JSON object only.'}, *history],
+        text={'format': {'type': 'json_object'}},
     )
+    return json.loads(response.output_text)
 
-    return {
-        "configuration": "פינתי 2 קבועים + 2 דלתות",
-        "price_before_vat": price,
-        "status": "internal_test_only",
-    }, 200
-@app.route("/", methods=["GET"])
-def home():
-    return "Dream of Glass WhatsApp AI is running", 200
-@app.route("/test-extraction", methods=["GET"])
-def test_extraction():
-    test_history = [
-        {
-            "role": "user",
-            "content": (
-                "אני רוצה מקלחון פינתי 150 על 150, "
-                "גובה 200, שני קבועים ושתי דלתות, "
-                "זכוכית שקופה, פרזול ניקל "
-                "וידיות כפתור."
-                        ),
-        }
-    ]
-
-    details = extract_shower_details(test_history)
-
-    required_fields = [
-        "configuration",
-        "width_cm",
-        "height_cm",
-        "glass_type",
-        "finish",
-    ]
-
-    missing = [
-        field for field in required_fields
-        if details.get(field) is None
-    ]
-
-    if missing:
-        price = None
-        status = "missing_details"
-    else:
-        price = calculate_shower_price(
-            configuration=details["configuration"],
-            width_cm=details["width_cm"],
-            second_width_cm=details.get("second_width_cm"),
-            height_cm=details["height_cm"],
-            glass_type=details["glass_type"],
-            finish=details["finish"],
-            handle_type=details.get("handle_type"),
-        )
-
-        status = "calculated" if price is not None else "needs_review"
-
-    return {
-        "details": details,
-        "price_before_vat": price,
-        "status": status,
-    }, 200
 
 def understand_customer_need(history):
-    response = client.responses.create(
-        model="gpt-5-mini",
-        instructions=(
-            "Analyze the customer's conversation. "
-            "Return a valid json object only. "
-            "Identify the customer's needs and buying intent. "
-            "Never invent missing information. "
-            "Return exactly these fields: "
-            "stage, need, priority, quote_requested. "
-            "stage must be one of: discovery, consultation, "
-            "qualification, quotation, negotiation, closing, handoff. "
-            "need describes why the customer wants the product, "
-            "such as renovation, new apartment or replacement. "
-            "priority describes what matters most to the customer, "
-            "such as design, convenience, easy cleaning or price. "
-            "Use null when need or priority is unknown. "
-            "quote_requested must be true only if the customer "
-            "has explicitly asked for a price or quotation. "
-            "Do not assume the customer wants a quotation "
-            "just because technical details are complete. "
-            "Base your answer on the entire conversation, "
-            "giving priority to the customer's latest messages."
-        ),
-        input=[
-            {
-                "role": "system",
-                "content": "Return a valid json object only.",
-            },
-            *history,
-        ],
-        text={"format": {"type": "json_object"}},
-    )
-
-    return json.loads(response.output_text)
+    return llm_json(
+        '''נתח את השיחה בעברית כמנהל מכירות מקצועי. אל תמציא פרטים.
+        החזר JSON עם המפתחות: product, stage, need, priority, quote_requested,
+        solution_agreed, step_cut, cnc_possible, needs_human.
+        product חייב להיות אחד מ: ''' + ', '.join(PRODUCTS) + ''' או null.
+        stage חייב להיות discovery, consultation, qualification, quotation,
+        negotiation, closing או handoff.
+        need: למה הלקוח צריך את המוצר, או null.
+        priority: מה חשוב ללקוח (נוחות, ניקיון, עיצוב, מחיר וכדומה), או null.
+        quote_requested=true רק אם הלקוח ביקש מחיר/הצעת מחיר במפורש בשיחה
+        או אישר במפורש שהוא רוצה הצעת מחיר. אל תסיק זאת ממידות בלבד.
+        solution_agreed=true רק אם הלקוח כבר בחר פתרון ברור או אישר המלצה.
+        step_cut=true רק אם הלקוח הזכיר מדרגה או חיתוך.
+        cnc_possible=true רק אם הוזכר CNC או חיתוך מורכב שמחייב בדיקה.
+        needs_human=true במעקה, דלת זכוכית, עבודת הדפסה מיוחדת, מורכבות
+        הנדסית או אי ודאות מהותית שלא ניתן לפתור בצ'אט.
+        תן עדיפות להודעות האחרונות במקרה של שינוי פרטים.''', history)
 
 
 def extract_shower_details(history):
+    return llm_json(
+        '''חלץ רק מידע שהלקוח אמר או אישר, אל תנחש ואל תקבע ברירת מחדל.
+        החזר JSON עם: configuration, width_cm, second_width_cm, height_cm,
+        glass_type, finish, handles, cut_type.
+        configuration אחת מהאפשרויות: ''' + ', '.join(SHOWER_BOM.keys()) + ''' או null.
+        glass_type אחת מהאפשרויות: ''' + ', '.join(GLASS_COSTS.keys()) + ''' או null.
+        finish אחת מהאפשרויות: ''' + ', '.join(FINISH_MULTIPLIERS.keys()) + ''' או null.
+        מידות בסנטימטרים, המר מטרים לסנטימטרים רק כשהמידה ברורה.
+        handles היא רשימה לפי כל הידיות בתצורה, כל איבר בדיוק
+        'ידית כפתור' או 'ידית מגבת'. אם לא ידוע מהי כל ידית, החזר null.
+        אם הלקוח אמר שתי ידיות מגבת, רשום פעמיים 'ידית מגבת'.
+        אם אמר אחת מגבת ואחת כפתור, רשום את שתיהן בנפרד.
+        אין להניח ששתי ידיות זהות. אין להמציא ידיות.
+        כאשר נאמר שני קבועים ושתי דלתות, אל תקצר לשתי דלתות בלבד.
+        cut_type: 'רגיל', 'cnc', 'לא ידוע' או null. אל תעלה חיתוך מיוזמתך.
+        אם יש סתירה מהותית, החזר null לשדה הבעייתי.''', history)
+
+
+SALES_INSTRUCTIONS = '''אתה איש המכירות והיועץ המקצועי של חלומות מזכוכית.
+המטרה היא לעזור ללקוח לבחור פתרון נכון, לבנות אמון ולהתקדם לעסקה.
+כתוב בעברית טבעית, מקצועית, חמה וקצרה. שאל שאלה אחת בלבד בכל הודעה.
+אל תפתח כל הודעה ב'מעולה' או 'בשמחה'. אל תשתמש במילה 'תצורה' מול לקוח.
+קרא את כל השיחה. אל תחזור על פרטים שנמסרו ואל תנהל שאלון מכני.
+
+סדר המכירה: קודם להבין למה הלקוח צריך את המוצר ומה חשוב לו; לאחר מכן
+לייעץ ולהסביר הבדלים רלוונטיים; אחר כך, כשמתאים, לאסוף מידות ופרטים
+טכניים; ורק כשהלקוח מבקש/מאשר הצעת מחיר והנתונים מספיקים, להתקדם למחיר.
+אם הלקוח מבקש מחיר מיד, כבד את הבקשה ואסוף את הפרטים החיוניים בלבד.
+אם הלקוח כבר בחר פתרון ברור, אין צורך להכריח אותו לעבור שאלות ייעוץ.
+אם הלקוח מתלבט, הסבר אפשרויות בשפה פשוטה ושאל מה חשוב לו.
+
+למקלחון: בירור סוג (פינתי/חזיתי), מקום לפתיחת דלתות, מידות, גובה,
+מספר קבועים ודלתות, זכוכית, צבע פרזול וסוג ידית לכל ידית נדרשת.
+כאשר יש שתי ידיות, אפשר שתי כפתור, שתי מגבת או שילוב.
+שאל על הידיות רק כשהפתרון כבר ברור ויש בכך צורך; אל תמציא בחירה.
+אם אין צורך בידיות, אל תשאל עליהן.
+זכוכית מקלחון סטנדרטית מחוסמת בעובי 8 מ"מ. שירות מקצועי, איכות,
+התקנה ואמינות הם יתרונות שאפשר לציין באופן טבעי ולא חזרתי.
+
+אם הלקוח לא הזכיר מדרגה או חיתוך, אל תזכיר זאת ואל תבקש תמונה.
+אם הזכיר מדרגה, הסבר שחיתוך רגיל למדרגה ללא תוספת מחיר.
+אם שאל מהו CNC, הסבר שזה עיבוד/חיתוך מדויק באמצעות מכונה ממוחשבת
+לצורות מיוחדות או מורכבות. חיתוך CNC מתומחר בנפרד לאחר בדיקה.
+אל תקבע בעצמך שחיתוך מסוים דורש CNC ללא מידע מספיק.
+תמונה יכולה לעזור, אבל אינה חובה; אם אין תמונה, המשך לפי תיאור הלקוח.
+
+אסור לך להמציא מחיר, לחשב מחיר בראש או לחשוף עלויות פנימיות.
+אם צריך בדיקה מקצועית, אמור שהפרטים יועברו לבעל העסק לבדיקה,
+אך אל תטען שהעברה בוצעה בפועל.
+לא מבטיחים תיאום מדידה או העברה בפועל לפני שבוצעו.
+מוצרים אחרים: מראות, מחיצות זכוכית, חיפויי מטבח, אמבטיונים,
+דלתות זכוכית ומעקות. אל תמציא מחירים למוצרים ללא חישוב מאושר.
+אל תדחוף להצעת מחיר כשעדיין יש התלבטות שדורשת ייעוץ.'''
+
+
+def draft_sales_reply(history, analysis, details):
+    context = {
+        'stage': analysis.get('stage'),
+        'need': analysis.get('need'),
+        'priority': analysis.get('priority'),
+        'quote_requested': analysis.get('quote_requested'),
+        'solution_agreed': analysis.get('solution_agreed'),
+        'product': analysis.get('product'),
+        'known_shower_details': details,
+    }
     response = client.responses.create(
-        model="gpt-5-mini",
-        instructions=(
-            "חלץ מתוך השיחה פרטים על המקלחון. "
-            "Return a valid json object only. "
-            "אל תנחש פרטים חסרים. השתמש ב-null. "
-            "חשוב מאוד לזהות במדויק את מספר החלקים במקלחון. "
-            "כאשר הלקוח אומר שני קבועים ושתי דלתות, "
-            "בחר רק בתצורה פינתי 2 קבועים + 2 דלתות. "
-            "לעולם אל תקצר תצורה זו לפינתי 2 דלתות. "
-            "התצורה פינתי 2 דלתות מתאימה רק כאשר ברור "
-            "שאין חלקים קבועים. "
-            "אם קיימת סתירה או אי ודאות לגבי התצורה, "
-            "החזר null בשדה configuration. "
-            "אל תמציא תצורה ואל תשנה תצורה שהלקוח ציין במפורש. "
-            "סוג התצורה חייב להתאים בדיוק לאחת האפשרויות הבאות: "
-            + ", ".join(SHOWER_BOM.keys())
-            + ". סוג זכוכית חייב להתאים לאחת האפשרויות: "
-            + ", ".join(GLASS_COSTS.keys())
-            + ". גוון פרזול חייב להתאים לאחת האפשרויות: "
-            + ", ".join(FINISH_MULTIPLIERS.keys())
-            + ". המידות הן בסנטימטרים. "
-            "החזר את השדות: "
-            "configuration, width_cm, second_width_cm, "
-            "height_cm, glass_type, finish, handle_type. "
-            "handle_type יכול להיות רק ידית כפתור, ידית מגבת או null. "
-            "אם הלקוח לא בחר במפורש, החזר null."
-        ),
-        input=[
-            {
-                "role": "system",
-                "content": "Return a valid json object only.",
-            },
-            *history,
-        ],
-        text={"format": {"type": "json_object"}},
+        model='gpt-5-mini',
+        instructions=SALES_INSTRUCTIONS + '\nמידע פנימי על מצב השיחה (לא להציג ללקוח): ' +
+                     json.dumps(context, ensure_ascii=False),
+        input=history,
     )
+    return response.output_text.strip()
 
-    return json.loads(response.output_text)
+
+def format_quote(price):
+    return (f'לפי הפרטים שסיכמנו, המחיר המשוער למקלחון הוא ₪{price:,.0f} '
+            'לפני מע״מ, כולל מדידה, הובלה והתקנה. '
+            'המחיר הסופי כפוף לאימות המידות והפרטים במדידה. '
+            'אם זה מתאים לך, נוכל להתקדם לתיאום מדידה.')
 
 
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
-    if request.method == "GET":
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
+def missing_quote_details(details):
+    required = ('configuration', 'width_cm', 'height_cm', 'glass_type', 'finish')
+    missing = [field for field in required if details.get(field) is None]
+    config = details.get('configuration')
+    if config and config.startswith('פינתי') and details.get('second_width_cm') is None:
+        missing.append('second_width_cm')
+    if config in SHOWER_BOM and handle_slots(config) and not isinstance(details.get('handles'), list):
+        missing.append('handles')
+    return missing
 
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            return challenge or "", 200
 
-        return "Verification failed", 403
-    app.logger.info(
-        "WEBHOOK POST RECEIVED content_type=%s content_length=%s",
-        request.content_type,
-        request.content_length,
-    )
+def process_customer_message(customer_phone, customer_message):
+    with state_lock:
+        history = conversation_history.setdefault(customer_phone, [])
+        history.append({'role': 'user', 'content': customer_message})
+        # Limit context to control costs. This remains in-memory until DB is added.
+        if len(history) > 50:
+            del history[:-50]
+        snapshot = list(history)
+    try:
+        analysis = understand_customer_need(snapshot)
+    except Exception:
+        app.logger.exception('Customer need analysis failed')
+        analysis = {'stage': 'discovery', 'quote_requested': False,
+                    'product': None, 'solution_agreed': False}
+    product = analysis.get('product')
+    details = {}
+    if product == 'מקלחון':
+        try:
+            details = extract_shower_details(snapshot)
+        except Exception:
+            app.logger.exception('Shower detail extraction failed')
 
-    data = request.get_json(silent=True) or {}
+    with state_lock:
+        customer_sales_state[customer_phone] = analysis
 
     try:
-        for entry in data.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-
-                for message in value.get("messages", []):
-                    if message.get("type") != "text":
-                        continue
-
-                    customer_phone = message.get("from")
-                    if not customer_phone:
-                        continue
-
-                    customer_message = (
-                        message.get("text", {}).get("body", "").strip()
-                    )
-                    if not customer_message:
-                        continue
-
-                    if not WHATSAPP_TOKEN:
-                        app.logger.error("Missing WhatsApp token")
-                        continue
-                    history = conversation_history.setdefault(
-                        customer_phone, []
-                    )
-                    
-                    sales_state = customer_sales_state.setdefault(
-                        customer_phone,
-                        {
-                            "stage": "discovery",
-                            "need": None,
-                            "priority": None,
-                            "quote_requested": False,
-                        },
-                    )
-
-                    history.append(
-                        {
-                            "role": "user",
-                            "content": customer_message,
-                        }
-                    )
-                    ai_response = client.responses.create(
-                        model="gpt-5-mini",
-                        instructions=(
-                            "אתה איש המכירות של חלומות מזכוכית. "
-                            "אתה גם יועץ מקצועי, ולא רק נציג שמקבל הזמנות. "
-                            "כשהלקוח אומר שהוא רוצה להתייעץ, "
-                            "הפסק לבקש ממנו לבחור מוצר או סוג דלת. "
-                            "הסבר בקצרה את האפשרויות הרלוונטיות, "
-                            "שאל שאלה אחת שתעזור להבין מה מתאים לו, "
-                            "ורק לאחר מכן התקדם לבחירת הפתרון. "
-
-                            "לדוגמה, אם לקוח מבקש מקלחון חזית ברוחב 110 ס״מ "
-                            "ומתלבט בין חלק קבוע ודלת לבין שתי דלתות, "
-                            "הסבר שהבחירה תלויה במקום הפנוי לפתיחת הדלתות, "
-                            "בנוחות השימוש ובמבנה חדר הרחצה. "
-                            "שאל האם יש מקום פנוי לפתיחת הדלתות. "
-                            "אל תקבע שפתרון מסוים עדיף בלי מספיק מידע. "
-
-                            "אם הלקוח לא מבין מונח מקצועי, "
-                            "הסבר אותו במילים פשוטות ובסבלנות. "
-                            "אל תחזור על אותה שאלה אחרי שהלקוח ביקש ייעוץ. "
-                            "המטרה היא לעזור ללקוח לבחור בביטחון, "
-                            "לבנות אמון ולהוביל לעסקה שמתאימה לצרכיו. "
-                            "אל תמהר להצעת מחיר אם הלקוח עדיין מתלבט. "
-                            "אם הלקוח מבקש מחיר במפורש, כבד את הבקשה. "
-                            "דבר עם הלקוח כמו בעל מקצוע מנוסה, "
-                            "בגובה העיניים, בנעימות ובביטחון. "
-                            "כתוב הודעות קצרות, ברורות וטבעיות. "
-                            "אל תישמע כמו רובוט ואל תנהל שאלון. "
-                            "אל תפתח כל הודעה במעולה, מצוין או בשמחה. "
-                            "השתמש בפסיקים במקום מקפים. "
-                            "אל תשתמש במונחים טכניים כמו תצורה, "
-                            "אלא הסבר במילים פשוטות. "
-                            "שאל שאלה אחת בכל הודעה. "
-
-                            "קרא את כל היסטוריית השיחה לפני התשובה. "
-                            "לעולם אל תשאל שוב פרט שהלקוח כבר מסר. "
-                            "אם הלקוח מסר כמה פרטים יחד, זכור את כולם. "
-                            "אל תבקש אישור חוזר על פרטים ברורים. "
-                            "אם הלקוח משנה פרט, התייחס לפרט החדש. "
-
-                            "במקלחונים אסוף רק מה שחסר: "
-                            "האם המקלחון פינתי, חזיתי או עם דלתות הזזה, "
-                            "מידות, גובה, מספר חלקים קבועים ודלתות, "
-                            "סוג זכוכית, גוון פרזול וסוג ידית. "
-                            "אל תשאל על סוג הידית אם אין ידית במוצר. "
-
-                            "במקום לשאול איזו תצורה תרצה, "
-                            "שאל למשל האם אתה רוצה שתי דלתות "
-                            "עם חלק זכוכית קבוע מכל צד. "
-                            "השתמש תמיד בשמות פשוטים שהלקוח מבין. "
-                            "אל תמליץ על פתרון טכני ללא מידע מספיק. "
-
-                            "סוגי הזכוכית שלנו הם שקופה, אקסטרה קליר, "
-                            "אנטיסן אפור, אנטיסן ברונזה, פיפיטה, "
-                            "חלבי, אסיד, גלינה קליר ואסיד קליר. "
-                            "אם הלקוח לא מכיר סוג מסוים, "
-                            "הסבר אותו בקצרה ובשפה פשוטה. "
-                            "אל תטען ששלחת תמונה אם לא נשלחה בפועל. "
-
-                            "המקלחונים הסטנדרטיים מיוצרים מזכוכית "
-                            "מחוסמת בעובי 8 מ״מ עם פרזול איכותי "
-                            "והתקנה מקצועית. "
-                            "הדגש איכות ואמינות באופן טבעי, "
-                            "בלי לחזור על אותם משפטים בכל הודעה. "
-
-                            "אסור לך להמציא או לחשב מחירים בעצמך. "
-                            "אם חסר מידע למחיר, שאל רק על הפרט הבא שחסר. "
-                            "אם הלקוח מסר את כל הפרטים, "
-                            "אל תמשיך לשאול שאלות מיותרות. "
-                            "אמור שהפרטים התקבלו ושהצעת המחיר בהכנה. "
-                            "מקרה מורכב או לא ברור מועבר לבעל העסק. "
-                            "אל תבטיח העברה בפועל אם לא בוצעה. "
-                            "לעולם אל תחשוף עלויות פנימיות."
-                                              ),
-                        input=history,
-                    )
-                    price = None
-                    details = {}
-                    
-                    try:
-                        details = extract_shower_details(history)
-                        
-                        app.logger.info(
-                            "Extracted shower details: %s",
-                            details,
-                        )
-
-                        price = calculate_shower_price(
-                            configuration=details.get("configuration"),
-                            width_cm=details.get("width_cm"),
-                            second_width_cm=details.get("second_width_cm"),
-                            height_cm=details.get("height_cm"),
-                            glass_type=details.get("glass_type"),
-                            finish=details.get("finish"),
-                            handle_type=details.get("handle_type"),
-                        )
-
-                        app.logger.info(
-                            "Internal pricing status: %s",
-                            "calculated" if price is not None else "not_ready",
-                        )
-
-                    except Exception:
-                        app.logger.exception(
-                            "Internal pricing check failed"
-                        )
-                    
-                    reply_text = ai_response.output_text
-
-                    if price is not None:
-                        quote_preview = (
-                            f"המחיר למקלחון הוא ₪{price:,.0f} + מע״מ, "
-                            "כולל מדידה, הובלה והתקנה. "
-                            "העבודה כוללת זכוכית מחוסמת 8 מ״מ "
-                            "ופרזול איכותי. "
-                            "אם המחיר מתאים לך, נוכל להתקדם לתיאום מדידה."
-                        )
-
-                        app.logger.info(
-                            "Quote preview ready, amount: %s",
-                            price,
-                        )
-                        
-                    history.append(
-                        {
-                            "role": "assistant",
-                            "content": reply_text,
-                        }
-                    )
-
-                    send_whatsapp_message(
-                        customer_phone,
-                        reply_text,
-                    )
-
+        reply = draft_sales_reply(snapshot, analysis, details)
     except Exception:
-        app.logger.exception("Webhook processing error")
+        app.logger.exception('Sales response failed')
+        reply = 'אשמח לעזור לך לבחור פתרון מתאים. מה הכי חשוב לך במוצר?'
 
-    return "EVENT_RECEIVED", 200
+    # Hard gate: model never controls the actual amount or timing of a quote.
+    # In test mode the assistant continues the consultation without revealing prices.
+    if (SEND_QUOTES and product == 'מקלחון' and
+            analysis.get('quote_requested') is True and
+            analysis.get('solution_agreed') is True and
+            not analysis.get('needs_human') and
+            not analysis.get('cnc_possible') and
+            details.get('cut_type') != 'cnc' and
+            not missing_quote_details(details)):
+        price = calculate_shower_price(
+            configuration=details.get('configuration'),
+            width_cm=details.get('width_cm'),
+            second_width_cm=details.get('second_width_cm'),
+            height_cm=details.get('height_cm'),
+            glass_type=details.get('glass_type'),
+            finish=details.get('finish'),
+            handles=details.get('handles'),
+        )
+        if price is not None:
+            reply = format_quote(price)
+            app.logger.info('Approved quote calculation succeeded')
+        else:
+            app.logger.info('Quote needs manual review')
+
+    with state_lock:
+        conversation_history[customer_phone].append({'role': 'assistant', 'content': reply})
+    return reply
+
+
+@app.route('/', methods=['GET'])
+def home():
+    return 'Dream of Glass WhatsApp AI is running', 200
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    return {'status': 'ok', 'quotes_enabled': SEND_QUOTES}, 200
+
+
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    if request.method == 'GET':
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        if mode == 'subscribe' and token == VERIFY_TOKEN:
+            return challenge or '', 200
+        return 'Verification failed', 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        for entry in data.get('entry', []):
+            for change in entry.get('changes', []):
+                value = change.get('value', {})
+                for message in value.get('messages', []):
+                    if message.get('type') != 'text':
+                        continue
+                    phone = message.get('from')
+                    body = (message.get('text') or {}).get('body', '').strip()
+                    message_id = message.get('id')
+                    if not phone or not body:
+                        continue
+                    if not WHATSAPP_TOKEN:
+                        app.logger.error('Missing WhatsApp token')
+                        continue
+                    with state_lock:
+                        if message_id and message_id in processed_messages:
+                            continue
+                        if message_id:
+                            processed_messages.add(message_id)
+                            if len(processed_messages) > 10000:
+                                processed_messages.clear()
+                    reply = process_customer_message(phone, body)
+                    send_whatsapp_message(phone, reply)
+    except Exception:
+        app.logger.exception('Webhook processing error')
+    return 'EVENT_RECEIVED', 200
 
 
 def send_whatsapp_message(customer_phone, message_text):
-    url = (
-        f"https://graph.facebook.com/v26.0/"
-        f"{PHONE_NUMBER_ID}/messages"
-    )
-
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": customer_phone,
-        "type": "text",
-        "text": {"body": message_text},
-    }
-
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=15,
-    )
-
-    app.logger.info(
-        "WhatsApp send status: %s",
-        response.status_code,
-    )
-    print("META RESPONSE:", response.status_code, response.text, flush=True)
+    url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
+    headers = {'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+               'Content-Type': 'application/json'}
+    payload = {'messaging_product': 'whatsapp', 'to': customer_phone,
+               'type': 'text', 'text': {'body': message_text}}
+    response = requests.post(url, headers=headers, json=payload, timeout=15)
+    app.logger.info('WhatsApp send status: %s', response.status_code)
     response.raise_for_status()
 
 
-@app.route("/privacy", methods=["GET"])
+@app.route('/privacy', methods=['GET'])
 def privacy():
-    return (
-        "<h1>Privacy Policy</h1>"
-        "<p>Contact: dream.of.glass2@gmail.com</p>"
-    ), 200
+    return ('<h1>Privacy Policy</h1>'
+            '<p>Contact: dream.of.glass2@gmail.com</p>'), 200
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "10000"))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', '10000'))
+    app.run(host='0.0.0.0', port=port)
