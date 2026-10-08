@@ -440,6 +440,9 @@ def webhook():
                         ),
                         input=history,
                     )
+                    price = None
+                    details = {}
+                    
                     try:
                         details = extract_shower_details(history)
 
@@ -464,6 +467,21 @@ def webhook():
                         )
                     
                     reply_text = ai_response.output_text
+
+                    if price is not None:
+                        quote_preview = (
+                            f"המחיר למקלחון הוא ₪{price:,.0f} + מע״מ, "
+                            "כולל מדידה, הובלה והתקנה. "
+                            "העבודה כוללת זכוכית מחוסמת 8 מ״מ "
+                            "ופרזול איכותי. "
+                            "אם המחיר מתאים לך, נוכל להתקדם לתיאום מדידה."
+                        )
+
+                        app.logger.info(
+                            "Quote preview ready, amount: %s",
+                            price,
+                        )
+                        
                     history.append(
                         {
                             "role": "assistant",
