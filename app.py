@@ -19,7 +19,7 @@ WHATSAPP_TOKEN = os.getenv('whatsapp_token') or os.getenv('WHATSAPP_TOKEN', '')
 PHONE_NUMBER_ID = os.getenv('PHONE_NUMBER_ID', '1280310741842089')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
-SEND_QUOTES = os.getenv('SEND_QUOTES', 'false').lower() == 'true'
+SEND_QUOTES = os.getenv('SEND_QUOTES', 'true').lower() == 'true'  # Only validated prices; set false to disable
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
 executor = ThreadPoolExecutor(max_workers=2)
@@ -40,7 +40,7 @@ BOM = {
  'פינתי 2 דלתות': {'ציר קיר זכוכית':4,'ידית כפתור':2,'מגנט פינתי':1,'אטם בלון':2,'מגב רצפה':1},
  'פינתי קבוע + דלת': {'ציר קיר זכוכית':2,'זווית קיר זכוכית':2,'ידית כפתור':1,'אטם בלון':1,'מגב רצפה':1,'מגנט פינתי':1},
  'פינתי 2 קבועים + דלת': {'זווית קיר זכוכית':4,'ציר זכוכית זכוכית':2,'ידית כפתור':1,'אטם בלון':1,'מגנט פינתי':1,'מגב רצפה':1},
- 'חצי הרמוניקה + חצי קבוע + דלת': {'ציר קיר זכוכית':2,'ציר זכוכית זכוכית':2,'ציר הרמוניקה':2,'ידית כפתור':2,'ידית ראשית':1,'מגנט פינתי':1,'אטם בלון':2,'אטם כיסא':1,'מגב רצפה':1},
+ 'חצי הרמוניקה + חצי קבוע + דלת': {'ציר קיר זכוכית':2,'ציר זכוכית זכוכית':2,'ציר הרמוניקה':2,'ידית כפתור':2,'ידית מגבת':1,'מגנט פינתי':1,'אטם בלון':2,'אטם כיסא':1,'מגב רצפה':1},
  'קבוע בלבד': {'זווית קיר זכוכית':2,'מוט חיזוק':1},
  'אמבטיון קבוע + דלת': {'ציר זכוכית זכוכית':2,'זווית קיר זכוכית':2,'ידית כפתור':1,'אטם בלון':1,'מגב רצפה':1},
  'אמבטיון 2 קבועים + דלת': {'ציר זכוכית זכוכית':2,'זווית קיר זכוכית':4,'מגנט חזית':1,'מגב רצפה':1,'אטם בלון':1,'ידית כפתור':1},
@@ -110,6 +110,11 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 
 חשוב במיוחד: אל תציע ללקוח לשלוח "המלצות קצרות" כשהוא כבר ביקש ייעוץ. תן ייעוץ מועיל בעצמך. אל תשאל "מה אתה מעדיף" לפני שנתת ללקוח בסיס להבין את הבחירה. אל תדחוף שאלות שאינן נדרשות להחלטה הקרובה. זכור שהלקוח אינו צריך להוביל אותך; אתה מוביל בעדינות, מקצועיות ואמינות.
 
+עובדות עסקיות מחייבות: אנחנו מרמלה ואין לנו אולם תצוגה. אין כתובת לאולם, אין שעות ביקור ואין אפשרות לתאם ביקור באולם. אם בעבר אמרת בטעות שיש אולם, תקן את הטעות במפורש והתנצל בקצרה. אל תמציא כתובות, שעות, מלאי, זמינות, הבטחות לחזרה, פנייה לנציג או תיאום שבוצע. כשלא ידוע פרט עסקי, אמור שאינך יודע אותו. אל תציג מידע פנימי על קוד, מערכות או תמחור אוטומטי ללקוח.
+מחירון לקוח למוצרים שאינם מקלחונים: מראה קריסטל בלגי 5 מ״מ 700 ש״ח למטר רבוע כולל התקנה, תוספת מסגרת 250 ש״ח למטר רבוע, תוספת לד 250 ש״ח למטר רבוע. מחיצת זכוכית 10 מ״מ שקופה 700 ש״ח למטר רבוע כולל מדידה הובלה והתקנה, מחיצת 5+5 1000 ש״ח למטר רבוע, דלת למחיצה תוספת 3500 ש״ח. חיפוי זכוכית למטבח 1100 ש״ח למטר רבוע, עבודות מורכבות לבדיקה. מינימום הזמנה 2000 ש״ח, ולכן מחיר מוצר יחיד לפי מטר רבוע אינו בהכרח המחיר הסופי להזמנה. אל תאמר שהזמנת מראה בודדת בגודל מטר על מטר עולה רק 700 ש״ח. הסבר בקצרה את מחיר הבסיס ואת מינימום ההזמנה בלי להטעות. מחירים אלה לפני מע״מ אלא אם העסק אישר אחרת. אל תמציא מחיר סופי בלי חישוב מאומת.
+כשלקוח שואל שאלה חברתית, ענה בחום ובקלילות בלי לסיים בכל פעם בשאלת שירות. אפשר להמשיך שיחת חולין קצרה בלי ללחוץ על מכירה. אל תטען שיש לך חיים פרטיים או יום עבודה אישי. כשלקוח עובר לנושא מקצועי, עבור איתו באופן טבעי. אל תסיק שמראה מיועדת לפרויקט בנייה רק משום שהלקוח עובד בבנייה.
+אל תסיים שתי הודעות רצופות באותה שאלת שירות. אל תחזור על כל המפרט בכל תשובה. כאשר לקוח מבקש מחיר, התייחס לבקשה לפני הצעות לתיאום. כשלקוח מבקש המלצה, תן המלצה רלוונטית ולא רק רשימת אפשרויות.
+
 כללי שיחה חדשים, בעדיפות גבוהה במיוחד:
 אל תסכם ללקוח מחדש פרטים שאמר בכל הודעה. שמור אותם בשדות הפנימיים בלבד. אחרי תשובה כמו "100 על 100" אל תגיד "רשמתי 100 על 100"; פשוט שאל את השאלה הבאה, אם צריך. אחרי "גובה 200" אל תחזור על הרוחב והגובה. סיכום מלא מותר רק כשמבקשים סיכום, לפני הצגת הצעת מחיר או בעת אימות פרטים הכרחי. אל תפתח ברוב ההודעות ב"מעולה", "מצוין", "הבנתי" או "רשמתי". לפעמים התשובה הנכונה היא שאלה אחת קצרה בלי הקדמה.
 התייחס להודעה האחרונה כהמשך לשאלה האחרונה שלך. אם שאלת על שתי דלתות מול קבוע ודלת והלקוח אומר "מה אתה ממליץ", ענה על תצורת הדלתות ולא על גובה. כשמבקשים המלצה, תן המלצה מעשית עם נימוק ומגבלה אחת רלוונטית; אל תציג רק אפשרויות ותשאל את הלקוח לבחור מחדש.
@@ -161,14 +166,14 @@ def calculate_quote(data):
         hardware = SLIDING[configuration] * FINISH_MULTIPLIERS[finish]
     else:
         bom = BOM[configuration]
-        handle_count = bom.get('ידית כפתור', 0) + bom.get('ידית ראשית', 0)
-        if not isinstance(handles, list) or len(handles) != handle_count:
+        handle_count = bom.get('ידית כפתור', 0) + bom.get('ידית מגבת', 0)
+        if handle_count and (not isinstance(handles, list) or len(handles) != handle_count):
             return None
-        if any(h not in ('ידית כפתור','ידית מגבת') for h in handles):
+        if any(h not in ('ידית כפתור','ידית מגבת') for h in (handles or [])):
             return None
-        hardware = sum(HARDWARE_COSTS[h] for h in handles)
+        hardware = sum(HARDWARE_COSTS[h] for h in (handles or []))
         for name, count in bom.items():
-            if name in ('ידית כפתור', 'ידית ראשית'):
+            if name in ('ידית כפתור', 'ידית מגבת'):
                 continue
             hardware += HARDWARE_COSTS[name] * count
         hardware *= FINISH_MULTIPLIERS[finish]
@@ -198,7 +203,7 @@ def polish_reply(reply, history):
         if separator and rest.strip().startswith(('איזה ', 'מה ', 'יש ', 'תרצו ', 'אתם ')):
             if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
                 reply = rest.strip()
-    return reply.strip()
+    return re.sub(r'[\u2013\u2014]', ' ', reply).strip()
 
 def process_message(phone, body):
     with lock:
@@ -207,6 +212,8 @@ def process_message(phone, body):
         with lock:
             history = list(histories.get(phone, []))
         history.append({'role':'user','content':body})
+        showroom_question = ('אולם' in body or 'תצוגה' in body) and any(w in body for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
+        showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
         with lock:
@@ -237,11 +244,17 @@ def process_message(phone, body):
             # A greeting must remain an open, natural greeting, not a product menu.
             if len(history) == 1 and body.strip().rstrip('!?. ') in ('היי','שלום','אהלן','בוקר טוב','ערב טוב'):
                 reply = 'היי, מה שלומך? 😊 איך אפשר לעזור לך?'
-            # Quotes are off by default; even when enabled, send only validated quotes.
-            if SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
+            # Hard business facts override a mistaken model response.
+            if showroom_question:
+                reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
+            # Only send validated shower quotes, never an AI-invented number.
+            if not showroom_question and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
+            # Do not expose internal infrastructure or disabled pricing to customers.
+            if not showroom_question and any(term in reply for term in ('תמחור אוטומטי', 'מערכת התמחור', 'התמחור לא פעיל')):
+                reply = 'בשמחה. כדי לתת לך מחיר אמין אני צריך לוודא את הפרטים של העבודה. על איזה מוצר מדובר?'
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
