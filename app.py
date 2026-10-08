@@ -4,8 +4,6 @@ import logging
 import threading
 import time
 import re
-import sqlite3
-import random
 
 import requests
 from flask import Flask, request
@@ -22,70 +20,75 @@ MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
 SEND_QUOTES = os.getenv('SEND_QUOTES', 'true').lower() == 'true'  # Only validated prices; set false to disable
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
+# Simulation-only in-memory queue. Run exactly one Gunicorn worker.
+# For production, use a durable external queue/database and a separate worker.
 lock = threading.RLock()
 histories = {}
-customer_context = {}  # Temporary context; use a database for production.
+customer_context = {}
 seen = {}
 phone_locks = {}
-# Use a persistent Render disk or external database for production durability.
-DB_PATH = os.getenv('STATE_DB_PATH', '/tmp/dream_of_glass_state.sqlite3')
+pending = {}  # phone -> [(message_id, body, monotonic_arrival)]
+processing = set()
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
 TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
 TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
 
-def db_connect():
-    conn = sqlite3.connect(DB_PATH, timeout=20)
-    conn.execute('PRAGMA busy_timeout=20000')
-    conn.execute('PRAGMA journal_mode=WAL')
-    return conn
-
-def init_db():
-    with db_connect() as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS incoming (id TEXT PRIMARY KEY, phone TEXT NOT NULL, body TEXT NOT NULL, arrived REAL NOT NULL, processed INTEGER NOT NULL DEFAULT 0)')
-        conn.execute('CREATE INDEX IF NOT EXISTS incoming_ready ON incoming (processed, phone, arrived)')
-        conn.execute('CREATE TABLE IF NOT EXISTS conversations (phone TEXT PRIMARY KEY, history TEXT NOT NULL, context TEXT NOT NULL)')
 
 def load_conversation(phone):
-    with db_connect() as conn:
-        row = conn.execute('SELECT history, context FROM conversations WHERE phone=?', (phone,)).fetchone()
-    return (json.loads(row[0]), json.loads(row[1])) if row else ([], {})
+    with lock:
+        return list(histories.get(phone, [])), dict(customer_context.get(phone, {}))
+
 
 def save_conversation(phone, history, context):
-    with db_connect() as conn:
-        conn.execute('INSERT OR REPLACE INTO conversations(phone, history, context) VALUES(?,?,?)',
-                     (phone, json.dumps(history[-36:], ensure_ascii=False), json.dumps(context, ensure_ascii=False)))
+    with lock:
+        histories[phone] = history[-36:]
+        customer_context[phone] = context
+
 
 def queue_message(phone, body, message_id):
-    with db_connect() as conn:
-        conn.execute('INSERT OR IGNORE INTO incoming(id,phone,body,arrived) VALUES(?,?,?,?)',
-                     (message_id, phone, body, time.time()))
+    with lock:
+        if message_id in seen:
+            return
+        seen[message_id] = time.monotonic()
+        if len(seen) > 4000:
+            for mid, _ in sorted(seen.items(), key=lambda item: item[1])[:2000]:
+                seen.pop(mid, None)
+        pending.setdefault(phone, []).append((message_id, body, time.monotonic()))
+
 
 def next_batch():
-    """Claim one settled batch atomically across worker processes."""
-    with db_connect() as conn:
-        conn.execute('BEGIN IMMEDIATE')
-        row = conn.execute('SELECT phone, MAX(arrived) FROM incoming WHERE processed=0 GROUP BY phone HAVING MAX(arrived) <= ? ORDER BY MIN(arrived) LIMIT 1',
-                           (time.time() - BATCH_SECONDS,)).fetchone()
-        if not row:
-            return None
-        phone, cutoff = row
-        rows = conn.execute('SELECT id,body FROM incoming WHERE phone=? AND processed=0 AND arrived<=? ORDER BY arrived,id', (phone, cutoff)).fetchall()
-        conn.executemany('UPDATE incoming SET processed=2 WHERE id=?', [(r[0],) for r in rows])
-    return phone, rows
+    with lock:
+        now = time.monotonic()
+        for phone, messages in list(pending.items()):
+            if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
+                continue
+            processing.add(phone)
+            return phone, list(messages)
+    return None
 
-def has_new_messages(phone):
-    with db_connect() as conn:
-        return conn.execute('SELECT 1 FROM incoming WHERE phone=? AND processed=0 LIMIT 1', (phone,)).fetchone() is not None
 
-def finish_batch(rows, success=True):
-    with db_connect() as conn:
-        conn.executemany('UPDATE incoming SET processed=? WHERE id=?', [(1 if success else 0, r[0]) for r in rows])
+def has_new_messages(phone, batch_rows=None):
+    with lock:
+        messages = pending.get(phone, [])
+        if batch_rows is None:
+            return bool(messages)
+        original_ids = {r[0] for r in batch_rows}
+        return any(mid not in original_ids for mid, _, _ in messages)
 
-def recover_claims():
-    with db_connect() as conn:
-        conn.execute('UPDATE incoming SET processed=0 WHERE processed=2')
 
-init_db()
+def finish_batch(phone, rows, success=True):
+    with lock:
+        if success:
+            done = {r[0] for r in rows}
+            pending[phone] = [r for r in pending.get(phone, []) if r[0] not in done]
+            if not pending[phone]:
+                pending.pop(phone, None)
+        else:
+            # Avoid a hot loop after a transient API failure; keep for retry.
+            pending[phone] = [(mid, body, time.monotonic()) if mid in {r[0] for r in rows}
+                              else (mid, body, arrived)
+                              for mid, body, arrived in pending.get(phone, [])]
+        processing.discard(phone)
 
 GLASS_COSTS = {'שקופה':150,'אקסטרה קליר':220,'אנטיסן אפור':220,'פיפיטה':220,'חלבי':220,'אסיד':220,'אנטיסן ברונזה':240,'גלינה קליר':380,'אסיד קליר':380}
 HARDWARE_COSTS = {'ציר קיר זכוכית':50,'ציר זכוכית זכוכית':75,'ידית כפתור':30,'ידית מגבת':80,'מוט חיזוק':65,'זווית קיר זכוכית':25,'זווית זכוכית זכוכית':30,'מגנט פינתי':30,'מגנט חזית':30,'אטם בלון':8,'מגב רצפה':8,'אטם כיסא':8,'ציר הרמוניקה':85,'ציר פרימה':100,'ציר סיכורית':150,'פרופיל אלומיניום':50,'ידית 19.2':80}
@@ -324,7 +327,7 @@ def process_message(phone, body, batch_rows=None):
             # with the new messages rather than sending a stale response.
             delay = min(TYPING_MAX, max(TYPING_MIN, len(reply) / 23.0))
             time.sleep(delay)
-            if has_new_messages(phone):
+            if has_new_messages(phone, batch_rows):
                 app.logger.info('New messages arrived during composition; postponing reply')
                 return False
             send_whatsapp(phone, body=reply)
@@ -348,30 +351,32 @@ def process_message(phone, body, batch_rows=None):
             app.logger.exception('Message processing failed')
             try:
                 send_whatsapp(phone, body='סליחה, הייתה תקלה רגעית. תוכל לשלוח לי שוב את ההודעה?')
+                return True  # Error already reported to the customer; do not send it repeatedly.
             except Exception:
                 app.logger.exception('Fallback send failed')
             return False
 
 def batch_worker():
-    recover_claims()
     while True:
         try:
             batch = next_batch()
             if not batch:
-                time.sleep(0.5)
+                time.sleep(0.25)
                 continue
             phone, rows = batch
             combined = '\n'.join(r[1] for r in rows)
-            # No outbound response for intermediate messages in a burst.
             success = process_message(phone, combined, rows)
-            if not success and has_new_messages(phone):
-                # Requeue original messages to merge with the new correction.
-                finish_batch(rows, success=False)
-            else:
-                finish_batch(rows, success=True)
+            # If a correction arrived during composition, keep the entire batch
+            # so it can be reinterpreted together with the correction.
+            if not success and has_new_messages(phone, rows):
+                with lock:
+                    processing.discard(phone)
+                continue
+            finish_batch(phone, rows, success=success)
         except Exception:
             app.logger.exception('Batch worker failed')
             time.sleep(2)
+
 
 threading.Thread(target=batch_worker, daemon=True, name='whatsapp-batch-worker').start()
 
