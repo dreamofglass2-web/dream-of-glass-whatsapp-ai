@@ -323,6 +323,42 @@ def test_extraction():
         "status": status,
     }, 200
 
+def understand_customer_need(history):
+    response = client.responses.create(
+        model="gpt-5-mini",
+        instructions=(
+            "Analyze the customer's conversation. "
+            "Return a valid json object only. "
+            "Identify the customer's needs and buying intent. "
+            "Never invent missing information. "
+            "Return exactly these fields: "
+            "stage, need, priority, quote_requested. "
+            "stage must be one of: discovery, consultation, "
+            "qualification, quotation, negotiation, closing, handoff. "
+            "need describes why the customer wants the product, "
+            "such as renovation, new apartment or replacement. "
+            "priority describes what matters most to the customer, "
+            "such as design, convenience, easy cleaning or price. "
+            "Use null when need or priority is unknown. "
+            "quote_requested must be true only if the customer "
+            "has explicitly asked for a price or quotation. "
+            "Do not assume the customer wants a quotation "
+            "just because technical details are complete. "
+            "Base your answer on the entire conversation, "
+            "giving priority to the customer's latest messages."
+        ),
+        input=[
+            {
+                "role": "system",
+                "content": "Return a valid json object only.",
+            },
+            *history,
+        ],
+        text={"format": {"type": "json_object"}},
+    )
+
+    return json.loads(response.output_text)
+
 
 def extract_shower_details(history):
     response = client.responses.create(
