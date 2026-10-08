@@ -4,13 +4,26 @@ import logging
 import threading
 import time
 import re
+import hmac
+import secrets
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime, timezone
 
 import requests
-from flask import Flask, request
+from flask import Flask, request, session, redirect, url_for, render_template_string, abort
 from openai import OpenAI
 
 app = Flask(__name__)
+app.secret_key = os.getenv('ADMIN_SESSION_SECRET', '') or secrets.token_hex(32)
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=True,
+                  SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=3600)
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', '')
+_db_ready = False
+_db_lock = threading.Lock()
+_login_failures = {}
+
 logging.basicConfig(level=logging.INFO)
 
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN', 'dream_of_glass_verify')
@@ -39,7 +52,44 @@ TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
 TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
 
 
+def db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError('DATABASE_URL is missing')
+    return psycopg2.connect(DATABASE_URL, connect_timeout=5, sslmode='require')
+
+
+def ensure_db():
+    global _db_ready
+    if _db_ready:
+        return
+    with _db_lock:
+        if _db_ready:
+            return
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""CREATE TABLE IF NOT EXISTS glass_leads (
+                    phone TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '',
+                    product TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'חדש',
+                    callback_time TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+                    conversation JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    context JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )""")
+        _db_ready = True
+
+
 def load_conversation(phone):
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT conversation, context FROM glass_leads WHERE phone=%s', (phone,))
+                row = cur.fetchone()
+        if row:
+            return list(row[0])[-36:], dict(row[1])
+    except Exception:
+        app.logger.exception('Database read failed; using temporary conversation memory')
     with lock:
         return list(histories.get(phone, [])), dict(customer_context.get(phone, {}))
 
@@ -48,6 +98,35 @@ def save_conversation(phone, history, context):
     with lock:
         histories[phone] = history[-36:]
         customer_context[phone] = context
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO glass_leads(phone, conversation, context, product)
+                    VALUES (%s, %s::jsonb, %s::jsonb, %s)
+                    ON CONFLICT(phone) DO UPDATE SET
+                        conversation=EXCLUDED.conversation, context=EXCLUDED.context,
+                        product=CASE WHEN EXCLUDED.product <> '' THEN EXCLUDED.product
+                                     ELSE glass_leads.product END,
+                        updated_at=now()""",
+                    (phone, json.dumps(history[-36:], ensure_ascii=False),
+                     json.dumps(context, ensure_ascii=False), str(context.get('product') or '')))
+    except Exception:
+        app.logger.exception('Database save failed; message was still handled')
+
+
+def save_callback(phone, preferred_time=None):
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO glass_leads(phone, status, callback_time)
+                    VALUES (%s, 'ממתין לחזרה', %s)
+                    ON CONFLICT(phone) DO UPDATE SET status='ממתין לחזרה',
+                      callback_time=EXCLUDED.callback_time, updated_at=now()""",
+                    (phone, preferred_time or 'ממתין לתיאום'))
+    except Exception:
+        app.logger.exception('Callback lead could not be stored')
 
 
 def queue_message(phone, body, message_id):
@@ -419,11 +498,13 @@ def process_message(phone, body, batch_rows=None):
             if any(t in body for t in ('לדבר עם מישהו', 'שיחזרו אלי', 'שיתקשרו אלי', 'תתקשרו אלי', 'שיחה עם נציג', 'שיחה עם בן אדם')):
                 with lock:
                     callback_leads[phone] = {'phone': phone, 'requested_at': datetime.now(timezone.utc).isoformat(), 'preferred_time': None, 'status': 'awaiting_time'}
+                save_callback(phone)
                 reply = 'בשמחה, מתי נוח לך שנחזור אליך?'
             elif phone in callback_leads and callback_leads[phone]['status'] == 'awaiting_time' and not any(t in body for t in ('לדבר עם מישהו', 'שיתקשרו אלי')):
                 with lock:
                     callback_leads[phone]['preferred_time'] = body
                     callback_leads[phone]['status'] = 'callback_requested'
+                save_callback(phone, body)
                 reply = 'תודה, רשמתי את הזמן שנוח לך. נעביר את הבקשה לבדיקה ונעדכן בהתאם.'
             if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
@@ -551,6 +632,163 @@ def webhook():
                     return 'Queue unavailable', 503
     app.logger.info('WEBHOOK_RECEIVED text_messages=%s statuses=%s ignored=%s', received, statuses, ignored)
     return 'EVENT_RECEIVED', 200
+
+
+# Private leads dashboard: enabled only after ADMIN_PASSWORD and ADMIN_SESSION_SECRET are configured.
+LEADS_HTML = """<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>חלומות מזכוכית | ניהול לידים</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#1d2939;font:16px Arial,sans-serif}
+header{background:#142b3f;color:white;padding:20px 5%;display:flex;justify-content:space-between;align-items:center;gap:12px}
+header a{color:white}main{max-width:1150px;margin:auto;padding:24px 15px}h1{font-size:24px;margin:0}
+.card{background:white;border-radius:14px;box-shadow:0 3px 16px #12263b12;padding:20px;margin:16px 0}
+input,select,textarea,button{font:inherit;padding:11px;border:1px solid #cbd5e1;border-radius:9px;max-width:100%}
+button{cursor:pointer;background:#176b85;color:white;border:0}a{color:#176b85;text-decoration:none}
+form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}table{width:100%;border-collapse:collapse;text-align:right}td,th{padding:12px;border-bottom:1px solid #e5e7eb}
+.tablewrap{overflow-x:auto}.muted{color:#667085}.pill{display:inline-block;border-radius:99px;background:#e5f5f5;padding:5px 12px}
+.msg{padding:12px;border-radius:12px;margin:8px 0;max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere}
+.user{background:#e2f6de;margin-right:0;margin-left:auto}.assistant{background:#eaf1f9;margin-left:0;margin-right:auto}
+label{display:block;margin:8px 0}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
+</style></head><body><header><h1>חלומות מזכוכית · ניהול לידים</h1>
+{% if logged %}<a href="{{ url_for('admin_logout') }}">התנתקות</a>{% endif %}</header><main>
+{% if not logged %}<div class="card" style="max-width:420px;margin:60px auto"><h2>כניסה למערכת</h2>
+{% if error %}<p class="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('admin_login') }}"><input type="password" name="password" placeholder="סיסמת מנהל" required autocomplete="current-password"><button>כניסה</button></form></div>
+{% elif selected %}<p><a href="{{ url_for('admin_leads') }}">← חזרה לכל הלידים</a></p>
+<div class="card"><h2>{{ selected.name or selected.phone }}</h2>
+<p><a href="https://wa.me/{{ selected.phone | replace('+','') }}" target="_blank" rel="noopener">פתיחת וואטסאפ</a> · <span dir="ltr">{{ selected.phone }}</span></p>
+<form method="post" action="{{ url_for('admin_update_lead', phone=selected.phone) }}">
+<input type="hidden" name="csrf" value="{{ csrf }}"><div class="fields">
+<label>שם הלקוח<input name="name" value="{{ selected.name }}"></label>
+<label>סוג העבודה<input name="product" value="{{ selected.product }}"></label>
+<label>סטטוס<select name="status">{% for status in statuses %}<option value="{{status}}" {% if selected.status==status %}selected{% endif %}>{{status}}</option>{% endfor %}</select></label>
+<label>מועד לחזרה<input name="callback_time" value="{{selected.callback_time}}"></label></div>
+<label>הערות פנימיות<textarea name="notes">{{selected.notes}}</textarea></label><button>שמירת שינויים</button></form></div>
+<div class="card"><h2>היסטוריית שיחה</h2>{% for m in selected.conversation %}
+<div class="msg {{ 'user' if m.role=='user' else 'assistant' }}"><b>{{ 'לקוח' if m.role=='user' else 'הבוט' }}</b><p>{{ m.content }}</p></div>
+{% else %}<p class="muted">אין הודעות שמורות עדיין.</p>{% endfor %}</div>
+{% else %}<div class="card"><h2>לידים</h2><p class="muted">{{ leads|length }} לקוחות בתצוגה (עד 300 אחרונים)</p>
+<form method="get" action="{{ url_for('admin_leads') }}"><input name="q" placeholder="חיפוש שם או טלפון" value="{{ q }}"><button>חיפוש</button></form></div>
+<div class="card tablewrap"><table><thead><tr><th>לקוח</th><th>עבודה</th><th>סטטוס</th><th>חזרה ללקוח</th><th>עדכון אחרון</th></tr></thead>
+<tbody>{% for lead in leads %}<tr><td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
+<td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.status}}</span></td>
+<td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_at.strftime('%d/%m/%Y %H:%M') if lead.updated_at else '' }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">אין לידים עדיין. שיחות חדשות יופיעו כאן.</td></tr>{% endfor %}</tbody></table></div>{% endif %}</main></body></html>"""
+
+LEAD_STATUSES = ('חדש', 'בטיפול', 'ממתין לחזרה', 'הצעה ניתנה', 'נסגר', 'לא רלוונטי')
+
+
+def admin_enabled():
+    return bool(ADMIN_PASSWORD and os.getenv('ADMIN_SESSION_SECRET'))
+
+
+def admin_required():
+    if not admin_enabled():
+        abort(503, 'Admin setup is incomplete')
+    if not session.get('admin_authenticated'):
+        return redirect(url_for('admin_login'))
+    return None
+
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if not admin_enabled():
+        return 'יש להגדיר ADMIN_PASSWORD ו־ADMIN_SESSION_SECRET ב־Render', 503
+    error = ''
+    if request.method == 'POST':
+        ip = request.remote_addr or 'unknown'
+        now = time.monotonic()
+        attempts = [t for t in _login_failures.get(ip, []) if now-t < 900]
+        if len(attempts) >= 8:
+            return 'יותר מדי ניסיונות כניסה. נסה מאוחר יותר.', 429
+        password = request.form.get('password', '')
+        if hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
+            _login_failures.pop(ip, None)
+            session.clear()
+            session['admin_authenticated'] = True
+            session['csrf'] = secrets.token_urlsafe(32)
+            session.permanent = True
+            return redirect(url_for('admin_leads'))
+        attempts.append(now)
+        _login_failures[ip] = attempts
+        error = 'סיסמה שגויה'
+    return render_template_string(LEADS_HTML, logged=False, error=error), 200
+
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.clear()
+    return redirect(url_for('admin_login'))
+
+
+@app.route('/admin/leads')
+def admin_leads():
+    gate = admin_required()
+    if gate:
+        return gate
+    q = request.args.get('q', '').strip()[:100]
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if q:
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                        FROM glass_leads WHERE phone ILIKE %s OR name ILIKE %s
+                        ORDER BY updated_at DESC LIMIT 300""", (f'%{q}%',f'%{q}%'))
+                else:
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                        FROM glass_leads ORDER BY updated_at DESC LIMIT 300""")
+                leads = cur.fetchall()
+    except Exception:
+        app.logger.exception('Leads dashboard read failed')
+        return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
+    return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads, q=q), 200
+
+
+@app.route('/admin/leads/<phone>')
+def admin_lead_detail(phone):
+    gate = admin_required()
+    if gate:
+        return gate
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM glass_leads WHERE phone=%s', (phone,))
+                lead = cur.fetchone()
+    except Exception:
+        app.logger.exception('Lead detail read failed')
+        return 'בעיה זמנית בחיבור למסד הנתונים.', 503
+    if not lead:
+        abort(404)
+    return render_template_string(LEADS_HTML, logged=True, selected=lead,
+                                  statuses=LEAD_STATUSES, csrf=session['csrf']), 200
+
+
+@app.route('/admin/leads/<phone>/update', methods=['POST'])
+def admin_update_lead(phone):
+    gate = admin_required()
+    if gate:
+        return gate
+    if not hmac.compare_digest(request.form.get('csrf', ''), session.get('csrf', 'none')):
+        abort(403)
+    status = request.form.get('status', 'בטיפול')
+    if status not in LEAD_STATUSES:
+        abort(400)
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE glass_leads SET name=%s,product=%s,status=%s,
+                    callback_time=%s,notes=%s,updated_at=now() WHERE phone=%s""",
+                    (request.form.get('name','')[:100], request.form.get('product','')[:120],
+                     status, request.form.get('callback_time','')[:120],
+                     request.form.get('notes','')[:5000], phone))
+    except Exception:
+        app.logger.exception('Could not update lead')
+        return 'שמירה נכשלה', 503
+    return redirect(url_for('admin_lead_detail', phone=phone))
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
