@@ -15,6 +15,17 @@ PHONE_NUMBER_ID = "1280310741842089"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 conversation_history = {}
+SALES_STAGES = {
+    "discovery": "הבנת הצורך של הלקוח",
+    "consultation": "ייעוץ והתאמת פתרון",
+    "qualification": "איסוף פרטים טכניים",
+    "quotation": "הצגת הצעת מחיר",
+    "negotiation": "טיפול בשאלות והתנגדויות",
+    "closing": "סגירת עסקה ותיאום מדידה",
+    "handoff": "העברה לבעל העסק",
+}
+
+customer_sales_state = {}
 GLASS_COSTS = {
     "שקופה": 150,
     "אקסטרה קליר": 220,
@@ -398,6 +409,16 @@ def webhook():
                         continue
                     history = conversation_history.setdefault(
                         customer_phone, []
+                    )
+                    
+                    sales_state = customer_sales_state.setdefault(
+                        customer_phone,
+                        {
+                            "stage": "discovery",
+                            "need": None,
+                            "priority": None,
+                            "quote_requested": False,
+                        },
                     )
 
                     history.append(
