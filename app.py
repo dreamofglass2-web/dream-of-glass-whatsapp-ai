@@ -206,6 +206,53 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 
 החזר JSON בלבד עם השדות stage, action, next_missing_fact, reply, product, configuration, width_cm, second_width_cm, height_cm, glass_type, finish, handles, quote_requested, solution_agreed, needs_human, send_handle_images, send_glass_images. השתמש ב-null לפרט לא ידוע. handles הוא מערך של 'ידית כפתור'/'ידית מגבת' לפי מספר הידיות, או null. quote_requested אמת אם ביקש מחיר במהלך השיחה ועדיין לא קיבל מענה. solution_agreed אמת רק כשהתצורה נבחרה או אושרה. send_handle_images אמת רק כשהלקוח ביקש לראות דוגמאות או הסבר חזותי על ידיות. send_glass_images אמת רק כשהלקוח ביקש תמונות או דוגמאות חזותיות של סוגי זכוכית. המידות בסנטימטרים. אל תסיק תצורה ממידות בלבד. כל הפרטים צריכים לשקף את השיחה כולה, לא רק את ההודעה האחרונה. stage הוא שלב השיחה, action היא הפעולה הנכונה, next_missing_fact הוא הפרט החשוב הבא או null. אל תכלול את הניתוח הפנימי ב-reply.''' 
 
+# Conversation guidance added after the simulation. This supplements, rather than
+# replaces, the existing quote engine and WhatsApp batching.
+SALES_GUIDANCE = """
+עדיפות עליונה: המשך את מטרת השיחה ולא רק את המשפט האחרון. לקוח שפתח ב"קיבלתי הצעה זולה יותר" רוצה השוואה. אם עדיין לא ידוע על איזו עבודה מדובר, שאל זאת. אם אמר "מקלחון פינתי", המשך בבירור מה כללה ההצעה, ולא עבור אוטומטית לשאלון מידות. לעולם אל תניח שכבר נתנו לו הצעה משלנו.
+כאשר לקוח אינו יודע תצורה, גובה או רוחב, או אומר שאין לו מידות, זו עובדה מחייבת. אסור לבקש ממנו שוב את אותם הנתונים בהמשך השיחה, אלא אם הוא הודיע שיש לו אותם כעת. במקום זאת שאל על משהו נגיש, כמו מיקום אסלה, מרווח פתיחה, תמונה של אזור המקלחת או צילום הצעת המתחרה. תמונה היא אפשרות בלבד, לא תנאי לשיחה. אם לקוח אמר שאין לו הצעה כתובה, אל תבקש אותה שוב.
+אם הלקוח ביקש הערכת מחיר ללא מידות, תן תשובה שימושית: מחיר המינימום למקלחון הוא 2,000 ש״ח לפני מע״מ, לא הצעה מחושבת למקלחון שלו. המחיר בפועל תלוי במידות, תצורה, זכוכית ופרזול. אין להמציא טווח עליון או להציג 2,500 ש״ח כזול או יקר בלי מפרט. אין לשאול שוב על מידות באותה תגובה.
+אם לקוח מבקש המלצה, הצע כיוון מעשי לפי הנתונים הקיימים. אסלה ליד מקלחון פינתי עשויה להגביל פתיחת דלת החוצה, אבל אינה מחייבת הזזה. אפשר לבדוק הזזה או פתרון צירים שנפתח פנימה אם מתאים; אין להבטיח התאמה בלי בדיקה. שאל שאלה אחת קלה בלבד, ורק אם מקדמת את השיחה.
+אל תשתמש במילה "כבוד להחלטה" ואל תכתוב "בהצלחה עם איתם". אם הלקוח רק מזכיר מתחרה, הוא עדיין לא החליט. אם אומר בבירור שבחר במתחרה, כבד וסיים בנימוס ללא מכירה נוספת.
+אל תשאל פעמיים את אותה השאלה גם בניסוח אחר. לפני כל תשובה בדוק במיוחד מה הלקוח אמר שאין לו או שאינו יודע. תשובות קצרות, חמות, מקצועיות, ללא מקפים.
+"""
+
+
+def conversation_constraints(history):
+    """Extract explicit limits from customer messages; never infer unknown measurements."""
+    customer = [str(m.get('content', '')) for m in history if m.get('role') == 'user']
+    text = '\n'.join(customer)
+    no_dimensions = bool(re.search(r'(אין לי|לא יודע|לא יודעת|אין לנו|לא מדדתי|לא מדדנו).{0,28}(מידות|רוחב|גובה)|בלי מידות', text))
+    no_written_quote = bool(re.search(r'(אין לי|אין לנו).{0,20}(הצעה כתובה|הצעת מחיר כתובה|צילום של ההצעה)', text))
+    competitor = bool(re.search(r'הצעה.{0,35}(זול|מתחרה|מישהו אחר)|(?:זול|מתחרה).{0,35}הצעה', text))
+    corner = 'פינתי' in text
+    toilet = 'אסלה' in text
+    # Allow the user to revise their earlier statement later.
+    if no_dimensions and re.search(r'(מדדתי|יש לי מידות|המידות הן|הרוחב הוא|הגובה הוא)', customer[-1] if customer else ''):
+        no_dimensions = False
+    return {'no_dimensions':no_dimensions,'no_written_quote':no_written_quote,
+            'competitor_comparison':competitor,'corner_shower':corner,'toilet_nearby':toilet}
+
+
+def avoid_repeated_dimensions(reply, facts, body):
+    """Last-resort guard against the exact loop observed in the simulation."""
+    if not facts['no_dimensions']:
+        return reply
+    if not re.search(r'(איזה|מה|כמה|תוכל|אפשר).{0,32}(רוחב|גובה|מידות)|(רוחב|גובה|מידות).{0,20}(מתכננים|שלכם|יש לכם)', reply):
+        return reply
+    # Preserve the useful explanation before the repeated question.
+    sentences = re.split(r'(?<=[.!?])\s+', reply)
+    kept = [x for x in sentences if not re.search(r'(איזה|מה|כמה|תוכל|אפשר).{0,32}(רוחב|גובה|מידות)|(רוחב|גובה|מידות).{0,20}(מתכננים|שלכם|יש לכם)', x)]
+    base = ' '.join(kept).strip()
+    if re.search(r'אסלה', body):
+        return 'אם האסלה קרובה למקלחון, כדאי לתכנן פתיחה שלא תיתקע בה. אפשר לבדוק הזזה או דלת שנפתחת פנימה, לפי השטח. יש לך אפשרות לשלוח תמונה של אזור המקלחת?'
+    if re.search(r'ממליץ|המלצה|מה עדיף', body):
+        return 'במקלחון פינתי אני מעדיף דלתות ציר כשיש להן מקום להיפתח, והזזה כשצפוף. אם יש אסלה או ארון ליד המקלחון זה יכול להשפיע. יש משהו צמוד אליו?'
+    if re.search(r'מחיר|בערך|כמה עולה', body):
+        return 'בטח. מקלחון אצלנו מתחיל מ־2,000 ש״ח לפני מע״מ. זה מחיר מינימום ולא הצעה מדויקת למקלחון שלך, כי המחיר תלוי בתצורה ובמידות. אפשר לשלוח תמונה של האזור ואכוון אותך לפתרון מתאים.'
+    return (base + ' ' if base else '') + 'אם נוח לך, אפשר לשלוח תמונה של אזור המקלחת כדי שאוכל לכוון אותך גם בלי מידות.'
+
+
 def calculate_quote(data):
     configuration = data.get('configuration')
     glass_type = data.get('glass_type')
@@ -273,7 +320,7 @@ def polish_reply(reply, history):
         if separator and rest.strip().startswith(('איזה ', 'מה ', 'יש ', 'תרצו ', 'אתם ')):
             if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
                 reply = rest.strip()
-    return re.sub(r'[\u2013\u2014]', ' ', reply).strip()
+    return re.sub(r'[-\u2013\u2014]', ' ', reply).strip()
 
 def process_message(phone, body, batch_rows=None):
     with lock:
@@ -281,6 +328,7 @@ def process_message(phone, body, batch_rows=None):
     with personal_lock:
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        facts = conversation_constraints(history)
         competitor_exit = any(phrase in body for phrase in ('אלך איתם', 'הולך איתם', 'אני אלך איתם', 'אסגור איתם', 'אני הולך איתם', 'נראה לי שאני אלך איתם'))
         short_correction = body.strip() in ('איתם', 'התכוונתי איתם', 'איתם*', '*איתם')
         if short_correction and any('איתן' in m.get('content', '') or 'איתם' in m.get('content', '') for m in history[-5:] if m.get('role') == 'user'):
@@ -289,7 +337,7 @@ def process_message(phone, body, batch_rows=None):
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
-        instructions = (SYSTEM + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+        instructions = (SYSTEM + '\n' + SALES_GUIDANCE + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(GLASS_SAMPLE_IMAGES) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
@@ -307,6 +355,7 @@ def process_message(phone, body, batch_rows=None):
             app.logger.info("AI_RESPONSE phone_suffix=%s", phone[-4:])
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
+            reply = avoid_repeated_dimensions(reply, facts, body)
             if not reply:
                 raise ValueError('Empty reply')
             allowed_stages = {'greeting','discovery','early_planning','technical_fit',
