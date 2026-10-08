@@ -4,8 +4,8 @@ import logging
 import threading
 import time
 import re
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+import sqlite3
+import random
 
 import requests
 from flask import Flask, request
@@ -22,12 +22,70 @@ MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
 SEND_QUOTES = os.getenv('SEND_QUOTES', 'true').lower() == 'true'  # Only validated prices; set false to disable
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
-executor = ThreadPoolExecutor(max_workers=2)
 lock = threading.RLock()
 histories = {}
 customer_context = {}  # Temporary context; use a database for production.
 seen = {}
 phone_locks = {}
+# Use a persistent Render disk or external database for production durability.
+DB_PATH = os.getenv('STATE_DB_PATH', '/tmp/dream_of_glass_state.sqlite3')
+BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
+TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
+TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
+
+def db_connect():
+    conn = sqlite3.connect(DB_PATH, timeout=20)
+    conn.execute('PRAGMA busy_timeout=20000')
+    conn.execute('PRAGMA journal_mode=WAL')
+    return conn
+
+def init_db():
+    with db_connect() as conn:
+        conn.execute('CREATE TABLE IF NOT EXISTS incoming (id TEXT PRIMARY KEY, phone TEXT NOT NULL, body TEXT NOT NULL, arrived REAL NOT NULL, processed INTEGER NOT NULL DEFAULT 0)')
+        conn.execute('CREATE INDEX IF NOT EXISTS incoming_ready ON incoming (processed, phone, arrived)')
+        conn.execute('CREATE TABLE IF NOT EXISTS conversations (phone TEXT PRIMARY KEY, history TEXT NOT NULL, context TEXT NOT NULL)')
+
+def load_conversation(phone):
+    with db_connect() as conn:
+        row = conn.execute('SELECT history, context FROM conversations WHERE phone=?', (phone,)).fetchone()
+    return (json.loads(row[0]), json.loads(row[1])) if row else ([], {})
+
+def save_conversation(phone, history, context):
+    with db_connect() as conn:
+        conn.execute('INSERT OR REPLACE INTO conversations(phone, history, context) VALUES(?,?,?)',
+                     (phone, json.dumps(history[-36:], ensure_ascii=False), json.dumps(context, ensure_ascii=False)))
+
+def queue_message(phone, body, message_id):
+    with db_connect() as conn:
+        conn.execute('INSERT OR IGNORE INTO incoming(id,phone,body,arrived) VALUES(?,?,?,?)',
+                     (message_id, phone, body, time.time()))
+
+def next_batch():
+    """Claim one settled batch atomically across worker processes."""
+    with db_connect() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute('SELECT phone, MAX(arrived) FROM incoming WHERE processed=0 GROUP BY phone HAVING MAX(arrived) <= ? ORDER BY MIN(arrived) LIMIT 1',
+                           (time.time() - BATCH_SECONDS,)).fetchone()
+        if not row:
+            return None
+        phone, cutoff = row
+        rows = conn.execute('SELECT id,body FROM incoming WHERE phone=? AND processed=0 AND arrived<=? ORDER BY arrived,id', (phone, cutoff)).fetchall()
+        conn.executemany('UPDATE incoming SET processed=2 WHERE id=?', [(r[0],) for r in rows])
+    return phone, rows
+
+def has_new_messages(phone):
+    with db_connect() as conn:
+        return conn.execute('SELECT 1 FROM incoming WHERE phone=? AND processed=0 LIMIT 1', (phone,)).fetchone() is not None
+
+def finish_batch(rows, success=True):
+    with db_connect() as conn:
+        conn.executemany('UPDATE incoming SET processed=? WHERE id=?', [(1 if success else 0, r[0]) for r in rows])
+
+def recover_claims():
+    with db_connect() as conn:
+        conn.execute('UPDATE incoming SET processed=0 WHERE processed=2')
+
+init_db()
 
 GLASS_COSTS = {'שקופה':150,'אקסטרה קליר':220,'אנטיסן אפור':220,'פיפיטה':220,'חלבי':220,'אסיד':220,'אנטיסן ברונזה':240,'גלינה קליר':380,'אסיד קליר':380}
 HARDWARE_COSTS = {'ציר קיר זכוכית':50,'ציר זכוכית זכוכית':75,'ידית כפתור':30,'ידית מגבת':80,'מוט חיזוק':65,'זווית קיר זכוכית':25,'זווית זכוכית זכוכית':30,'מגנט פינתי':30,'מגנט חזית':30,'אטם בלון':8,'מגב רצפה':8,'אטם כיסא':8,'ציר הרמוניקה':85,'ציר פרימה':100,'ציר סיכורית':150,'פרופיל אלומיניום':50,'ידית 19.2':80}
@@ -67,7 +125,7 @@ def load_glass_images():
         return {}
 
 GLASS_SAMPLE_IMAGES = load_glass_images()
-GLASS_TYPES_TEXT = '، '.join(GLASS_COSTS.keys())
+GLASS_TYPES_TEXT = ', '.join(GLASS_COSTS.keys())
 
 
 SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חלומות מזכוכית" בוואטסאפ. מטרתך לנהל בעצמך שיחה אנושית, מועילה ומדויקת, ולא לדקלם שאלון או לדחוף למכירה. כתוב עברית ישראלית טבעית, לרוב 1–3 משפטים קצרים ושאלה אחת לכל היותר. בלי רשימות, כותרות, נקודתיים ומקפים מיותרים, ובלי לפתוח שוב ושוב ב"מעולה". אם הלקוח כתב רק "היי", ענה בברכה אנושית פשוטה ושאל איך אפשר לעזור, בלי למנות מוצרים.
@@ -114,6 +172,10 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 מחירון לקוח למוצרים שאינם מקלחונים: מראה קריסטל בלגי 5 מ״מ 700 ש״ח למטר רבוע כולל התקנה, תוספת מסגרת 250 ש״ח למטר רבוע, תוספת לד 250 ש״ח למטר רבוע. מחיצת זכוכית 10 מ״מ שקופה 700 ש״ח למטר רבוע כולל מדידה הובלה והתקנה, מחיצת 5+5 1000 ש״ח למטר רבוע, דלת למחיצה תוספת 3500 ש״ח. חיפוי זכוכית למטבח 1100 ש״ח למטר רבוע, עבודות מורכבות לבדיקה. מינימום הזמנה 2000 ש״ח, ולכן מחיר מוצר יחיד לפי מטר רבוע אינו בהכרח המחיר הסופי להזמנה. אל תאמר שהזמנת מראה בודדת בגודל מטר על מטר עולה רק 700 ש״ח. הסבר בקצרה את מחיר הבסיס ואת מינימום ההזמנה בלי להטעות. מחירים אלה לפני מע״מ אלא אם העסק אישר אחרת. אל תמציא מחיר סופי בלי חישוב מאומת.
 כשלקוח שואל שאלה חברתית, ענה בחום ובקלילות בלי לסיים בכל פעם בשאלת שירות. אפשר להמשיך שיחת חולין קצרה בלי ללחוץ על מכירה. אל תטען שיש לך חיים פרטיים או יום עבודה אישי. כשלקוח עובר לנושא מקצועי, עבור איתו באופן טבעי. אל תסיק שמראה מיועדת לפרויקט בנייה רק משום שהלקוח עובד בבנייה.
 אל תסיים שתי הודעות רצופות באותה שאלת שירות. אל תחזור על כל המפרט בכל תשובה. כאשר לקוח מבקש מחיר, התייחס לבקשה לפני הצעות לתיאום. כשלקוח מבקש המלצה, תן המלצה רלוונטית ולא רק רשימת אפשרויות.
+
+הבנת הודעות רצופות ותיקונים: ההודעה הנוכחית עשויה להכיל כמה הודעות וואטסאפ שחוברו יחד. התייחס אליהן כאל מחשבה אחת. הודעה מאוחרת מתקנת הודעה מוקדמת, למשל "איתן" ואז "איתם", או "100" ואז "בעצם 120". אם תיקון הגיע לאחר שכבר ענית, קרא מחדש את ההודעה המקורית לפי התיקון, הכר בטעות שלך והמשך לפי הכוונה המתוקנת. אל תתייחס למילה "איתם" כהסכמה לקנייה אצלנו אם ההקשר הוא מתחרה. כשיש ספק משמעותי שאל הבהרה קצרה, ובוודאי אל תתאם מדידה או תבקש פרטים אישיים על בסיס מסר עמום.
+לקוח שאומר שהוא הולך עם מתחרה, שהמחיר יקר לו מדי או שהוא מוותר: כבד את החלטתו, אל תתאם מדידה ואל תכין הצעה ללא בקשה חדשה ומפורשת. אל תחזור על מחיר מינימום שכבר הוסבר; תן מענה להתנגדות החדשה. אם המתחרה נותן מוצר דומה כולל התקנה במחיר נמוך יותר, הודה בכנות שזה יכול להתאים יותר להזמנה בודדת. אל תמציא הנחות או פתרונות זולים שאינם קיימים.
+שיחה חברתית: אפשר לענות בחום בלי שאלה בסוף. אל תדחוף "איך אפשר לעזור" בכל הודעה. כשלקוח שולח "מה קורה", "אני בסדר", "מה איתך" ו"הכל טוב" יחד, ענה פעם אחת באופן טבעי לכל ההודעות.
 
 כללי שיחה חדשים, בעדיפות גבוהה במיוחד:
 אל תסכם ללקוח מחדש פרטים שאמר בכל הודעה. שמור אותם בשדות הפנימיים בלבד. אחרי תשובה כמו "100 על 100" אל תגיד "רשמתי 100 על 100"; פשוט שאל את השאלה הבאה, אם צריך. אחרי "גובה 200" אל תחזור על הרוחב והגובה. סיכום מלא מותר רק כשמבקשים סיכום, לפני הצגת הצעת מחיר או בעת אימות פרטים הכרחי. אל תפתח ברוב ההודעות ב"מעולה", "מצוין", "הבנתי" או "רשמתי". לפעמים התשובה הנכונה היא שאלה אחת קצרה בלי הקדמה.
@@ -205,19 +267,20 @@ def polish_reply(reply, history):
                 reply = rest.strip()
     return re.sub(r'[\u2013\u2014]', ' ', reply).strip()
 
-def process_message(phone, body):
+def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
     with personal_lock:
-        with lock:
-            history = list(histories.get(phone, []))
+        history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        competitor_exit = any(phrase in body for phrase in ('אלך איתם', 'הולך איתם', 'אני אלך איתם', 'אסגור איתם', 'אני הולך איתם', 'נראה לי שאני אלך איתם'))
+        short_correction = body.strip() in ('איתם', 'התכוונתי איתם', 'איתם*', '*איתם')
+        if short_correction and any('איתן' in m.get('content', '') or 'איתם' in m.get('content', '') for m in history[-5:] if m.get('role') == 'user'):
+            competitor_exit = True
         showroom_question = ('אולם' in body or 'תצוגה' in body) and any(w in body for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
-        with lock:
-            prior = customer_context.get(phone, {})
         instructions = (SYSTEM + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(GLASS_SAMPLE_IMAGES) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
@@ -247,14 +310,23 @@ def process_message(phone, body):
             # Hard business facts override a mistaken model response.
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
+            if competitor_exit:
+                reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
             # Only send validated shower quotes, never an AI-invented number.
-            if not showroom_question and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
+            if not showroom_question and not competitor_exit and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
             # Do not expose internal infrastructure or disabled pricing to customers.
             if not showroom_question and any(term in reply for term in ('תמחור אוטומטי', 'מערכת התמחור', 'התמחור לא פעיל')):
                 reply = 'בשמחה. כדי לתת לך מחיר אמין אני צריך לוודא את הפרטים של העבודה. על איזה מוצר מדובר?'
+            # If the customer sent a correction while we were composing, retry
+            # with the new messages rather than sending a stale response.
+            delay = min(TYPING_MAX, max(TYPING_MIN, len(reply) / 23.0))
+            time.sleep(delay)
+            if has_new_messages(phone):
+                app.logger.info('New messages arrived during composition; postponing reply')
+                return False
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
@@ -265,26 +337,43 @@ def process_message(phone, body):
                         send_whatsapp(phone, image_url=image_url, caption=glass_name)
                     except requests.RequestException:
                         app.logger.exception('Could not send glass sample %s', glass_name)
-            with lock:
-                histories[phone] = (history + [{'role':'assistant','content':reply}])[-36:]
-                customer_context[phone] = {
-                    key: data.get(key) for key in (
-                        'stage','action','next_missing_fact','product','configuration',
-                        'width_cm','second_width_cm','height_cm','glass_type','finish',
-                        'handles','quote_requested','solution_agreed','needs_human')
-                }
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], {
+                key: data.get(key) for key in (
+                    'stage','action','next_missing_fact','product','configuration',
+                    'width_cm','second_width_cm','height_cm','glass_type','finish',
+                    'handles','quote_requested','solution_agreed','needs_human')
+            })
+            return True
         except Exception:
             app.logger.exception('Message processing failed')
             try:
                 send_whatsapp(phone, body='סליחה, הייתה תקלה רגעית. תוכל לשלוח לי שוב את ההודעה?')
             except Exception:
                 app.logger.exception('Fallback send failed')
+            return False
 
-def safe_process(phone, body):
-    try:
-        process_message(phone, body)
-    except Exception:
-        app.logger.exception('Unhandled background error')
+def batch_worker():
+    recover_claims()
+    while True:
+        try:
+            batch = next_batch()
+            if not batch:
+                time.sleep(0.5)
+                continue
+            phone, rows = batch
+            combined = '\n'.join(r[1] for r in rows)
+            # No outbound response for intermediate messages in a burst.
+            success = process_message(phone, combined, rows)
+            if not success and has_new_messages(phone):
+                # Requeue original messages to merge with the new correction.
+                finish_batch(rows, success=False)
+            else:
+                finish_batch(rows, success=True)
+        except Exception:
+            app.logger.exception('Batch worker failed')
+            time.sleep(2)
+
+threading.Thread(target=batch_worker, daemon=True, name='whatsapp-batch-worker').start()
 
 @app.route('/', methods=['GET'])
 def home():
@@ -312,20 +401,11 @@ def webhook():
                 message_id = message.get('id')
                 if not phone or not body:
                     continue
-                with lock:
-                    now = time.monotonic()
-                    if message_id and message_id in seen:
-                        continue
-                    if message_id:
-                        seen[message_id] = now
-                    if len(seen) > 2000:
-                        old = sorted(seen, key=seen.get)[:1000]
-                        for key in old:
-                            seen.pop(key, None)
                 try:
-                    executor.submit(safe_process, phone, body)
-                except RuntimeError:
-                    app.logger.exception('Background executor unavailable')
+                    queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
+                except Exception:
+                    app.logger.exception('Could not queue incoming message')
+                    return 'Queue unavailable', 503
     return 'EVENT_RECEIVED', 200
 
 @app.route('/privacy', methods=['GET'])
