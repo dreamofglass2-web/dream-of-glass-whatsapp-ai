@@ -142,7 +142,7 @@ def callback_time_from_text(body):
     if not match:
         return None
     # Numbers without "בשעה"/a daypart/day word can be prices or dimensions.
-    if not (re.search(r'בשעה\s*\d', body) or match.group(3)):
+    if not (re.search(r'בשעה\s*\d', body) or match.group(3) or re.search(r'\d{1,2}:\d{2}', body)):
         return None
     hour, minute = int(match.group(1)), int(match.group(2) or 0)
     part = match.group(3) or ''
@@ -199,6 +199,35 @@ def save_callback(phone, preferred_time=None):
     except Exception:
         app.logger.exception('Callback lead could not be stored')
         return False
+
+
+
+def waiting_for_callback_time(phone):
+    """The DB is the source of truth, including after Render restarts."""
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT status, callback_time FROM glass_leads WHERE phone=%s', (phone,))
+                row = cur.fetchone()
+        return bool(row and row[0] == 'ממתין לחזרה' and row[1] == 'ממתין לתיאום')
+    except Exception:
+        app.logger.exception('Could not read callback state')
+        with lock:
+            return callback_leads.get(phone, {}).get('status') == 'awaiting_time'
+
+
+def is_callback_time_answer(body):
+    """Only treat a recognizable day/time as a callback answer."""
+    return bool(re.search(r'(?:מחר|היום|ביום\s+\S+|בשעה\s*\d|\d{1,2}:\d{2}|\d{1,2}\s*(?:בבוקר|בערב|בצהריים))', body))
+
+
+def last_assistant_asked_callback(history):
+    for item in reversed(history[:-1]):
+        if item.get('role') == 'assistant':
+            text = str(item.get('content', ''))
+            return ('מתי נוח' in text and ('לחזור' in text or 'יחזור' in text or 'שנבקש' in text))
+    return False
 
 
 def queue_message(phone, body, message_id):
@@ -524,6 +553,32 @@ def process_message(phone, body, batch_rows=None):
     with personal_lock:
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        # Handle a time answer before AI: otherwise needs_human can repeat the
+        # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
+        callback_answer = (is_callback_time_answer(body) and
+                           (waiting_for_callback_time(phone) or
+                            last_assistant_asked_callback(history)))
+        if callback_answer:
+            preferred = callback_time_from_text(body)
+            if preferred:
+                if has_new_messages(phone, batch_rows):
+                    return False
+                if save_callback(phone, preferred):
+                    reply = f'בשמחה 😊 רשמתי בקשה שאלירן יחזור אליך {preferred}.'
+                    with lock:
+                        callback_leads[phone] = {'status':'callback_requested', 'preferred_time':preferred}
+                else:
+                    reply = 'יש כרגע תקלה בשמירת מועד החזרה, אז לא אוכל לאשר שהוא נרשם. אפשר לנסות שוב בעוד כמה דקות?'
+                send_whatsapp(phone, body=reply)
+                save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
+                return True
+            # Day without a clock time is not a confirmed appointment.
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'בשמחה 😊 באיזו שעה יהיה לך נוח שאלירן יחזור אליך?'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
+            return True
         facts = conversation_constraints(history)
         competitor_exit = any(phrase in body for phrase in ('אלך איתם', 'הולך איתם', 'אני אלך איתם', 'אסגור איתם', 'אני הולך איתם', 'נראה לי שאני אלך איתם'))
         short_correction = body.strip() in ('איתם', 'התכוונתי איתם', 'איתם*', '*איתם')
@@ -576,11 +631,8 @@ def process_message(phone, body, batch_rows=None):
             automatic_handoff = (bool(data.get('needs_human')) and not callback_requested
                                  and not direct_identity and not showroom_question
                                  and not competitor_exit and not re.fullmatch(r'\s*(?:היי|שלום|אהלן|תודה|ביי)[!?.\s]*', body))
-            callback_followup = (not callback_requested and
-                                 (callback_leads.get(phone, {}).get('status') == 'awaiting_time' or
-                                  (len(history) >= 2 and history[-2].get('role') == 'assistant' and
-                                   'מתי נוח לך שנחזור' in history[-2].get('content', '')) and
-                                  bool(re.search(r'(מחר|היום|בשעה|בבוקר|בערב|בצהריים|אחר הצהריים|\d{1,2}:\d{2})', body))))
+            callback_followup = (not callback_requested and is_callback_time_answer(body) and
+                                 (waiting_for_callback_time(phone) or last_assistant_asked_callback(history)))
             preferred_callback_time = callback_time_from_text(body) if callback_requested else None
             if automatic_handoff:
                 reply = 'כדי לתת לך תשובה מקצועית ומדויקת, כדאי שאלירן בעל העסק יבדוק את זה איתך. מתי נוח לך שנבקש ממנו לחזור אליך למספר שממנו כתבת לנו?'
