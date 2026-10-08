@@ -122,6 +122,20 @@ CALLBACK_TRIGGERS = ('לדבר עם', 'שיחזרו אלי', 'שיחזרו אל�
                      'תתקשר אליי', 'תתקשרו אליי', 'בטלפון עם')
 
 
+def is_callback_request(body):
+    """Recognize a customer's request for a phone call, including named staff."""
+    normalized = re.sub(r'[\u200e\u200f]', '', body).strip()
+    if any(phrase in normalized for phrase in CALLBACK_TRIGGERS):
+        return True
+    return bool(re.search(
+        r'(?:\b(?:אלירן|נציג|מישהו)\s+)?(?:י?ת?תקשר|יחזור|תחזור|תחזרו|חזרו|להתקשר|לחזור)'
+        r'\s+(?:אליי|אלי|אלינו|אלינו\s+בטלפון|בטלפון)' 
+        r'|(?:שיחה\s+טלפונית|שיחזור\s+אליי|שאלירן\s+(?:יתקשר|יחזור)|'
+        r'תוכל\s+לחזור\s+אליי|אפשר\s+שיחה\s+בטלפון)',
+        normalized
+    ))
+
+
 def callback_time_from_text(body):
     """Resolve an explicit today/tomorrow clock time in Israel; do not invent one."""
     match = re.search(r'(?:בשעה\s*)?(\d{1,2})(?::(\d{2}))?\s*(בבוקר|בצהריים|אחר הצהריים|בערב|בלילה)?', body)
@@ -553,11 +567,12 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'יש 7 שנות אחריות מלאות על הפרזול, שעשוי פליז פרימיום.'
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
-            callback_requested = any(t in body for t in CALLBACK_TRIGGERS)
+            callback_requested = is_callback_request(body)
             callback_followup = (not callback_requested and
                                  (callback_leads.get(phone, {}).get('status') == 'awaiting_time' or
                                   (len(history) >= 2 and history[-2].get('role') == 'assistant' and
-                                   'מתי נוח לך שנחזור' in history[-2].get('content', ''))))
+                                   'מתי נוח לך שנחזור' in history[-2].get('content', '')) and
+                                  bool(re.search(r'(מחר|היום|בשעה|בבוקר|בערב|בצהריים|אחר הצהריים|\d{1,2}:\d{2})', body))))
             preferred_callback_time = callback_time_from_text(body) if callback_requested else None
             if callback_requested:
                 if preferred_callback_time:
