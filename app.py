@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 import re
+from datetime import datetime, timezone
 
 import requests
 from flask import Flask, request
@@ -29,6 +30,7 @@ seen = {}
 phone_locks = {}
 pending = {}  # phone -> [(message_id, body, monotonic_arrival)]
 processing = set()
+callback_leads = {}  # Temporary in-memory leads until a persistent dashboard is built
 worker_thread = None
 worker_pid = None
 worker_start_lock = threading.Lock()
@@ -208,7 +210,27 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 
 # Conversation guidance added after the simulation. This supplements, rather than
 # replaces, the existing quote engine and WhatsApp batching.
+IDENTITY_AND_EDGE_CASES = """
+זהות איש המכירות שמייצג את העסק: השם הפרטי אלירן, שם המשפחה דוד הכהן, השם המלא אלירן דוד הכהן. לעולם אל תציג את עצמך כרועי או בשם אחר. לשאלה מה שמך או איך קוראים לך ענה אלירן. לשאלה מה שם המשפחה ענה דוד הכהן. לשאלה מה שמך המלא ענה אלירן דוד הכהן. אם הלקוח מתקן שם שגוי שכבר אמרת, התנצל בקצרה ותקן, בלי הצעת מכירה.
+אל תטען שאתה בעל העסק, המתקין בשטח או אדם שביצע פעולה אם הדבר לא אומת. אתה משיב בשם העסק בוואטסאפ. אם שואלים האם אתה בוט או אדם, ענה בכנות שאתה עוזר דיגיטלי של חלומות מזכוכית, בלי להמציא ביוגרפיה אישית.
+שאלות נפוצות שיש לענות עליהן ישירות, גם אם הן לא חלק משאלון המכירה: מי מדבר, מה שם המשפחה, האם יש אולם תצוגה, מה הכתובת, האם אפשר להגיע, האם אתם מגיעים לעיר שלי, מה שעות הפעילות, האם אתם עובדים בשישי, תוך כמה זמן מתקינים, האם יש אחריות ולכמה זמן, האם אתם מוציאים חשבונית, האם המחיר כולל מעמ, מדידה, הובלה והתקנה, האם ניתן לשלם בתשלומים, האם מקבלים אשראי, האם אפשר הנחה, האם אתם הכי זולים, האם יש דוגמאות ותמונות, האם אפשר לשלוח הודעה קולית או תמונה, האם אתם עושים תיקונים, האם אפשר לבטל הזמנה, מה קורה אם המדידה משתנה, האם המקלחון אטום לגמרי, האם צריך איש מקצוע במקום, והאם אפשר לקבל הצעה בכתב. השתמש רק במידע עסקי שאושר בפועל. על שעות שלא נמסרו, מועדים, אמצעי תשלום, תנאי ביטול או שירותים שלא אושרו, אמור בקצרה שאין לך כרגע מידע מאומת ואל תבטיח הבטחות.
+אם הלקוח אומר לא מעוניין, להתראות או כבר סגר עם אחר, השב בנימוס בלי שאלה מכירתית. אם אומר רק שהוא יחשוב, אפשר לברר בעדינות פעם אחת מה מעכב אותו. אם הוא מבקש לדבר עם אדם, בקש זמן נוח לחזרה והעבר לרישום פנימי; אל תבטיח שיחה שנקבעה לפני שיש מנגנון תיאום. אם הוא שולח תמונה או קול שלא הועברו אליך כתוכן קריא, אל תעמיד פנים שראית או שמעת. בקש תיאור קצר.
+אל תציע מיוזמתך הצעת מחיר רשמית, מסמך רשמי, הצעה כתובה או הכנת הצעה אחרי כל מחיר. אל תסיים כל תשובה בשאלה. אם הלקוח מבקש מחיר, תן מידע מאומת או שאל רק על הנתון ההכרחי.
+"""
+
+BUSINESS_UPDATES = """
+עובדות עסקיות מאושרות: לא עובדים ביום שישי. כל המחירים לפני מע״מ, אלא אם נאמר אחרת. מקלחונים בזכוכית מחוסמת 8 מ״מ, עם התקנה כלולה. הפרזול עשוי פליז פרימיום. יש 7 שנות אחריות מלאות על הפרזול בלבד; אל תרחיב את האחריות לזכוכית או לעבודות אחרות.
+זמני התקנה משוערים, לא התחייבות: מקלחון אחד כשעה, שתי יחידות כשעתיים, שלוש יחידות כשלוש שעות, בהתאמה למורכבות. מראה אחת כחצי שעה, שתי מראות כשעה. מחיצת זכוכית כשתיים עד שלוש שעות ליחידה; מספר מחיצות או עבודות מורכבות מחייבים בירור נוסף, ואין להבטיח זמן סופי בלי פרטי השטח. אם יש מספר סוגי מוצרים, אפשר לחבר את הערכות הזמנים ולציין שהן משוערות.
+הנחה: ניתן לשקול עד 7 אחוזים בלבד, ורק בשלב מתקדם כאשר כבר הוסבר הערך, טופלו התנגדויות ויש מחיר מחושב מאומת והלקוח עדיין מהסס לסגור. אין להציע הנחה בתחילת השיחה, אין להציג אותה כאוטומטית, אין לעבור את 7 האחוזים, ואין לרדת ממינימום ההזמנה של 2,000 ש״ח לפני מע״מ. אין להמציא מחיר כדי לחשב ממנו הנחה.
+כשלקוח אומר 'תודה, אני אחשוב על זה', שאל בעדינות פעם אחת אם יש משהו מסוים שמפריע לו להתקדם, למשל מחיר או התאמה. אם הוא לא מעוניין, ביקש להפסיק או בחר ספק אחר, כבד וסיים ללא לחץ.
+אם מבקשים לדבר עם אדם, שאל 'בשמחה, מתי נוח לך שנחזור אליך?' ורשום בקשת חזרה במערכת הפנימית רק אם אכן נשמרה. אל תבטיח שהשיחה נקבעה או שנציג כבר קיבל אותה אם לא קיים מנגנון התראות פעיל.
+תמונות דוגמאות: שלח תמונות אמיתיות רק אם כתובות תמונה מאושרות הוגדרו במערכת. אם אין תמונות מוגדרות, אל תטען שנשלחו. תמונה של לקוח: אין לקבוע מה מופיע בה בלי שהמדיה הועברה ונותחה בפועל; אם לא ניתן להבין, יש לבקש הבהרה ולהציע בדיקה אנושית. אל תעמיד פנים שראית תמונה שלא נותחה.
+אם שואלים אם אתה בוט או בן אדם, השב בכנות שאתה העוזר הדיגיטלי של העסק, שמדבר בשם אלירן. אל תטען שאתה בן אדם.
+"""
+
 SALES_GUIDANCE = """
+כלל מחייב לסיום תמחור: לאחר הצגת מחיר או הערכה, סיים בטבעיות בלי להציע "הצעת מחיר רשמית", "הצעה רשמית", הכנת מסמך, או לשאול "רוצה שאכין הצעת מחיר?". אל תבטיח לשלוח הצעה או לבצע פעולה שלא קיימת. רק אם הלקוח מבקש במפורש מסמך או הצעה כתובה, ענה לבקשתו בכנות בהתאם ליכולת בפועל.
+במקלחונים אנחנו משתמשים בזכוכית מחוסמת 8 מ״מ והמחיר כולל התקנה. אל תציג את עובי הזכוכית כבחירה חופשית או את ההתקנה כתוספת אפשרית להצעה שלנו. בהשוואה למתחרה אפשר לברר אם ההתקנה כלולה אצלו.
 עדיפות עליונה: המשך את מטרת השיחה ולא רק את המשפט האחרון. לקוח שפתח ב"קיבלתי הצעה זולה יותר" רוצה השוואה. אם עדיין לא ידוע על איזו עבודה מדובר, שאל זאת. אם אמר "מקלחון פינתי", המשך בבירור מה כללה ההצעה, ולא עבור אוטומטית לשאלון מידות. לעולם אל תניח שכבר נתנו לו הצעה משלנו.
 כאשר לקוח אינו יודע תצורה, גובה או רוחב, או אומר שאין לו מידות, זו עובדה מחייבת. אסור לבקש ממנו שוב את אותם הנתונים בהמשך השיחה, אלא אם הוא הודיע שיש לו אותם כעת. במקום זאת שאל על משהו נגיש, כמו מיקום אסלה, מרווח פתיחה, תמונה של אזור המקלחת או צילום הצעת המתחרה. תמונה היא אפשרות בלבד, לא תנאי לשיחה. אם לקוח אמר שאין לו הצעה כתובה, אל תבקש אותה שוב.
 אם הלקוח ביקש הערכת מחיר ללא מידות, תן תשובה שימושית: מחיר המינימום למקלחון הוא 2,000 ש״ח לפני מע״מ, לא הצעה מחושבת למקלחון שלו. המחיר בפועל תלוי במידות, תצורה, זכוכית ופרזול. אין להמציא טווח עליון או להציג 2,500 ש״ח כזול או יקר בלי מפרט. אין לשאול שוב על מידות באותה תגובה.
@@ -314,13 +336,31 @@ def polish_reply(reply, history):
     reply = reply.strip()
     reply = re.sub(r'^(?:(?:מעולה|מצוין|יופי)[,!،. ]+)', '', reply)
     reply = re.sub(r'^(?:רשמתי|קיבלתי)[,،. ]+', '', reply)
+    # Guard against automatic formal-quote upsell after a price.
+    reply = re.sub(r'\s*(?:רוצה|תרצה|תרצי|תרצו)\s+שאכין\s+(?:לך\s+|לכם\s+)?(?:הצעת\s+מחיר(?:\s+רשמית)?|הצעה\s+רשמית)\s*[?!.]*\s*$', '', reply)
+    reply = re.sub(r'\s*(?:רוצה|תרצה|תרצי|תרצו)\s+(?:לקבל|שנשלח|שאשלח)\s+(?:לך\s+|לכם\s+)?(?:הצעת\s+מחיר(?:\s+רשמית)?|הצעה\s+רשמית)\s*[?!.]*\s*$', '', reply)
     # Only remove a repetitive recap if it directly precedes a simple next question.
     if history and '?' in reply:
         first, separator, rest = reply.partition('.')
         if separator and rest.strip().startswith(('איזה ', 'מה ', 'יש ', 'תרצו ', 'אתם ')):
             if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
                 reply = rest.strip()
+    reply = re.sub(r'\s*(?:רוצה|תרצה|תרצי|תרצו)\s+(?:שנכין|שאכין|להכין|לקבל|שאשלח|שנשלח)\s+(?:לך\s+|לכם\s+)?(?:הצעת\s+מחיר\s+רשמית|הצעת\s+מחיר|הצעה\s+רשמית)(?:\s+בכתב)?\s*[?!.]*\s*$', '', reply)
     return re.sub(r'[-\u2013\u2014]', ' ', reply).strip()
+
+def identity_reply(body, history):
+    """Deterministic identity answers; never let the model invent a person's name."""
+    normalized = re.sub(r'[\s?!.،,]+', ' ', body).strip()
+    correction = ('רועי' in normalized and any(x in normalized for x in ('מי זה', 'מי זה רועי', 'לא רועי', 'קוראים לך', 'קוראים לי')))
+    if correction:
+        return 'סליחה על הבלבול, טעיתי בשם. השם הוא אלירן דוד הכהן 😊'
+    if any(x in normalized for x in ('שם משפחה', 'שם המשפחה', 'מה המשפחה שלך')):
+        return 'דוד הכהן 😊'
+    if any(x in normalized for x in ('שם מלא', 'השם המלא', 'איך קוראים לך במלא')):
+        return 'אלירן דוד הכהן 😊'
+    if any(x in normalized for x in ('מה שמך', 'איך קוראים לך', 'מה השם שלך', 'מי מדבר', 'עם מי אני מדבר')):
+        return 'אלירן 😊'
+    return None
 
 def process_message(phone, body, batch_rows=None):
     with lock:
@@ -337,7 +377,7 @@ def process_message(phone, body, batch_rows=None):
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
-        instructions = (SYSTEM + '\n' + SALES_GUIDANCE + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+        instructions = (SYSTEM + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(GLASS_SAMPLE_IMAGES) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
@@ -367,12 +407,28 @@ def process_message(phone, body, batch_rows=None):
             if len(history) == 1 and body.strip().rstrip('!?. ') in ('היי','שלום','אהלן','בוקר טוב','ערב טוב'):
                 reply = 'היי, מה שלומך? 😊 איך אפשר לעזור לך?'
             # Hard business facts override a mistaken model response.
+            direct_identity = identity_reply(body, history)
+            if direct_identity:
+                reply = direct_identity
+            if 'שישי' in body and any(x in body for x in ('עובדים', 'פתוחים', 'מגיעים', 'מתקינים')):
+                reply = 'לא, אנחנו לא עובדים בימי שישי.'
+            if 'אחריות' in body and any(x in body for x in ('כמה', 'יש', 'מה', 'שנים')):
+                reply = 'יש 7 שנות אחריות מלאות על הפרזול, שעשוי פליז פרימיום.'
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
-            if competitor_exit:
+            if any(t in body for t in ('לדבר עם מישהו', 'שיחזרו אלי', 'שיתקשרו אלי', 'תתקשרו אלי', 'שיחה עם נציג', 'שיחה עם בן אדם')):
+                with lock:
+                    callback_leads[phone] = {'phone': phone, 'requested_at': datetime.now(timezone.utc).isoformat(), 'preferred_time': None, 'status': 'awaiting_time'}
+                reply = 'בשמחה, מתי נוח לך שנחזור אליך?'
+            elif phone in callback_leads and callback_leads[phone]['status'] == 'awaiting_time' and not any(t in body for t in ('לדבר עם מישהו', 'שיתקשרו אלי')):
+                with lock:
+                    callback_leads[phone]['preferred_time'] = body
+                    callback_leads[phone]['status'] = 'callback_requested'
+                reply = 'תודה, רשמתי את הזמן שנוח לך. נעביר את הבקשה לבדיקה ונעדכן בהתאם.'
+            if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
             # Only send validated shower quotes, never an AI-invented number.
-            if not showroom_question and not competitor_exit and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
+            if not direct_identity and not showroom_question and not competitor_exit and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
