@@ -785,9 +785,44 @@ def webhook():
     return 'EVENT_RECEIVED', 200
 
 
+# Display datetimes in Israel's timezone, including daylight-saving changes.
+ISRAEL_TZ = ZoneInfo('Asia/Jerusalem')
+
+
+def israel_datetime(value):
+    if not value:
+        return ''
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(ISRAEL_TZ).strftime('%d/%m/%Y %H:%M')
+
+
+def callback_datetime(value):
+    """Our existing callback_time column is text; interpret confirmed dates only."""
+    if not value:
+        return None
+    found = re.search(r'(\d{2}/\d{2}/\d{4})\s+בשעה\s+(\d{1,2}:\d{2})', value)
+    if not found:
+        return None
+    try:
+        return datetime.strptime(' '.join(found.groups()), '%d/%m/%Y %H:%M').replace(tzinfo=ISRAEL_TZ)
+    except ValueError:
+        return None
+
+
+def decorate_lead(lead):
+    lead = dict(lead)
+    lead['updated_local'] = israel_datetime(lead.get('updated_at'))
+    lead['callback_dt'] = callback_datetime(lead.get('callback_time'))
+    lead['overdue'] = bool(lead['status'] == 'ממתין לחזרה' and lead['callback_dt'] and
+                           lead['callback_dt'] < datetime.now(ISRAEL_TZ))
+    return lead
+
+
 # Private leads dashboard: enabled only after ADMIN_PASSWORD and ADMIN_SESSION_SECRET are configured.
 LEADS_HTML = """<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+{% if logged and not selected %}<meta http-equiv="refresh" content="45">{% endif %}
 <title>חלומות מזכוכית | ניהול לידים</title><style>
 *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#1d2939;font:16px Arial,sans-serif}
 header{background:#142b3f;color:white;padding:20px 5%;display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -801,6 +836,10 @@ form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}table{width:100%;bo
 .user{background:#e2f6de;margin-right:0;margin-left:auto}.assistant{background:#eaf1f9;margin-left:0;margin-right:auto}
 label{display:block;margin:8px 0}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
+.overdue{background:#fff0ec;color:#a12416;font-weight:bold}.due{background:#fff4d6;color:#7b4b00}
+.summary{display:flex;gap:12px;flex-wrap:wrap}.stat{min-width:170px;flex:1;background:#f1f7fa;border-radius:12px;padding:18px}.stat strong{display:block;font-size:30px}
+.callback-panel{border:2px solid #e7c878}.small-button{font-size:14px;padding:7px 12px}.inlineform{display:inline-flex;margin:0}
+.note{font-size:13px;color:#667085}
 </style></head><body><header><h1>חלומות מזכוכית · ניהול לידים</h1>
 {% if logged %}<a href="{{ url_for('admin_logout') }}">התנתקות</a>{% endif %}</header><main>
 {% if not logged %}<div class="card" style="max-width:420px;margin:60px auto"><h2>כניסה למערכת</h2>
@@ -815,16 +854,33 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <label>סוג העבודה<input name="product" value="{{ selected.product }}"></label>
 <label>סטטוס<select name="status">{% for status in statuses %}<option value="{{status}}" {% if selected.status==status %}selected{% endif %}>{{status}}</option>{% endfor %}</select></label>
 <label>מועד לחזרה<input name="callback_time" value="{{selected.callback_time}}"></label></div>
+{% if selected.status == 'ממתין לחזרה' %}<p class="{{ 'overdue' if selected.overdue else 'due' }}" style="padding:12px;border-radius:8px">
+{% if selected.overdue %}המועד לחזרה עבר{% elif selected.callback_dt %}שיחה חוזרת מתוכננת{% else %}ממתין לקביעת שעה{% endif %} · {{selected.callback_time or 'ממתין לתיאום'}}</p>{% endif %}
 <label>הערות פנימיות<textarea name="notes">{{selected.notes}}</textarea></label><button>שמירת שינויים</button></form></div>
+{% if selected.status == 'ממתין לחזרה' %}<div class="card callback-panel">
+<form method="post" action="{{ url_for('admin_complete_callback', phone=selected.phone) }}">
+<input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">✓ סימון השיחה כטופלה</button>
+<span class="muted">יסמן שהשיחה טופלה ויעביר את הלקוח לסטטוס בטיפול.</span></form></div>{% endif %}
 <div class="card"><h2>היסטוריית שיחה</h2>{% for m in selected.conversation %}
 <div class="msg {{ 'user' if m.role=='user' else 'assistant' }}"><b>{{ 'לקוח' if m.role=='user' else 'הבוט' }}</b><p>{{ m.content }}</p></div>
 {% else %}<p class="muted">אין הודעות שמורות עדיין.</p>{% endfor %}</div>
-{% else %}<div class="card"><h2>לידים</h2><p class="muted">{{ leads|length }} לקוחות בתצוגה (עד 300 אחרונים)</p>
+{% else %}<div class="card"><h2>מרכז הלידים</h2><div class="summary">
+<div class="stat"><strong>{{ leads|length }}</strong>לקוחות בתצוגה</div>
+<div class="stat"><strong>{{ callbacks|length }}</strong>ממתינים לשיחה חוזרת</div>
+<div class="stat"><strong>{{ overdue_count }}</strong>שיחות שמועדן עבר</div></div>
+<p class="note">הדף מתרענן אוטומטית כל 45 שניות. כל השעות מוצגות לפי שעון ישראל. הנתונים כוללים עד 300 לידים אחרונים.</p>
 <form method="get" action="{{ url_for('admin_leads') }}"><input name="q" placeholder="חיפוש שם או טלפון" value="{{ q }}"><button>חיפוש</button></form></div>
-<div class="card tablewrap"><table><thead><tr><th>לקוח</th><th>עבודה</th><th>סטטוס</th><th>חזרה ללקוח</th><th>עדכון אחרון</th></tr></thead>
+{% if callbacks %}<div class="card callback-panel"><h2>שיחות שצריך לחזור אליהן</h2>
+<div class="tablewrap"><table><thead><tr><th>לקוח</th><th>מועד</th><th>מצב</th><th>פעולה</th></tr></thead><tbody>
+{% for lead in callbacks %}<tr class="{{'overdue' if lead.overdue else ''}}">
+<td><a href="{{ url_for('admin_lead_detail',phone=lead.phone) }}">{{lead.name or lead.phone}}</a></td>
+<td>{{ lead.callback_time or 'ממתין לתיאום' }}</td><td>{{ 'המועד עבר' if lead.overdue else ('ממתין לתיאום' if not lead.callback_dt else 'ממתין לחזרה') }}</td>
+<td><form class="inlineform" method="post" action="{{ url_for('admin_complete_callback', phone=lead.phone) }}"><input type="hidden" name="csrf" value="{{csrf}}"><button class="small-button" type="submit">✓ טופל</button></form></td>
+</tr>{% endfor %}</tbody></table></div></div>{% endif %}
+<div class="card tablewrap"><h2>כל הלידים</h2><table><thead><tr><th>לקוח</th><th>עבודה</th><th>סטטוס</th><th>חזרה ללקוח</th><th>עדכון אחרון</th></tr></thead>
 <tbody>{% for lead in leads %}<tr><td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
 <td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.status}}</span></td>
-<td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_at.strftime('%d/%m/%Y %H:%M') if lead.updated_at else '' }}</td></tr>
+<td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_local }}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">אין לידים עדיין. שיחות חדשות יופיעו כאן.</td></tr>{% endfor %}</tbody></table></div>{% endif %}</main></body></html>"""
 
 LEAD_STATUSES = ('חדש', 'בטיפול', 'ממתין לחזרה', 'הצעה ניתנה', 'נסגר', 'לא רלוונטי')
@@ -890,11 +946,16 @@ def admin_leads():
                 else:
                     cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
                         FROM glass_leads ORDER BY updated_at DESC LIMIT 300""")
-                leads = cur.fetchall()
+                leads = [decorate_lead(item) for item in cur.fetchall()]
     except Exception:
         app.logger.exception('Leads dashboard read failed')
         return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
-    return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads, q=q), 200
+    callbacks = [lead for lead in leads if lead['status'] == 'ממתין לחזרה']
+    callbacks.sort(key=lambda item: (item['callback_dt'] is None,
+                                    item['callback_dt'] or datetime.max.replace(tzinfo=ISRAEL_TZ)))
+    return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads,
+                                  callbacks=callbacks, overdue_count=sum(lead['overdue'] for lead in callbacks),
+                                  csrf=session['csrf'], q=q), 200
 
 
 @app.route('/admin/leads/<phone>')
@@ -913,7 +974,7 @@ def admin_lead_detail(phone):
         return 'בעיה זמנית בחיבור למסד הנתונים.', 503
     if not lead:
         abort(404)
-    return render_template_string(LEADS_HTML, logged=True, selected=lead,
+    return render_template_string(LEADS_HTML, logged=True, selected=decorate_lead(lead),
                                   statuses=LEAD_STATUSES, csrf=session['csrf']), 200
 
 
@@ -940,6 +1001,25 @@ def admin_update_lead(phone):
         app.logger.exception('Could not update lead')
         return 'שמירה נכשלה', 503
     return redirect(url_for('admin_lead_detail', phone=phone))
+
+@app.route('/admin/leads/<phone>/complete-callback', methods=['POST'])
+def admin_complete_callback(phone):
+    gate = admin_required()
+    if gate:
+        return gate
+    if not hmac.compare_digest(request.form.get('csrf', ''), session.get('csrf', 'none')):
+        abort(403)
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE glass_leads SET status='בטיפול', callback_time='',
+                    updated_at=now() WHERE phone=%s AND status='ממתין לחזרה'""", (phone,))
+    except Exception:
+        app.logger.exception('Unable to complete callback')
+        return 'לא הצלחנו לעדכן את השיחה. נסה שוב.', 503
+    return redirect(url_for('admin_leads'))
+
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
