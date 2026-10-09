@@ -657,12 +657,47 @@ def identity_reply(body, history):
         return 'יוסי 😊'
     return None
 
+def simple_social_reply(body):
+    """Handle unmistakable greetings/small talk without model escalation."""
+    normalized = re.sub(r'[\u200e\u200f]', '', body or '')
+    normalized = re.sub(r'[!?.,،😊🙂👋]+', ' ', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not re.fullmatch(
+        r'(?:(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)(?: יוסי)?'
+        r'(?: (?:מה שלומך|מה נשמע|איך אתה|מה קורה|מה איתך))?'
+        r'|(?:אני בסדר|הכל טוב|הכול טוב|בסדר גמור)'
+        r'(?: (?:איך אתה|מה איתך|מה שלומך))?'
+        r'|(?:איך אתה|מה שלומך|מה נשמע|מה קורה|מה איתך))',
+        normalized, flags=re.IGNORECASE
+    ):
+        return None
+    if any(phrase in normalized for phrase in ('איך אתה', 'מה שלומך', 'מה איתך', 'מה נשמע')):
+        return 'הכול טוב אצלי, תודה ששאלת 😊 איך אפשר לעזור?'
+    if normalized in ('אני בסדר', 'הכל טוב', 'הכול טוב', 'בסדר גמור'):
+        return 'כיף לשמוע 😊'
+    return 'היי 😊 מה שלומך?'
+
+
 def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
     with personal_lock:
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        # Social chat is handled before callbacks/AI to avoid stale needs_human state.
+        social_reply = simple_social_reply(body)
+        if social_reply is not None:
+            if has_new_messages(phone, batch_rows):
+                return False
+            try:
+                send_whatsapp(phone, body=social_reply)
+                safe_context = dict(prior or {})
+                safe_context['needs_human'] = False
+                save_conversation(phone, history + [{'role':'assistant', 'content':social_reply}], safe_context)
+                return True
+            except Exception:
+                app.logger.exception('Failed to reply to simple social message')
+                return False
         # Handle a time answer before AI: otherwise needs_human can repeat the
         # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
         callback_answer = (is_callback_time_answer(body) and
