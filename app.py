@@ -397,14 +397,54 @@ def customer_written_text(body):
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def explicitly_requests_catalog_photos(text):
-    """Distinguish 'I sent a photo' from 'send me example photos'."""
+def starts_new_customer_conversation(text):
+    """Explicit opt-in reset for testing a new lead on an existing WhatsApp number."""
+    return bool(re.fullmatch(
+        r'\s*(?:התחל|תתחיל|פתיחת|פתח|בוא נתחיל)\s+(?:שיחה|שיחת לקוח)\s+חדשה\s*[!?.]*\s*',
+        str(text or ''), flags=re.IGNORECASE))
+
+
+def reset_conversation_for_phone(phone):
+    """Reset dialog only; never delete lead details/callback requests."""
+    with lock:
+        histories[phone] = []
+        customer_context[phone] = {}
+    if DATABASE_URL:
+        try:
+            ensure_db()
+            with db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('UPDATE glass_leads SET conversation=%s::jsonb, context=%s::jsonb WHERE phone=%s',
+                                ('[]', '{}', phone))
+        except Exception:
+            app.logger.exception('Could not persist conversation reset')
+            return False
+    return True
+
+
+def requests_catalog_samples(text):
+    """Strictly require a positive request for OUR samples, not merely the word photo."""
+    text = str(text or '').strip()
+    if correcting_unrequested_photo(text):
+        return False
+    request_verb = r'(?:תשלח|שלח|לשלוח|אפשר\s+(?:לראות|לקבל)|רוצה\s+לראות|אשמח\s+לראות|תראה\s+לי|תראי\s+לי|יש\s+לכם|יש\s+לך|הצג|להראות)'
+    photo_object = r'(?:תמונ\w*|דוגמ\w*|סוגי\s+זכוכית|סוגי\s+הזכוכית|דוגמאות|הזכוכיות)'
+    return bool(re.search(request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
+                or re.search(photo_object + r'[^.!?\n]{0,55}' + request_verb, text, re.I))
+
+
+def correcting_unrequested_photo(text):
+    """A customer denying a prior photo is correcting us, not asking for samples."""
+    value = str(text or '').strip()
     return bool(re.search(
-        r'(?:שלח|תשלח|תרא[הי]|הרא[הי]|אפשר לראות|רוצה לראות|אשמח לראות|'
-        r'אפשר לקבל|יש לכם|יש לך|הצג|להראות)'
-        r'[^.!?\n]{0,75}(?:תמונ|דוגמא|דוגמ|דוגמאות|דוגמא)' 
-        r'|(?:תמונ|דוגמא|דוגמ)[^.!?\n]{0,45}(?:תשלח|שלח|אפשר|לראות|להראות)',
-        text, flags=re.IGNORECASE))
+        r'(?:לא\s+(?:שלחתי|צירפתי|העליתי|ביקשתי)\s+(?:לך\s+)?(?:שום\s+)?(?:תמונ|צילום|קובץ|דוגמ)'
+        r'|(?:איזה|איזו|על\s+איזה)\s+תמונ'
+        r'|(?:אין|לא\s+הייתה)\s+(?:פה\s+)?תמונ)',
+        value, re.IGNORECASE))
+
+
+def explicitly_requests_catalog_photos(text):
+    return requests_catalog_samples(text)
 
 
 def requests_all_glass_types(text):
@@ -423,10 +463,12 @@ def pick_sample_photos(body, history, context, max_photos=2):
     if not PHOTO_CATALOG:
         return []
     customer_text = customer_written_text(body)
+    if correcting_unrequested_photo(customer_text):
+        return []
     accepted = (customer_text.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
                 any('תמונ' in str(m.get('content', '')) or 'דוגמא' in str(m.get('content', ''))
                     for m in history[-3:] if m.get('role') == 'assistant'))
-    if not explicitly_requests_catalog_photos(customer_text) and not accepted and not re.search(r'(?:אפשר|רוצה|תשלח|שלח|להראות|לראות|הצג)[^.!?\n]{0,75}(?:תמונ|דוגמ|זכוכי)', customer_text):
+    if not requests_catalog_samples(customer_text) and not accepted:
         return []
 
     all_requested = requests_all_glass_types(customer_text)
@@ -826,6 +868,14 @@ def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
     with personal_lock:
+        if starts_new_customer_conversation(body):
+            if has_new_messages(phone, batch_rows):
+                return False
+            if reset_conversation_for_phone(phone):
+                send_whatsapp(phone, body='מתחילים מחדש 🙂 היי, במה אפשר לעזור?')
+                return True
+            send_whatsapp(phone, body='יש כרגע תקלה בפתיחת שיחה חדשה, אפשר לנסות שוב בעוד רגע?')
+            return True
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
         # Social chat is handled before callbacks/AI to avoid stale needs_human state.
@@ -842,6 +892,28 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.exception('Failed to reply to simple social message')
                 return False
+        # The customer correcting an invented photo deserves an apology, not a gallery.
+        if correcting_unrequested_photo(customer_written_text(body)):
+            if has_new_messages(phone, batch_rows):
+                return False
+            if re.search(r'מחיר|כמה עולה|בודק מחירים|רק בודק', body, re.I) or any(
+                'מחיר' in str(m.get('content', '')) for m in history[-4:-1] if m.get('role') == 'user'):
+                reply = ('צודק, סליחה על הבלבול. לא שלחת תמונה, אז לא הייתי צריך להתייחס למידות. '
+                         'מקלחון אצלנו מתחיל מ־2,000 ₪ לפני מע״מ, והמחיר משתנה לפי הגודל והתצורה. '
+                         'אפשר בהחלט רק לקבל מושג על המחירים כרגע.')
+            else:
+                reply = 'צודק, סליחה על הבלבול. לא שלחת תמונה ולא הייתי צריך להתייחס אליה. במה תרצה שאתמקד?'
+            # The false visual details cannot influence future replies.
+            clean_history = [m for m in history[:-1]
+                             if not (m.get('role') == 'user' and '[לקוח צירף' in str(m.get('content', '')))]
+            clean_history = clean_history[-5:] + [{'role':'user', 'content':body},
+                                                  {'role':'assistant', 'content':reply}]
+            safe_context = dict(prior or {})
+            for key in ('width_cm','second_width_cm','height_cm','configuration','glass_type','needs_human'):
+                safe_context.pop(key, None)
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, clean_history, safe_context)
+            return True
         # Acknowledge customer attachments truthfully until a real media/vision pipeline exists.
         if '[נשלחה ' in body and ' שלא נותחה]' in body:
             if has_new_messages(phone, batch_rows):
@@ -881,6 +953,16 @@ def process_message(phone, body, batch_rows=None):
         customer_request = customer_written_text(body)
         media_was_analyzed = '[לקוח צירף ' in body and ' שנותח בפועל.' in body
         facts = conversation_constraints(history)
+        # Old visual descriptions are historical facts, never a new customer's measurements.
+        # If this turn is a generic exploratory price question, don't prime the model with
+        # old picture details unless the customer explicitly references them.
+        generic_price_question = bool(re.search(r'(?:כמה\s+עול[הים]|מחיר\s+בערך|בודק\s+מחירים|טווח\s+מחירים)', customer_request))
+        mentions_current_picture = bool(re.search(r'(?:בתמונה|ששלחתי|לפי\s+הצילום|171)', customer_request))
+        model_history = history[-36:]
+        if generic_price_question and not mentions_current_picture and not media_was_analyzed:
+            # General inquiry: no old picture and no old AI claim may leak into answer.
+            model_history = [{'role':'user','content':body}]
+
         competitor_exit = any(phrase in body for phrase in ('אלך איתם', 'הולך איתם', 'אני אלך איתם', 'אסגור איתם', 'אני הולך איתם', 'נראה לי שאני אלך איתם'))
         short_correction = body.strip() in ('איתם', 'התכוונתי איתם', 'איתם*', '*איתם')
         if short_correction and any('איתן' in m.get('content', '') or 'איתם' in m.get('content', '') for m in history[-5:] if m.get('role') == 'user'):
@@ -895,13 +977,13 @@ def process_message(phone, body, batch_rows=None):
                         + ('כן' if image_ready else 'לא')
                         + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
                         + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
-                        + json.dumps(prior, ensure_ascii=False))
+                        + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב תחילה למינימום 2000 ש״ח לפני מע״מ וציין שהמחיר בפועל תלוי במפרט. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
         try:
             app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
             response = client.responses.create(
                 model=MODEL,
                 instructions=instructions,
-                input=[{'role':'developer','content':'Return a valid JSON object. Follow the JSON output contract in the instructions.'}] + history[-36:],
+                input=[{'role':'developer','content':'Return a valid JSON object. Follow the JSON output contract in the instructions.'}] + model_history,
                 text={'format':{'type':'json_object'}},
             )
             app.logger.info("AI_RESPONSE phone_suffix=%s", phone[-4:])
@@ -965,10 +1047,15 @@ def process_message(phone, body, batch_rows=None):
             if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
             # Only send validated shower quotes, never an AI-invented number.
-            if not direct_identity and not showroom_question and not competitor_exit and not callback_requested and not callback_followup and not automatic_handoff and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
+            if not generic_price_question and not direct_identity and not showroom_question and not competitor_exit and not callback_requested and not callback_followup and not automatic_handoff and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
+            if generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
+                # Prevent any old measurements/configurations being echoed by the model.
+                if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
+                    reply = ('מקלחון אצלנו מתחיל מ־2,000 ₪ לפני מע״מ. '
+                             'המחיר בפועל תלוי בגודל ובתצורה, אז זו נקודת פתיחה ולא הצעת מחיר סופית.')
             # Do not expose internal infrastructure or disabled pricing to customers.
             if not showroom_question and any(term in reply for term in ('תמחור אוטומטי', 'מערכת התמחור', 'התמחור לא פעיל')):
                 reply = 'בשמחה. כדי לתת לך מחיר אמין אני צריך לוודא את הפרטים של העבודה. על איזה מוצר מדובר?'
@@ -1016,20 +1103,30 @@ def process_message(phone, body, batch_rows=None):
                              'התמונות ממחישות את הזכוכית, ולא בהכרח את תצורת המקלחון.')
                 else:
                     reply = align_reply_with_sent_photos(reply, photos)
-            elif explicitly_requests_catalog_photos(customer_request):
-                reply = ('בשמחה. כרגע אין לי תמונה זמינה שמתאימה בדיוק לבקשה, '
-                         'אבל אוכל להסביר לך את ההבדלים בין האפשרויות.')
+            elif requests_catalog_samples(customer_request):
+                # Keep the sales advice that the model gave; don't replace it with
+                # a canned catalog error unless it explicitly promises delivery.
+                if re.search(r'מצרף|שלחתי|הנה\s+התמונ|הנה\s+הדוגמא', reply):
+                    reply = ('אין לי כרגע תמונה מתאימה לשליחה, אבל אוכל להסביר '
+                             'את ההבדלים ולעזור לך לבחור.')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
             # Photos are optional illustrations, never sent just to push a sale.
+            failed_photos = []
             for photo in photos:
                 try:
                     send_whatsapp(phone, image_url=photo['url'], caption='דוגמה לזכוכית ' + photo['glass'])
                 except requests.RequestException:
+                    failed_photos.append(photo['glass'])
                     app.logger.exception('Could not send sample photo for glass %s', photo['glass'])
+            if failed_photos:
+                try:
+                    send_whatsapp(phone, body='חלק מהתמונות לא הצליחו להישלח כרגע. אפשר לנסות שוב עוד מעט.')
+                except requests.RequestException:
+                    app.logger.exception('Could not notify customer about photo sending failure')
             save_conversation(phone, history + [{'role':'assistant','content':reply}], {
                 key: data.get(key) for key in (
                     'stage','action','next_missing_fact','product','configuration',
