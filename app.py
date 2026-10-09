@@ -1789,4 +1789,5 @@ def privacy():
     return '<h1>Privacy Policy</h1><p>Contact: dream.of.glass2@gmail.com</p>', 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT','10000')))
+
