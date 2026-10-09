@@ -386,11 +386,33 @@ def load_photo_catalog():
 PHOTO_CATALOG = load_photo_catalog()
 
 
+def customer_written_text(body):
+    """Extract the customer's words, excluding private visual-analysis summaries.
+
+    Visual descriptions are data, not requests to send catalog images or answer
+    questions about the showroom. A caption remains part of the user request.
+    """
+    text = re.sub(r'\[לקוח צירף (?:תמונה|מסמך) שנותח בפועל\..*?\]', ' ', str(body), flags=re.DOTALL)
+    text = re.sub(r'\[נשלחה [^\]]+\]', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def explicitly_requests_catalog_photos(text):
+    """Distinguish 'I sent a photo' from 'send me example photos'."""
+    return bool(re.search(
+        r'(?:שלח|תשלח|תרא[הי]|הרא[הי]|אפשר לראות|רוצה לראות|אשמח לראות|'
+        r'אפשר לקבל|יש לכם|יש לך|הצג|להראות)'
+        r'[^.!?\n]{0,75}(?:תמונ|דוגמא|דוגמ|דוגמאות|דוגמא)' 
+        r'|(?:תמונ|דוגמא|דוגמ)[^.!?\n]{0,45}(?:תשלח|שלח|אפשר|לראות|להראות)',
+        text, flags=re.IGNORECASE))
+
+
 def pick_sample_photos(body, history, context, max_photos=4):
     """One example per explicitly requested glass type, including comparisons."""
     if not PHOTO_CATALOG:
         return []
-    asked = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי|צלומ|צילום', body))
+    body = customer_written_text(body)
+    asked = explicitly_requests_catalog_photos(body)
     accepted = (body.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
                 any('תמונ' in str(m.get('content','')) or 'דוגמא' in str(m.get('content',''))
                     for m in history[-3:] if m.get('role') == 'assistant'))
@@ -822,16 +844,18 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
             return True
+        customer_request = customer_written_text(body)
+        media_was_analyzed = '[לקוח צירף ' in body and ' שנותח בפועל.' in body
         facts = conversation_constraints(history)
         competitor_exit = any(phrase in body for phrase in ('אלך איתם', 'הולך איתם', 'אני אלך איתם', 'אסגור איתם', 'אני הולך איתם', 'נראה לי שאני אלך איתם'))
         short_correction = body.strip() in ('איתם', 'התכוונתי איתם', 'איתם*', '*איתם')
         if short_correction and any('איתן' in m.get('content', '') or 'איתם' in m.get('content', '') for m in history[-5:] if m.get('role') == 'user'):
             competitor_exit = True
-        showroom_question = ('אולם' in body or 'תצוגה' in body) and any(w in body for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
+        showroom_question = ('אולם' in customer_request or 'תצוגה' in customer_request) and any(w in customer_request for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
-        instructions = (SYSTEM + '\n' + 'אם הלקוח שלח תמונה או תוכנית שנותחה, הישען רק על הממצאים החזותיים שנמסרו בהודעת הלקוח, הבחן בין פרט ודאי להשערה, התייחס להקשר ולשאלתו, המלץ בזהירות ללא המצאת מידות או אישור הנדסי. אם לא נותחה, אמור זאת בכנות.\n' + '\n' + PREMIUM_SERVICE_GUIDANCE + '\n' + CONSULTATIVE_CONVERSATION_GUIDANCE + '\n' + SALES_TONE_GUIDANCE + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+        instructions = (SYSTEM + '\n' + 'אם הלקוח שלח תמונה או תוכנית שנותחה, הישען רק על הממצאים החזותיים שנמסרו בהודעת הלקוח, הבחן בין פרט ודאי להשערה, התייחס להקשר ולשאלתו, המלץ בזהירות ללא המצאת מידות או אישור הנדסי. אם לא נותחה, אמור זאת בכנות. תיאור התמונה הוא נתוני תצפית ולא בקשת לקוח. אסור להסיק ממנו שהלקוח שאל על אולם תצוגה או ביקש תמונות דוגמה מהקטלוג. אם הלקוח ביקש המלצה על תמונה, ענה קודם למאפיינים החזותיים הרלוונטיים ולשאלתו, בלי ליזום משלוח דוגמאות.\n' + '\n' + PREMIUM_SERVICE_GUIDANCE + '\n' + CONSULTATIVE_CONVERSATION_GUIDANCE + '\n' + SALES_TONE_GUIDANCE + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG})) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
@@ -935,7 +959,7 @@ def process_message(phone, body, batch_rows=None):
                     reply = ('קיבלתי את הבקשה, אבל יש כרגע תקלה ברישום החזרה. '
                              'לא אוכל לאשר שהיא נשמרה. אפשר לנסות שוב בעוד כמה דקות?')
             # Decide which photos will be sent BEFORE writing the accompanying text.
-            photos = pick_sample_photos(body, history, data or prior)
+            photos = pick_sample_photos(customer_request, history, data or prior)
             if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
                 requested = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי', body))
                 if requested:
@@ -943,6 +967,12 @@ def process_message(phone, body, batch_rows=None):
                     names = ([wanted] if wanted in GLASS_SAMPLE_IMAGES else list(GLASS_SAMPLE_IMAGES))
                     photos = [{'glass': name, 'url': GLASS_SAMPLE_IMAGES[name]}
                               for name in names[:2]]
+            if media_was_analyzed and not showroom_question and re.search(
+                r'אנחנו מרמלה|אין לנו אולם תצוגה|אין אולם תצוגה', reply):
+                # Never answer an unasked showroom question instead of consulting on a photo.
+                reply = ('קיבלתי את התמונה. כדי להמליץ על פתרון שמתאים לשטח, '
+                         'אעזור לך לבדוק את מיקום הקירות, הכניסה והמרווח לפתיחת הדלת. '
+                         'מה חשוב לך יותר, כניסה רחבה או חיסכון במקום?')
             reply = align_reply_with_sent_photos(reply, photos)
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             send_whatsapp(phone, body=reply)
