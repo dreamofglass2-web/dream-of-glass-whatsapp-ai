@@ -407,61 +407,83 @@ def explicitly_requests_catalog_photos(text):
         text, flags=re.IGNORECASE))
 
 
-def pick_sample_photos(body, history, context, max_photos=4):
-    """One example per explicitly requested glass type, including comparisons."""
+def requests_all_glass_types(text):
+    """Recognize explicit requests for an overview of all available glass samples."""
+    return bool(re.search(
+        r'כל\s*(?:סוגי\s*)?(?:הזכוכי(?:ת|ות)|הסוגים|הדוגמאות|האפשרויות)'
+        r'|(?:תמונה|תמונות|דוגמה|דוגמאות)\s+מכל\s+סוג'
+        r'|מכל\s+סוג(?:י)?\s+(?:הזכוכית|זכוכית|הזכוכיות)'
+        r'|(?:את\s+)?כל\s+(?:מה\s+)?שיש\s+לכם',
+        str(text or ''), flags=re.IGNORECASE
+    ))
+
+
+def pick_sample_photos(body, history, context, max_photos=2):
+    """One actual catalog image per requested type; explicit 'all' overrides normal limit."""
     if not PHOTO_CATALOG:
         return []
-    body = customer_written_text(body)
-    asked = explicitly_requests_catalog_photos(body)
-    accepted = (body.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
-                any('תמונ' in str(m.get('content','')) or 'דוגמא' in str(m.get('content',''))
+    customer_text = customer_written_text(body)
+    accepted = (customer_text.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
+                any('תמונ' in str(m.get('content', '')) or 'דוגמא' in str(m.get('content', ''))
                     for m in history[-3:] if m.get('role') == 'assistant'))
-    if not (asked or accepted):
+    if not explicitly_requests_catalog_photos(customer_text) and not accepted and not re.search(r'(?:אפשר|רוצה|תשלח|שלח|להראות|לראות|הצג)[^.!?\n]{0,75}(?:תמונ|דוגמ|זכוכי)', customer_text):
         return []
 
-    aliases = {
-        'גלינה קליר': (r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?',),
-        'אסיד קליר': (r'אסיד\s*קליר',),
-        'אקסטרה קליר': (r'אקסטרה\s*קליר|(?<!גלינה\s)א\.\s*קליר',
-                       r'(?<!גלינה\s)א\s+קליר'),
-        'אנטיסן ברונזה': (r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה',),
-        'אנטיסן אפור': (r'אנטיסן\s*אפור|זכוכית\s*אפורה',),
-        'פיפיטה': (r'פיפיטה|פפיטה',),
-        'חלבי': (r'חלבית?|חלבי',),
-        'אסיד': (r'אסיד(?!\s*קליר)',),
-        'שקופה': (r'שקופ(?:ה|ה)?|שקוף',),
-    }
-    # Find every explicit type; never treat the generic word "קליר" as clear glass.
-    # Process more specific types first so Galina and Acid Clear stay distinct.
-    selected_types = []
-    for glass, patterns in aliases.items():
-        if any(re.search(pattern, body) for pattern in patterns):
-            selected_types.append(glass)
-    if not selected_types:
-        previous = (context or {}).get('glass_type')
-        if previous in GLASS_COSTS:
-            selected_types = [previous]
-        elif re.search(r'כל (?:הסוגים|הזכוכיות)|מבחר|אפשרויות|סוגי זכוכית', body):
-            selected_types = list(GLASS_COSTS)
-        else:
-            # An open request gets at most two clearly labelled examples.
-            selected_types = list(GLASS_COSTS)[:2]
+    all_requested = requests_all_glass_types(customer_text)
+    # Prefer matches with specific glass names over generic 'קליר' and avoid overlap.
+    patterns = [
+        ('גלינה קליר', r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?'),
+        ('אסיד קליר', r'אסיד\s*קליר'),
+        ('אקסטרה קליר', r'אקסטרה\s*קליר|א\.\s*קליר|(?<![\wא-ת])א\s+קליר'),
+        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה'),
+        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה'),
+        ('פיפיטה', r'פיפיטה|פפיטה'),
+        ('חלבי', r'חלבית?|חלבי'),
+        ('אסיד', r'אסיד(?!\s*קליר)'),
+        ('שקופה', r'שקופ(?:ה)?|שקוף'),
+    ]
+    if all_requested:
+        selected = list(GLASS_COSTS)
+    else:
+        spans = []
+        for name, pattern in patterns:
+            for match in re.finditer(pattern, customer_text, flags=re.IGNORECASE):
+                spans.append((match.start(), -len(match.group()), match.end(), name))
+        spans.sort()
+        selected = []
+        occupied = []
+        for begin, _, finish, name in spans:
+            if any(begin < other_end and finish > other_begin
+                   for other_begin, other_end in occupied):
+                continue
+            occupied.append((begin, finish))
+            if name not in selected:
+                selected.append(name)
+        if not selected:
+            previous = (context or {}).get('glass_type')
+            selected = [previous] if previous in GLASS_COSTS else []
 
-    product_text = ' '.join(str(m.get('content','')) for m in history[-5:] if m.get('role') == 'user')
+    product_text = ' '.join(
+        str(m.get('content', '')) for m in history[-5:] if m.get('role') == 'user')
     product_text += ' ' + str((context or {}).get('product') or '')
-    results = []
-    for glass in selected_types:
-        candidates = [x for x in PHOTO_CATALOG if x['glass'] == glass]
+    selected_photos = []
+    used_urls = set()
+    for glass in selected:
+        candidates = [pic for pic in PHOTO_CATALOG if pic['glass'] == glass]
         if not candidates:
             continue
-        candidates.sort(key=lambda x: sum(
-            1 for word in ('מקלחון','אמבטיון','מחיצה','מראה')
-            if word in product_text and word in (x['product'] + ' ' + x['configuration'])),
-            reverse=True)
-        results.append(candidates[0])
-        if len(results) >= max_photos:
+        candidates.sort(key=lambda pic: sum(
+            1 for word in ('מקלחון', 'אמבטיון', 'מחיצה', 'מראה')
+            if word in product_text
+            and word in (pic['product'] + ' ' + pic['configuration'])), reverse=True)
+        pic = next((pic for pic in candidates if pic['url'] not in used_urls), None)
+        if pic is None:
+            continue
+        selected_photos.append(pic)
+        used_urls.add(pic['url'])
+        if not all_requested and len(selected_photos) >= max_photos:
             break
-    return results
+    return selected_photos
 
 
 def align_reply_with_sent_photos(reply, photos):
@@ -961,19 +983,30 @@ def process_message(phone, body, batch_rows=None):
             # Decide which photos will be sent BEFORE writing the accompanying text.
             photos = pick_sample_photos(customer_request, history, data or prior)
             if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
-                requested = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי', body))
+                requested = explicitly_requests_catalog_photos(customer_request)
                 if requested:
                     wanted = data.get('glass_type') or (prior or {}).get('glass_type')
-                    names = ([wanted] if wanted in GLASS_SAMPLE_IMAGES else list(GLASS_SAMPLE_IMAGES))
+                    names = (list(GLASS_SAMPLE_IMAGES) if requests_all_glass_types(customer_request) else ([wanted] if wanted in GLASS_SAMPLE_IMAGES else list(GLASS_SAMPLE_IMAGES)[:1]))
                     photos = [{'glass': name, 'url': GLASS_SAMPLE_IMAGES[name]}
-                              for name in names[:2]]
+                              for name in names]
             if media_was_analyzed and not showroom_question and re.search(
                 r'אנחנו מרמלה|אין לנו אולם תצוגה|אין אולם תצוגה', reply):
                 # Never answer an unasked showroom question instead of consulting on a photo.
                 reply = ('קיבלתי את התמונה. כדי להמליץ על פתרון שמתאים לשטח, '
                          'אעזור לך לבדוק את מיקום הקירות, הכניסה והמרווח לפתיחת הדלת. '
                          'מה חשוב לך יותר, כניסה רחבה או חיסכון במקום?')
-            reply = align_reply_with_sent_photos(reply, photos)
+            if photos:
+                # The model must not claim absent catalog types are attached.
+                # Only the photo sender's captions identify the images sent.
+                if requests_all_glass_types(customer_request):
+                    reply = ('בשמחה, מצרף לך דוגמה אחת מכל סוג זכוכית שיש לנו '
+                             'עבורו תמונה זמינה, כדי שתוכל להשוות בין הגוונים והמרקמים. '
+                             'התמונות ממחישות את הזכוכית, ולא בהכרח את תצורת המקלחון.')
+                else:
+                    reply = align_reply_with_sent_photos(reply, photos)
+            elif explicitly_requests_catalog_photos(customer_request):
+                reply = ('בשמחה. כרגע אין לי תמונה זמינה שמתאימה בדיוק לבקשה, '
+                         'אבל אוכל להסביר לך את ההבדלים בין האפשרויות.')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             send_whatsapp(phone, body=reply)
             if image_ready and data.get('send_handle_images') is True:
