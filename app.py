@@ -738,22 +738,23 @@ def process_message(phone, body, batch_rows=None):
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
             callback_requested = is_callback_request(body)
-          
-          social_chat = bool(re.fullmatch(
-    r'\s*(?:היי(?:\s+יוסי)?|שלום(?:\s+יוסי)?|אהלן(?:\s+יוסי)?|'
-    r'אני בסדר(?:\s*,?\s*איך אתה)?|איך אתה|מה שלומך|מה קורה)'
-    r'[!?.\s]*',
-    body.strip(),
-    flags=re.IGNORECASE
-))
 
-if social_chat:
-    data['needs_human'] = False
-    if 'איך אתה' in body or 'מה שלומך' in body:
-        reply = 'גם אצלי הכול טוב, תודה ששאלת 😊'
-    else:
-        reply = 'היי 😊 מה שלומך?'
-      
+            # Small talk must not trigger professional escalation to the owner.
+            # Keep this guard close to the automatic_handoff decision.
+            social_chat = bool(re.fullmatch(
+                r'\s*(?:היי(?:\s+יוסי)?|שלום(?:\s+יוסי)?|אהלן(?:\s+יוסי)?|'
+                r'אני בסדר(?:\s*,?\s*איך אתה)?|איך אתה|מה שלומך|מה קורה)'
+                r'[!?.\s]*',
+                body.strip(),
+                flags=re.IGNORECASE
+            ))
+            if social_chat:
+                data['needs_human'] = False
+                if 'איך אתה' in body or 'מה שלומך' in body:
+                    reply = 'גם אצלי הכול טוב, תודה ששאלת 😊'
+                else:
+                    reply = 'היי 😊 מה שלומך?'
+
             automatic_handoff = (bool(data.get('needs_human')) and not callback_requested
                                  and not direct_identity and not showroom_question
                                  and not competitor_exit and not re.fullmatch(r'\s*(?:היי|שלום|אהלן|תודה|ביי)[!?.\s]*', body))
