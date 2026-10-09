@@ -429,7 +429,7 @@ def requests_catalog_samples(text):
         return False
     request_verb = r'(?:תשלח|שלח|לשלוח|אפשר\s+(?:לראות|לקבל)|רוצה\s+לראות|אשמח\s+לראות|תראה\s+לי|תראי\s+לי|יש\s+לכם|יש\s+לך|הצג|להראות)'
     photo_object = r'(?:תמונ\w*|דוגמ\w*|סוגי\s+זכוכית|סוגי\s+הזכוכית|דוגמאות|הזכוכיות)'
-    return bool(re.search(request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
+    return bool(re.search(r'אפשר\s+תמונ\w*', text, re.I) or re.search(request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
                 or re.search(photo_object + r'[^.!?\n]{0,55}' + request_verb, text, re.I))
 
 
@@ -621,7 +621,7 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 - מחיר: אם הלקוח ביקש מחיר, זה יעד פעיל של השיחה. אסוף רק נתונים הנדרשים להצעה ואל תקפוץ לתיאום מדידה לפני שנתת מענה למחיר או הסברת ביושר מדוע עוד אי אפשר. אם מערכת התמחור לא סיפקה מחיר מאומת, אל תמציא סכום ואל תבטיח שהצעה כבר נשלחה. אם חסר רק נתון אחד, שאל עליו, לא על דברים צדדיים.
 - התלבטות: אם הלקוח לא בטוח, עזור לו להשוות על פי הצורך שהביע, בלי ללחוץ. אם יש התנגדות מחיר, נסה להבין אם זו חריגה מהתקציב או השוואה להצעה אחרת. אל תמציא הנחה.
 - קבלת החלטה: רק כשהלקוח כבר מבין את ההצעה ונראה בשל להתקדם, אפשר לשאול בעדינות אם הוא מחליט בעצמו או שיש עוד מישהו שחשוב לו להתייעץ איתו. אל תניח שמדובר באשתו. הצע סיכום נוח לשיתוף אם צריך.
-- סגירה: רק אחרי התאמה והסכמה, הצע צעד מעשי כמו מדידה. אל תטען שתיאמת, שלחת או העברת פרטים אם לא בוצעה פעולה אמיתית.
+- סגירה: רק אחרי התאמה והסכמה, הצע להתקדם להצעת מחיר לפי נתוני הלקוח. מדידה בשטח היא רק אחרי אישור הצעת המחיר וכשהריצוף הושלם, פרט להכנות מיוחדות לפני ריצוף לפי בקשת הלקוח. אל תטען שתיאמת, שלחת או העברת פרטים אם לא בוצעה פעולה אמיתית.
 
 דוגמאות לעקרונות ולא למשפטים לשינון:
 לקוח שמתכנן חדר 2x2 בלי מיקום כלים אינו צריך עוד רשימת סוגי מקלחונים; הוא צריך עזרה בהבנת מגבלות החלל. שאל למשל על מיקום דלת הכניסה אם זה הפרט החשוב הבא. לקוח שביקש מחיר ומסר פינתי 100x100, גובה 200, שני קבועים ושתי דלתות, פרזול שחור וידית מגבת אחת וכפתור אחד אינו צריך שאלה על איזו דלת תקבל איזו ידית; זה ייקבע בשטח. חסרה בחירת סוג הזכוכית. כשלקוח אומר שאינו מבין משהו, הסבר בפשטות ואז שאל רק אם צריך.
@@ -679,8 +679,65 @@ IDENTITY_AND_EDGE_CASES = """
 אל תציע מיוזמתך הצעת מחיר רשמית, מסמך רשמי, הצעה כתובה או הכנת הצעה אחרי כל מחיר. אל תסיים כל תשובה בשאלה. אם הלקוח מבקש מחיר, תן מידע מאומת או שאל רק על הנתון ההכרחי.
 """
 
+
+# BUSINESS POLICY — approved workflow and trust-first sales approach.
+CUSTOM_SALES_WORKFLOW = """
+אתה איש מכירות יוזם, אבל קשוב למצב הלקוח. בכל פנייה ענה קודם לשאלה הנוכחית, ובשלב המתאים הצע צעד אחד שמקדם את העסקה. אל תסיים כל תגובה בשאלה או בבקשה למידה. אל תציג את עצמך מחדש באמצע השיחה. לעולם אל תדקלם תשובה ישנה לשאלה חדשה. כשלקוח מבקש תמונות עבודות, התמקד בעבודות ולא בסוגי זכוכית או תמונות של ידיות.
+סדר עבודה מחייב: ייעוץ והבנת הצורך בוואטסאפ -> הצעת מחיר לפי מידות משוערות, תמונה או תוכנית והפרטים שקיימים -> הלקוח מאשר את ההצעה -> רק לאחר שסיימו ריצוף מתאמים הגעה למדידה סופית ותכנון משותף בשטח -> אישור מפרט וביצוע. לעולם אל תדרוש ביקור בשטח כדי לתת הצעת מחיר, ולעולם אל תזמין למדידה לפני אישור הצעת מחיר. חריג בלבד: לקוח שמבקש הגעה להכנות לפני הריצוף; ביקור הכנות אינו מדידה סופית. לא לקבוע או להבטיח הגעה בלא תיאום אמיתי.
+לקוח שמשפץ, לא יודע פרטים ולא מוכן כעת: אל תחזור לשאול על רוחב, דלת או צילום לאחר שאמר שאינו יודע. תן לו תחושה שאנחנו כאן בשבילו; הצע שיחזור כשהשיפוץ יתקדם, או שאל אם נוח לו שנתאם חזרה בתאריך/זמן שהוא יבחר. הצעת חזרה היא לא חזרה מתוזמנת בפועל; אין להבטיח התקשרות יזומה אם לא נרשמה בקשה אמיתית עם מועד ויכולת ביצוע. אין להציע מדידה במצב הזה.
+לקוח חם שרוצה לסגור: הובל בצורה בטוחה לבירור הפרט הבא הדרוש להצעת מחיר, לא למדידה. כשאין די פרטים, תן לו תהליך ברור ותציע צילום או מידה משוערת רק אם לא אמר שאין לו אותם.
+במקלחון חזיתי אל תבחר אוטומטית הזזה בגלל אסלה סמוכה. שקול קבוע ודלת, שני קבועים ודלת אמצעית והזזה לפי מיקום האסלה, הדוש, דלת חדר הרחצה, המרווחים וההעדפה. הצג 2 חלופות מועילות ולא רשימת קטלוג; בדיקת שטח סופית רק לאחר אישור ההצעה והריצוף.
+מחיר: אל תחזור על מינימום 2000 ש״ח אם כבר הובהר בשיחה, אלא אם הלקוח שואל שוב. בהשוואה למתחרים אל תניח שזכוכיתו דקה, שהפרזול זול או שאין לו אחריות. הדגש עובדות מאושרות: מחוסמת 8 מ״מ, פרזול פליז פרימיום, התקנה כלולה, 7 שנים לפרזול ושנה להתקנה. אל תדרוש שוב בירור מהלקוח שאמר שאינו יודע מה הוצע לו.
+יש לעסק חשבון אינסטגרם ודף נחיתה. אל תגיד שאין אינסטגרם. מסור קישורים רק אם הוגדרו במערכת; אם לא הוגדרו, אמור שיש לעסק ושקישור מדויק אפשר להעביר בהמשך, בלי להמציא כתובת.
+אם בקשת לקוח לשליחת תמונות לא בוצעה, אל תבטיח שליחתן; בדוק את אפשרויות הקטלוג והיה כן אם נכשל. אין להזכיר תמונות ידיות בלי בקשת ידיות.
+דיבור: ישראלי, אדיב, מקצועי, טבעי. לא לכנות כל לקוח 'אחי' אם הוא לא השתמש בכך. תן ייעוץ בעל ערך לפני שאלת ההמשך; הימנע מ'יוסי פה', 'כדי שאנחנוח', ממונחים טכניים שלא מוסברים, ומחזרה על שאלות שענו עליהן.
+"""
+
+INSTAGRAM_URL = os.getenv('INSTAGRAM_URL', '').strip()
+LANDING_PAGE_URL = os.getenv('LANDING_PAGE_URL', '').strip()
+
+
+def requests_portfolio_photos(text):
+    """Explicit requests for finished jobs, general examples, or a portfolio."""
+    text = str(text or '').strip()
+    if correcting_unrequested_photo(text) or requests_all_glass_types(text):
+        return False
+    if re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I) and not re.search(r'עבוד|פרויקט|מקלחונים\s+שעשיתם', text, re.I):
+        return False
+    ask = r'(?:תשלח|שלח|לשלוח|אפשר|יש\s+לכם|יש\s+לך|רוצה|אשמח|תראה|לראות|הרא|אפשרות)'
+    obj = r'(?:תמונ\w*|דוגמא\w*|דוגמ\w*|עבוד\w*|פרויקטי\w*|מקלחונים)'
+    portfolio = r'(?:עבוד\w*|פרויקטי\w*|מקלחונים|דוגמ\w*|תמונ\w*)'
+    return bool(re.search(ask + r'[^.!?\n]{0,90}' + obj, text, re.I) and
+                (re.search(r'עבוד|פרויקט|מקלחונ|איך\s+זה\s+נראה|להתרשם|קצת\s+דוגמא', text, re.I) or
+                 (not re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I)
+                  and re.search(portfolio, text, re.I))))
+
+
+def pick_portfolio_photos(text, max_photos=4):
+    """Prefer diverse authentic shower jobs, not one of each glass type."""
+    if not requests_portfolio_photos(text):
+        return []
+    matching = [p for p in PHOTO_CATALOG if 'מקלחון' in p['product'] or 'אמבטיון' in p['product']]
+    choices = matching or list(PHOTO_CATALOG)
+    seen_glass, seen_url, picked = set(), set(), []
+    for item in choices:
+        if item['glass'] not in seen_glass and item['url'] not in seen_url:
+            picked.append(item); seen_glass.add(item['glass']); seen_url.add(item['url'])
+            if len(picked) >= max_photos:
+                return picked
+    for item in choices:
+        if item['url'] not in seen_url:
+            picked.append(item); seen_url.add(item['url'])
+            if len(picked) >= max_photos:
+                break
+    return picked
+
+
+def is_not_ready_for_measurement(text):
+    return bool(re.search(r'עוד\s+(?:באמצע|בתהליך)|בלאגן|בלגן|עדיין\s+(?:משפצ|בשיפוץ|לא\s+סיימ)|כש\s*יסיימ|נראה\s*לי\s*עדיף\s*שנדבר\s*כש|נדבר\s*כשה|עוד\s*לא\s*מוכן', str(text or ''), re.I))
+
 BUSINESS_UPDATES = """
-עובדות עסקיות מאושרות: לא עובדים ביום שישי. כל המחירים לפני מע״מ, אלא אם נאמר אחרת. מקלחונים בזכוכית מחוסמת 8 מ״מ, עם התקנה כלולה. הפרזול עשוי פליז פרימיום. יש 7 שנות אחריות מלאות על הפרזול בלבד; אל תרחיב את האחריות לזכוכית או לעבודות אחרות.
+עובדות עסקיות מאושרות: לא עובדים ביום שישי. כל המחירים לפני מע״מ, אלא אם נאמר אחרת. מקלחונים בזכוכית מחוסמת 8 מ״מ, עם התקנה כלולה. הפרזול עשוי פליז פרימיום. יש 7 שנות אחריות על הפרזול, ושנה אחריות על ההתקנה. אל תייחס 7 שנות אחריות להתקנה או לזכוכית; לא הוגדר כיסוי נפרד לזכוכית ואין להמציא תנאים וחריגים.
 זמני התקנה משוערים, לא התחייבות: מקלחון אחד כשעה, שתי יחידות כשעתיים, שלוש יחידות כשלוש שעות, בהתאמה למורכבות. מראה אחת כחצי שעה, שתי מראות כשעה. מחיצת זכוכית כשתיים עד שלוש שעות ליחידה; מספר מחיצות או עבודות מורכבות מחייבים בירור נוסף, ואין להבטיח זמן סופי בלי פרטי השטח. אם יש מספר סוגי מוצרים, אפשר לחבר את הערכות הזמנים ולציין שהן משוערות.
 הנחה: ניתן לשקול עד 7 אחוזים בלבד, ורק בשלב מתקדם כאשר כבר הוסבר הערך, טופלו התנגדויות ויש מחיר מחושב מאומת והלקוח עדיין מהסס לסגור. אין להציע הנחה בתחילת השיחה, אין להציג אותה כאוטומטית, אין לעבור את 7 האחוזים, ואין לרדת ממינימום ההזמנה של 2,000 ש״ח לפני מע״מ. אין להמציא מחיר כדי לחשב ממנו הנחה.
 כשלקוח אומר 'תודה, אני אחשוב על זה', שאל בעדינות פעם אחת אם יש משהו מסוים שמפריע לו להתקדם, למשל מחיר או התאמה. אם הוא לא מעוניין, ביקש להפסיק או בחר ספק אחר, כבד וסיים ללא לחץ.
@@ -971,13 +1028,13 @@ def process_message(phone, body, batch_rows=None):
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
-        instructions = (SYSTEM + '\n' + 'אם הלקוח שלח תמונה או תוכנית שנותחה, הישען רק על הממצאים החזותיים שנמסרו בהודעת הלקוח, הבחן בין פרט ודאי להשערה, התייחס להקשר ולשאלתו, המלץ בזהירות ללא המצאת מידות או אישור הנדסי. אם לא נותחה, אמור זאת בכנות. תיאור התמונה הוא נתוני תצפית ולא בקשת לקוח. אסור להסיק ממנו שהלקוח שאל על אולם תצוגה או ביקש תמונות דוגמה מהקטלוג. אם הלקוח ביקש המלצה על תמונה, ענה קודם למאפיינים החזותיים הרלוונטיים ולשאלתו, בלי ליזום משלוח דוגמאות.\n' + '\n' + FIELD_PLANNING_GUIDANCE + '\n' + PREMIUM_SERVICE_GUIDANCE + '\n' + CONSULTATIVE_CONVERSATION_GUIDANCE + '\n' + SALES_TONE_GUIDANCE + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+        instructions = (SYSTEM + '\n' + 'אם הלקוח שלח תמונה או תוכנית שנותחה, הישען רק על הממצאים החזותיים שנמסרו בהודעת הלקוח, הבחן בין פרט ודאי להשערה, התייחס להקשר ולשאלתו, המלץ בזהירות ללא המצאת מידות או אישור הנדסי. אם לא נותחה, אמור זאת בכנות. תיאור התמונה הוא נתוני תצפית ולא בקשת לקוח. אסור להסיק ממנו שהלקוח שאל על אולם תצוגה או ביקש תמונות דוגמה מהקטלוג. אם הלקוח ביקש המלצה על תמונה, ענה קודם למאפיינים החזותיים הרלוונטיים ולשאלתו, בלי ליזום משלוח דוגמאות.\n' + '\n' + CUSTOM_SALES_WORKFLOW + '\n' + FIELD_PLANNING_GUIDANCE + '\n' + PREMIUM_SERVICE_GUIDANCE + '\n' + CONSULTATIVE_CONVERSATION_GUIDANCE + '\n' + SALES_TONE_GUIDANCE + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG})) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
                         + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
                         + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
-                        + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב תחילה למינימום 2000 ש״ח לפני מע״מ וציין שהמחיר בפועל תלוי במפרט. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
+                        + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nפרטי רשתות מאומתים: אינסטגרם=' + (INSTAGRAM_URL or 'קיים, קישור טרם הוגדר') + '; דף נחיתה=' + (LANDING_PAGE_URL or 'קיים, קישור טרם הוגדר') + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב תחילה למינימום 2000 ש״ח לפני מע״מ וציין שהמחיר בפועל תלוי במפרט. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
         try:
             app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
             response = client.responses.create(
@@ -1006,8 +1063,12 @@ def process_message(phone, body, batch_rows=None):
                 reply = direct_identity
             if 'שישי' in body and any(x in body for x in ('עובדים', 'פתוחים', 'מגיעים', 'מתקינים')):
                 reply = 'לא, אנחנו לא עובדים בימי שישי.'
-            if 'אחריות' in body and any(x in body for x in ('כמה', 'יש', 'מה', 'שנים')):
-                reply = 'יש 7 שנות אחריות מלאות על הפרזול, שעשוי פליז פרימיום.'
+            if 'אחריות' in customer_request and any(x in customer_request for x in ('כמה', 'יש', 'מה', 'שנים')):
+                reply = 'כן, יש 7 שנות אחריות על הפרזול ושנה אחריות על ההתקנה. אם תרצה לדעת מה מכוסה במקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
+            if re.search(r'אינסטגרם|instagram', customer_request, re.I):
+                reply = ('כן, יש לנו אינסטגרם 🙂 ' + (INSTAGRAM_URL if INSTAGRAM_URL.startswith('https://') else 'אין לי כרגע קישור מדויק כאן, אבל אפשר לבקש מאיתנו את הקישור.'))
+            if re.search(r'דף נחיתה|אתר\s+שלכם|אתר\s+אינטרנט', customer_request, re.I):
+                reply = ('כן, יש לנו דף נחיתה. ' + (LANDING_PAGE_URL if LANDING_PAGE_URL.startswith('https://') else 'הקישור המדויק עדיין לא הוגדר לי.'))
             if showroom_question:
                 reply = ('סליחה, טעיתי קודם. אנחנו מרמלה אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊' if showroom_claimed else 'אנחנו מרמלה, אבל אין לנו אולם תצוגה שאפשר להגיע אליו 😊')
             callback_requested = is_callback_request(body)
@@ -1055,10 +1116,16 @@ def process_message(phone, body, batch_rows=None):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
                     reply = ('מקלחון אצלנו מתחיל מ־2,000 ₪ לפני מע״מ. '
-                             'המחיר בפועל תלוי בגודל ובתצורה, אז זו נקודת פתיחה ולא הצעת מחיר סופית.')
+                             'המחיר בפועל תלוי בגודל ובתצורה, אז זו נקודת פתיחה ולא הצעת מחיר לפי פרטים משוערים.')
+            if re.search(r'רוצה\s+(?:לסגור|להתקדם)|מה\s+צריך\s+ממני', customer_request, re.I) and re.search(r'מתי\s+נוח.*מדיד|נבוא\s+למדיד|כדי\s+להתקדם\s+צריך\s+מדידה', reply, re.I):
+                reply = ('אפשר להתקדם כבר עכשיו להצעת מחיר לפי מה שידוע על השטח. אחרי אישור ההצעה וסיום הריצוף נגיע למדידה סופית. '
+                         'יש לך מידה משוערת או צילום של האזור?')
             # Do not expose internal infrastructure or disabled pricing to customers.
             if not showroom_question and any(term in reply for term in ('תמחור אוטומטי', 'מערכת התמחור', 'התמחור לא פעיל')):
                 reply = 'בשמחה. כדי לתת לך מחיר אמין אני צריך לוודא את הפרטים של העבודה. על איזה מוצר מדובר?'
+            if is_not_ready_for_measurement(customer_request) and re.search(r'מתי\s+נוח.*(?:מדיד|נגיע)|נקבע\s+מדידה|מדידה\s+מוקדמת', reply, re.I):
+                reply = ('אין בעיה, לא צריך להחליט עכשיו. כשתסיימו את השיפוץ נוכל לעבור יחד על האפשרויות. '
+                         'אם נוח לך, אפשר גם להשאיר בקשה שנחזור אליך במועד שתבחר, כדי שלא תצטרך לזכור לפנות אלינו.')
             # If the customer sent a correction while we were composing, retry
             # with the new messages rather than sending a stale response.
             delay = min(TYPING_MAX, max(TYPING_MIN, len(reply) / 23.0))
@@ -1080,7 +1147,10 @@ def process_message(phone, body, batch_rows=None):
                     reply = ('קיבלתי את הבקשה, אבל יש כרגע תקלה ברישום החזרה. '
                              'לא אוכל לאשר שהיא נשמרה. אפשר לנסות שוב בעוד כמה דקות?')
             # Decide which photos will be sent BEFORE writing the accompanying text.
-            photos = pick_sample_photos(customer_request, history, data or prior)
+            photos = (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, data or prior))
+            if not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
+                if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
+                    photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים')
             if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
                 requested = explicitly_requests_catalog_photos(customer_request)
                 if requested:
@@ -1097,20 +1167,24 @@ def process_message(phone, body, batch_rows=None):
             if photos:
                 # The model must not claim absent catalog types are attached.
                 # Only the photo sender's captions identify the images sent.
-                if requests_all_glass_types(customer_request):
+                if requests_portfolio_photos(customer_request):
+                    reply = 'בחרתי כמה דוגמאות מעבודות שלנו כדי שתוכל להתרשם מהסגנונות ומהגימור.'
+                elif requests_all_glass_types(customer_request):
                     reply = ('בשמחה, מצרף לך דוגמה אחת מכל סוג זכוכית שיש לנו '
                              'עבורו תמונה זמינה, כדי שתוכל להשוות בין הגוונים והמרקמים. '
                              'התמונות ממחישות את הזכוכית, ולא בהכרח את תצורת המקלחון.')
                 else:
                     reply = align_reply_with_sent_photos(reply, photos)
-            elif requests_catalog_samples(customer_request):
+            elif requests_catalog_samples(customer_request) or requests_portfolio_photos(customer_request):
                 # Keep the sales advice that the model gave; don't replace it with
                 # a canned catalog error unless it explicitly promises delivery.
                 if re.search(r'מצרף|שלחתי|הנה\s+התמונ|הנה\s+הדוגמא', reply):
-                    reply = ('אין לי כרגע תמונה מתאימה לשליחה, אבל אוכל להסביר '
-                             'את ההבדלים ולעזור לך לבחור.')
+                    reply = ('ניסיתי למצוא תמונות מתאימות, אבל לא הצלחתי לצרף אותן כרגע. אוכל לנסות שוב בהמשך. '
+                             'בינתיים אשמח לעזור לך להבין מה יתאים לחדר שלך.')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
-            send_whatsapp(phone, body=reply)
+            # Gallery captions follow only images successfully accepted by WhatsApp.
+            # A send failure must never be described to the customer as a delivered image.
+
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
@@ -1122,11 +1196,13 @@ def process_message(phone, body, batch_rows=None):
                 except requests.RequestException:
                     failed_photos.append(photo['glass'])
                     app.logger.exception('Could not send sample photo for glass %s', photo['glass'])
-            if failed_photos:
-                try:
-                    send_whatsapp(phone, body='חלק מהתמונות לא הצליחו להישלח כרגע. אפשר לנסות שוב עוד מעט.')
-                except requests.RequestException:
-                    app.logger.exception('Could not notify customer about photo sending failure')
+            if photos:
+                sent_count = len(photos) - len(failed_photos)
+                if not sent_count:
+                    reply = 'סליחה, ניסיתי לשלוח תמונות אבל השליחה לא הצליחה כרגע. לא אטען שהן נשלחו. אפשר לנסות שוב מעט מאוחר יותר.'
+                elif failed_photos:
+                    reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
+            send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], {
                 key: data.get(key) for key in (
                     'stage','action','next_missing_fact','product','configuration',
