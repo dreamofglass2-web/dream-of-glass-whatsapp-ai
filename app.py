@@ -379,54 +379,77 @@ PHOTO_CATALOG = load_photo_catalog()
 
 
 def pick_sample_photos(body, history, context, max_photos=4):
-    """Send only when photos are requested or accepted; one photo per glass type."""
+    """One example per explicitly requested glass type, including comparisons."""
     if not PHOTO_CATALOG:
         return []
-    asked = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות (?:איך|דוגמא)|איך (?:זה |היא |הוא )?נראה|תראה לי|תשלח לי (?:תמונה|דוגמה)|צלומ', body))
+    asked = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי|צלומ|צילום', body))
     accepted = (body.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
                 any('תמונ' in str(m.get('content','')) or 'דוגמא' in str(m.get('content',''))
                     for m in history[-3:] if m.get('role') == 'assistant'))
     if not (asked or accepted):
         return []
-    text = ' '.join(str(m.get('content','')) for m in history[-5:] if m.get('role') == 'user')
-    synonyms = {'גלינה קליר': ('גלינה',),
-                'אסיד קליר': ('אסיד קליר',),
-                'אקסטרה קליר': ('אקסטרה קליר','א.קליר','א קליר'),
-                'שקופה': ('שקוף','שקופה','קליר'), 'אנטיסן ברונזה': ('אנטיסן ברונזה',),
-                'אנטיסן אפור': ('אנטיסן אפור',), 'פיפיטה': ('פיפיטה','פפיטה'),
-                'חלבי': ('חלבי','חלבית'), 'אסיד': ('אסיד',)}
-    # Prioritize the last explicitly named glass, otherwise known conversation glass.
-    target = None
-    for key, words in synonyms.items():
-        if any(w in body for w in words):
-            target = key
-            break
-    target = target or (context.get('glass_type') if context else None)
-    if target not in GLASS_COSTS:
-        target = None
-    mentions_all = bool(re.search(r'כל (?:הסוגים|הזכוכיות)|מבחר|אפשרויות|סוגי זכוכית', body))
-    if target and not mentions_all:
-        selected_types = [target]
-    else:
-        selected_types = list(GLASS_COSTS.keys())
-    # Pick closest relevant product where possible, but never require exact model.
-    product_text = text + ' ' + str((context or {}).get('product') or '')
+
+    aliases = {
+        'גלינה קליר': (r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?',),
+        'אסיד קליר': (r'אסיד\s*קליר',),
+        'אקסטרה קליר': (r'אקסטרה\s*קליר|(?<!גלינה\s)א\.\s*קליר',
+                       r'(?<!גלינה\s)א\s+קליר'),
+        'אנטיסן ברונזה': (r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה',),
+        'אנטיסן אפור': (r'אנטיסן\s*אפור|זכוכית\s*אפורה',),
+        'פיפיטה': (r'פיפיטה|פפיטה',),
+        'חלבי': (r'חלבית?|חלבי',),
+        'אסיד': (r'אסיד(?!\s*קליר)',),
+        'שקופה': (r'שקופ(?:ה|ה)?|שקוף',),
+    }
+    # Find every explicit type; never treat the generic word "קליר" as clear glass.
+    # Process more specific types first so Galina and Acid Clear stay distinct.
+    selected_types = []
+    for glass, patterns in aliases.items():
+        if any(re.search(pattern, body) for pattern in patterns):
+            selected_types.append(glass)
+    if not selected_types:
+        previous = (context or {}).get('glass_type')
+        if previous in GLASS_COSTS:
+            selected_types = [previous]
+        elif re.search(r'כל (?:הסוגים|הזכוכיות)|מבחר|אפשרויות|סוגי זכוכית', body):
+            selected_types = list(GLASS_COSTS)
+        else:
+            # An open request gets at most two clearly labelled examples.
+            selected_types = list(GLASS_COSTS)[:2]
+
+    product_text = ' '.join(str(m.get('content','')) for m in history[-5:] if m.get('role') == 'user')
+    product_text += ' ' + str((context or {}).get('product') or '')
     results = []
-    seen_glass = set()
     for glass in selected_types:
         candidates = [x for x in PHOTO_CATALOG if x['glass'] == glass]
         if not candidates:
             continue
-        candidates.sort(key=lambda x: sum(1 for word in ('מקלחון','אמבטיון','מחיצה','מראה')
-                                          if word in product_text and word in (x['product']+' '+x['configuration'])),
-                        reverse=True)
-        pic = candidates[0]
-        if glass not in seen_glass:
-            results.append(pic)
-            seen_glass.add(glass)
+        candidates.sort(key=lambda x: sum(
+            1 for word in ('מקלחון','אמבטיון','מחיצה','מראה')
+            if word in product_text and word in (x['product'] + ' ' + x['configuration'])),
+            reverse=True)
+        results.append(candidates[0])
         if len(results) >= max_photos:
             break
     return results
+
+
+def align_reply_with_sent_photos(reply, photos):
+    """Don't ask permission to send photos when the caller already requested them."""
+    if not photos:
+        return reply
+    original = reply.strip()
+    # Strip only a trailing redundant invitation to send photos, not sales questions.
+    cleaned = re.sub(
+        r'\s*(?:רוצה|תרצה|תרצי|אפשר|מעוניין|מעוניינת|אשמח)'
+        r'[^.!?\n]{0,90}(?:אשלח|לשלוח|שנשלח|דוגמאות|תמונות)'
+        r'[^.!?\n]{0,50}[?؟]\s*$', '', original)
+    cleaned = re.sub(r'\s*יש לנו תמונות[^.!?\n]{0,120}לשלוח לך עכשיו\??\s*$', '', cleaned)
+    if not cleaned:
+        cleaned = 'בשמחה 😊'
+    # Correct a misleading singular caption if two different glass types were selected.
+    label = ', '.join(p['glass'] for p in photos)
+    return cleaned.rstrip() + (' הנה דוגמאות של ' if len(photos) > 1 else ' הנה דוגמה לזכוכית ') + label + '.'
 
 SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חלומות מזכוכית" בוואטסאפ. מטרתך לנהל בעצמך שיחה אנושית, מועילה ומדויקת, ולא לדקלם שאלון או לדחוף למכירה. כתוב עברית ישראלית טבעית, לרוב 1–3 משפטים קצרים ושאלה אחת לכל היותר. בלי רשימות, כותרות, נקודתיים ומקפים מיותרים, ובלי לפתוח שוב ושוב ב"מעולה". אם הלקוח כתב רק "היי", ענה בברכה אנושית פשוטה ושאל איך אפשר לעזור, בלי למנות מוצרים.
 
@@ -836,21 +859,22 @@ def process_message(phone, body, batch_rows=None):
                 else:
                     reply = ('קיבלתי את הבקשה, אבל יש כרגע תקלה ברישום החזרה. '
                              'לא אוכל לאשר שהיא נשמרה. אפשר לנסות שוב בעוד כמה דקות?')
-            app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
-            send_whatsapp(phone, body=reply)
-            if image_ready and data.get('send_handle_images') is True:
-                send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
-                send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
-            # Photos are optional illustrations, never sent just to push a sale.
-            # The legacy per-glass links remain supported as a fallback.
+            # Decide which photos will be sent BEFORE writing the accompanying text.
             photos = pick_sample_photos(body, history, data or prior)
             if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
                 requested = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי', body))
                 if requested:
                     wanted = data.get('glass_type') or (prior or {}).get('glass_type')
                     names = ([wanted] if wanted in GLASS_SAMPLE_IMAGES else list(GLASS_SAMPLE_IMAGES))
-                    photos = [{'glass':name, 'url':GLASS_SAMPLE_IMAGES[name]}
-                              for name in names[:4]]
+                    photos = [{'glass': name, 'url': GLASS_SAMPLE_IMAGES[name]}
+                              for name in names[:2]]
+            reply = align_reply_with_sent_photos(reply, photos)
+            app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
+            send_whatsapp(phone, body=reply)
+            if image_ready and data.get('send_handle_images') is True:
+                send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
+                send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
+            # Photos are optional illustrations, never sent just to push a sale.
             for photo in photos:
                 try:
                     send_whatsapp(phone, image_url=photo['url'], caption='דוגמה לזכוכית ' + photo['glass'])
