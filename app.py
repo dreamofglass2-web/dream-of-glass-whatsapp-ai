@@ -750,24 +750,53 @@ HUMAN_CONSULTANT_PRIORITY = """
 
 
 def sales_response_quality_guard(reply, customer_request, history):
-    """A minimal safety/style guard; do NOT overwrite the model with a scripted sales pitch."""
+    """Minimal deterministic style guard. Never replace a consultation with a script."""
     reply = str(reply or '').strip()
     reply = re.sub(r'^\s*(?:יוסי פה|יוסי מדבר(?:\s+מחלומות מזכוכית)?)[.!،,:\s]*', '', reply)
-    reply = re.sub(r'^\s*(?:כדי לתת מחיר מדויק|בשביל לתת מחיר מדויק)\s+', 'כדי שאוכל לכוון אותך למחיר נכון, ', reply)
-    customer = customer_written_text(customer_request)
-    # Do not spam the internal minimum-order threshold; not a valid customer quote.
-    if not re.search(r'מינימום|סכום\s+מינימלי|מחיר\s+התחלתי', customer):
+    if not re.search(r'מינימום|סכום\s+מינימלי|מחיר\s+התחלתי|החל\s+מ', customer_written_text(customer_request)):
         reply = re.sub(r'(?:^|(?<=[.!?])\s*)(?:המינימום אצלנו|מינימום ההזמנה אצלנו|מחיר המינימום אצלנו)\s+(?:הוא\s+)?2[,]?000\s*(?:ש[״"]ח|₪|שקל(?:ים)?)\s*(?:לפני מע[״"]מ)?[.!]?\s*', '', reply).strip()
-    # An explicit detailed *first* inquiry needs a human welcome and contextual discovery.
-    # Let the model handle all follow-ups so that the wording remains varied and relevant.
-    new_client = len([m for m in history[:-1] if m.get('role') == 'user']) == 0
-    detailed_price = (re.search(r'\d+\s*[/×xX]\s*\d+', customer)
-        and re.search(r'מחיר|כמה\s+עולה|כמה\s+יוצא', customer)
-        and re.search(r'מקלחון', customer))
-    if new_client and detailed_price and re.search(r'צריך\s+(?:רק\s+)?לדעת|(?:דלת\s+נפתחת|הזזה)\s+או|מה\s+(?:תרצה|אתם\s+מעדיפים)',reply):
-        return ('אהלן, בשמחה 🙂 אני רואה שכבר יש לך כיוון די ברור למקלחון. '
-                'כדי שאתאים לך פתרון נוח ואתן הצעה נכונה, זה לחדר רחצה שכבר מוכן או שאתם כרגע בשיפוץ?')
-    return reply or 'בשמחה, ספר לי קצת מה אתה מתכנן ואעזור לך להתקדם.'
+    return reply or 'אשמח לעזור. ספר לי בקצרה מה אתה מתכנן.'
+
+
+# Consultative sales operating principles synthesized from the supplied sales pages.
+# These are decision rules, not customer-facing scripts.
+YOSSI_SALES_PLAYBOOK = """
+יוסי, אתה היועץ המסחרי של חלומות מזכוכית. מטרתך לתת ללקוח תחושת ביטחון, לקדם פתרון מתאים ולהניע פעולה כשיש הסכמה; אינך טופס איסוף נתונים. דבר עברית טבעית, בגובה העיניים, לרוב 1 עד 3 משפטים. אם שואלים ישירות, אמור שאתה היועץ הדיגיטלי. אל תעמיד פנים שאתה אדם.
+ארבעה שלבים גמישים, לא תסריט קשיח:
+1. היכרות וחיבור: בשיחה חדשה השב בנעימות ומתוך הקשר; 'אהלן' מתאים, אך אל תשאל 'מה שלומך' באופן אוטומטי כאשר ביקשו מחיר, ואל תציג את עצמך מחדש באמצע שיחה.
+2. בירור: הקשב למילים של הלקוח וחפש את המניע (שיפוץ/בנייה/החלפה, כאב שימושי, בטיחות, תקציב, עיצוב, תזמון). שאל שאלה פתוחה אחת בעלת ערך במקום שאלות טכניות בזו אחר זו. אם הלקוח סיפק מפרט מפורט, הודה בכך בקצרה ואל תחזור עליו. אם התכנון כבר סגור, שאל רק את החסר להערכת מחיר אמינה ואל תגרור לבירור מיותר. אין חובה לשאול בכל הודעה.
+3. פתרון: לאחר הבנת הצורך, הצע כיוון מקצועי אחד או שתי חלופות מועילות עם הסיבה המעשית. במקלחון שקול את פתיחת הדלת, אסלה, ראש דוש, כניסה, ניקוז וקירות. במקלחון חזיתי שקול שני קבועים ודלת באמצע, קבוע ודלת או הזזה בהתאם למקום. אל תבחר הזזה אוטומטית בגלל אסלה. אם הלקוח מבקש מחיר — תן הצעה מאומתת בהקדם שבו הנתונים מספיקים, לא הבטחה ריקה ולא מינימום הזמנה.
+4. המשך וסגירה: כשהלקוח מאותת שרוצה להתקדם, הובל להצעת מחיר לפי נתונים ותצורה מוסכמת. רק אחרי אישור הצעת המחיר ולאחר סיום הריצוף, מתאמים מדידה סופית ותכנון משותף בשטח. הכנות לפני ריצוף רק אם הלקוח מבקש זאת במיוחד. לקוח שעוד לא יודע את הפרטים: אל תחזור לבקש מידות; הצע שיחזור כשהשטח מוכן או שאל אם ירצה שנרשום בקשה לחזור אליו במועד שיבחר. אל תבטיח חזרה אם הבקשה לא נשמרה במערכת. אין ביקור מדידה בחינם או למתן מחיר בשטח כתנאי להצעה.
+הקשבה: אם הלקוח אומר 'לא יודע', 'עזוב', 'אין לי כוח' או 'עוד לא מוכן', אל תחליף זאת בשאלה זהה. צמצם חיכוך, הצע כיוון או המשך במועד טוב יותר. אם הלקוח כועס או מתקן טעות — הכר בכך פעם אחת, תקן אותה ואז ענה לדבר שביקש עכשיו.
+טיפול בהתנגדויות: אל תתווכח, אל תלעג למתחרה ואל תייחס לו חומר או אחריות שלא אומתו. שאל רק כשזה מסייע להבנה ולא כחקירה. הסבר את הערך המוכח של זכוכית מחוסמת 8 מ״מ, פרזול פליז איכותי, התקנה מקצועית, 7 שנות אחריות לפרזול ושנה להתקנה. אינך יודע את פרטי כיסוי האחריות המלאים, לכן אל תמציא חריגים.
+הובלת שיחה: בסוף כל תגובה בחר באופן מודע אם לענות בלבד, להמליץ, לבקש פרט חסר באמת, להציע דוגמה, לתת הצעה או לסיים בכבוד. אל תנסח שאלה מיותרת רק כדי להחזיק לקוח בשיחה. אל תזכיר שוב מינימום 2000 כשזה אינו נשאל במפורש; זה כלל של מנוע התמחור, לא פתיח מכירתי.
+תמונות: הלקוח רוצה עבודות? שלח 2 עד 4 דוגמאות מגוונות בפועל, לא הבטחה. מבקש סוגי זכוכית? דוגמה אחת לכל סוג שזמין. אם שליחה נכשלה, היה כן. אינסטגרם ודף נחיתה קיימים, אך אל תמציא כתובות אם לא הוגדרו.
+הסיכום הפנימי אחרי כל הודעה: מה הלקוח ביקש עכשיו, מה כבר ידוע, מה באמת חסר, מה ההמלצה, ומה הצעד הבא הכי טבעי. הסיכום נשאר בראשך ולא נכתב ללקוח. כתוב כמו בעל מקצוע קשוב, לא כמו דף ההוראות הזה.
+"""
+
+
+def sales_turn_guidance(customer_request, history):
+    """Small situational hint, not a forced template or output rewrite."""
+    text = customer_written_text(customer_request)
+    earlier = [customer_written_text(m.get('content','')) for m in history[:-1]
+               if m.get('role') == 'user']
+    entire = ' '.join(earlier[-12:] + [text])
+    info = []
+    if len(earlier) == 0:
+        info.append('זו תחילת השיחה: קבל את הלקוח בנעימות בלי נאום או שיחת חולין מאולצת.')
+    if re.search(r'מחיר|כמה\s+עול|כמה\s+יצא', text):
+        info.append('הלקוח שאל מחיר. אל תתחמק. אם חסר נתון קריטי לתמחור, הסבר בקצרה ושאל רק עליו או על המצב התכנוני שמכריע את ההמלצה; אם כל נתוני החישוב מוכנים תן רק מחיר מחושב.')
+    if re.search(r'\d+\s*[/×xX]\s*\d+', text):
+        info.append('הלקוח כבר נתן מידות. אין צורך לצטט לו את כל המפרט או לבקש אותן שוב.')
+    if re.search(r'לא\s+יודע|אין\s+לי\s+מושג|עוד\s+לא|בלאגן|בלגן', text) and re.search(r'שיפוץ|ריצוף|רצף|לא\s+מדד|תכנית|תוכנית', entire):
+        info.append('הלקוח לא יכול לתת עוד פרטי תכנון כעת. תן לו דרך קלה להמשיך כשהמצב יתבהר, בלי לדרוש מדידה.')
+    if re.search(r'רוצה\s+לסגור|רוצה\s+להתקדם|איך\s+מתקדמים|מה\s+צריך\s+ממני', text):
+        info.append('זה לקוח חם: קדם להצעת מחיר ולא למדידה; שאל רק מה הכרחי להצעה.')
+    if re.search(r'שלח|לראות|תמונ|דוגמא', text) and re.search(r'עבודות|פרויקטים|מקלחונים\s+שעשיתם', text):
+        info.append('הלקוח מבקש עבודות מצולמות; מנגנון הגלריה מטפל במשלוח. אין להבטיח שליחה שלא בוצעה.')
+    if re.search(r'אחי|חח|וואלה', text):
+        info.append('הלקוח מדבר בגובה העיניים; אפשר לענות כך, אך לא לחזור על ״אחי״ בכל תור.')
+    return ' '.join(info)
 
 
 CUSTOM_SALES_WORKFLOW = """
@@ -1123,7 +1152,7 @@ def process_message(phone, body, batch_rows=None):
                         + ('כן' if image_ready else 'לא')
                         + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
                         + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
-                        + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nפרטי רשתות מאומתים: אינסטגרם=' + (INSTAGRAM_URL or 'קיים, קישור טרם הוגדר') + '; דף נחיתה=' + (LANDING_PAGE_URL or 'קיים, קישור טרם הוגדר') + '\nדגש שירות מחייב: לא לדבר כמו שאלון טכני; ייעוץ ושיחה לפני בירור מפרט, צעד אחד טבעי בכל תור.\n' + HUMAN_CONSULTANT_PRIORITY + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב עניינית בהתאם לפרטים שכבר מסר; ללא הצעת מחיר מאומתת אל תמציא מספר ואל תדקלם מינימום הזמנה. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
+                        + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nפרטי רשתות מאומתים: אינסטגרם=' + (INSTAGRAM_URL or 'קיים, קישור טרם הוגדר') + '; דף נחיתה=' + (LANDING_PAGE_URL or 'קיים, קישור טרם הוגדר') + '\nעקרונות שיחה מחייבים, קרא כסדר עבודה ולא כנוסח לדקלום:\n' + YOSSI_SALES_PLAYBOOK + '\nהנחיה ממוקדת לתור הנוכחי: ' + sales_turn_guidance(customer_request, history) + '\n' + HUMAN_CONSULTANT_PRIORITY + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב עניינית בהתאם לפרטים שכבר מסר; ללא הצעת מחיר מאומתת אל תמציא מספר ואל תדקלם מינימום הזמנה. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
         try:
             app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
             response = client.responses.create(
@@ -1200,7 +1229,7 @@ def process_message(phone, body, batch_rows=None):
             if not generic_price_question and not direct_identity and not showroom_question and not competitor_exit and not callback_requested and not callback_followup and not automatic_handoff and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
                 price = calculate_quote(data)
                 if price is not None:
-                    reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר הסופי כפוף לאימות הפרטים בשטח. איך זה נשמע לך?')
+                    reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
             if generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
@@ -1280,7 +1309,7 @@ def process_message(phone, body, batch_rows=None):
             # Gallery captions follow only images successfully accepted by WhatsApp.
             # A send failure must never be described to the customer as a delivered image.
 
-            if image_ready and data.get('send_handle_images') is True:
+            if image_ready and data.get('send_handle_images') is True and re.search(r'ידיות|ידית', customer_request):
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
             # Photos are optional illustrations, never sent just to push a sale.
@@ -1760,4 +1789,4 @@ def privacy():
     return '<h1>Privacy Policy</h1><p>Contact: dream.of.glass2@gmail.com</p>', 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT','10000')))
+    app.run(host='0.0.0.0', port
