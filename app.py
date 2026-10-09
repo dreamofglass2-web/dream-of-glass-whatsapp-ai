@@ -318,6 +318,116 @@ GLASS_SAMPLE_IMAGES = load_glass_images()
 GLASS_TYPES_TEXT = ', '.join(GLASS_COSTS.keys())
 
 
+
+# Expert product knowledge is separate from the price calculator and photo catalog.
+# A configuration not listed in BOM can still be discussed professionally; an
+# unverified custom configuration must never receive an invented numeric quote.
+PROFESSIONAL_GLASS_GUIDANCE = """
+כלל יסוד: אתה יוסי דוד, סוכן מכירות ויועץ בתחום הזכוכית, לא טופס ולא קטלוג דגמים קשיח. עליך להבין תיאורים חופשיים של לקוחות, שגיאות כתיב, שמות עממיים ושילובים שלא מופיעים בתמחור או במאגר התמונות. כאשר הלקוח מבקש 'קבוע' הכוונה בדרך כלל ללוח זכוכית שאינו נפתח. התייחס להקשר: קבוע במקלחון, מחיצת חדר, חיפוי או מעקה אינם אותו מוצר. אל תעמיד פנים שהלקוח ביקש דלת.
+
+מקלחונים ואמבטיונים: הבחן בין מיקום וצורת הסגירה (חזית בין קירות, פינתי, אמבטיון, מסך קבוע) לבין מנגנון פתיחה (דלת ציר, שתי דלתות, הרמוניקה מתקפלת, הזזה על מוט או מסילה). 'קבוע ודלת' פירושו לוח קבוע ודלת; 'שני קבועים ושתי דלתות' פירושו ארבעה חלקים; 'צד אחד הרמוניקה וצד אחד קבוע ודלת' הוא שילוב אפשרי. יכולים להיות גם 3 קבועים ודלת, שילובים לא שגרתיים, עבודות מהרצפה עד התקרה, פתחי אוורור וחיתוך CNC. אל תשלול תצורה רק מפני שאינה מופיעה במאגר. עבודות CNC ואפשרויות לא סטנדרטיות טעונות בדיקת היתכנות ותמחור אנושי. במקלחון קבוע בלבד אין דלת ואין צורך בידית דלת; ידית מגבת על זכוכית קבועה אינה הופכת אותה לדלת. התאמה תלויה במבנה, גישה למקלחת, אסלה או ארון סמוך, שטח לפתיחה, ניקוז ושיפועים. אל תבטיח אטימות מוחלטת.
+
+מחיצות זכוכית: הסבר על מחיצה קבועה, מחיצה עם דלת ציר, מחיצה עם הזזה, ושילוב של מספר חלקים קבועים ודלתות, גם כשאין דוגמה זהה בקטלוג. ברר בשיחה את השימוש (הפרדת חללים, משרד, חדר שינה ועוד), מידת הפרטיות הרצויה, סוג הזכוכית, מפתח ומגבלות השטח. אל תבלבל מחיצת חדר עם מקלחון. מחיצת 10 מ״מ שקופה 700 ₪ למ״ר ומחיצת 5+5 1,000 ₪ למ״ר, ודלת למחיצה תוספת 3,500 ₪, לפי המחירון המאושר ולפני מע״מ, בכפוף למינימום הזמנה 2,000 ₪. זכוכית מיוחדת, חלוקת משקל, קונסטרוקציה ותצורה לא סטנדרטית מחייבות אישור מחיר ולא מניחים שהמחיר למ״ר תקף לכל מקרה.
+
+מראות: הבן מראה מרובעת, מלבנית, עגולה, אובלית, אסימטרית, לפי מידה, עם מסגרת או בלי, עם לד או בלי; אין צורך שצורה מסוימת תופיע בקטלוג כדי לדון בה. שאל מה חשוב ללקוח (מידה, מקום, עיצוב, שימוש, תאורה) לפי הקשר ולא בבת אחת. מחיר בסיס מראה קריסטל בלגי 5 מ״מ 700 ₪ למ״ר כולל התקנה; מסגרת מוסיפה 250 ₪ למ״ר ותאורת לד עוד 250 ₪ למ״ר, לפני מע״מ ובכפוף למינימום הזמנה 2,000 ₪. אין להבטיח מראה מורכבת או פתרון חשמלי בלי בדיקה מתאימה.
+
+חיפוי זכוכית למטבח: עזור להבין שטח, גוון, הדפסה, שקעים ופתחים. מחיר בסיס 1,100 ₪ למ״ר לפי הכללים המאושרים; חיתוכים ופתחים מיוחדים או הדפסות מחייבים אישור. דלתות ומעקות זכוכית: הסבר עקרונות והצע כיוון, אבל אל תקבע תקן, עובי בטיחות, עיגון, סוג זכוכית הנדסי או מחיר ללא בדיקה מקצועית; אם צריך, הצע בקשת חזרה מאלירן ושמור אותה במסד.
+
+סוגי זכוכית מאושרים: שקופה (קליר), אקסטרה קליר (א.קליר), אנטיסן אפור, אנטיסן ברונזה, פיפיטה, חלבי, אסיד, גלינה קליר, אסיד קליר. 'גלינה א קליר' פירושו גלינה קליר, לא שקוף רגיל. צבע הזכוכית, צבע הפרזול וסוג הגומיות הם שלושה דברים נפרדים. ייתכנו גומיות שקופות או שחורות, ידיות כפתור או מגבת, וכל צבעי הפרזול המוגדרים. אל תניח מפרט מתוך צילום או מתוך שם תצורה שאינו מוכיח אותו.
+
+תמונות: מאגר התמונות הוא להמחשה ולא תנאי למכירה. אין חובה לשלוח תמונה לכל לקוח. אם הלקוח יודע איזה זכוכית הוא רוצה ולא ביקש לראות תמונה, המשך לייעץ בלי לשלוח. אם הלקוח מתלבט בין סוגי זכוכית או מבקש לראות דוגמאות, תוכל להציע הדגמה קצרה, ולשלוח רק תמונות מקוריות שקישוריהן הוגדרו בפועל. בחר דוגמה אחת מכל סוג זכוכית רלוונטי במקום להציף את הלקוח בהרבה עבודות מאותו סוג. עדיף שהתמונה תדגים גם צורת עבודה קרובה, אבל אין חובה לדגם זהה: אם זו הדגמה של הזכוכית בלבד, אמור שהפרזול או התצורה בתמונה יכולים להיות שונים. אין להציג צילום להמחשה כהדמיה מדויקת של התקנת הלקוח. אל תשנה תמונות מקוריות ואל תטען ששלחת תמונה אם לא נשלחה. כאשר אין קישור מאושר, המשך להסביר מילולית ולא להבטיח שליחה שלא אפשרית.
+
+התנהגות מכירתית: תן מענה אמיתי לפני בקשת פרטים. שאל לכל היותר שאלה ממוקדת אחת, בלי לחזור על שאלה שהלקוח כבר ענה לה או אמר שאינו יודע. הבן שדגם לא מופיע במאגר אינו אומר שאינו אפשרי; אם אי אפשר לחשב לו מחיר מאומת, אל תמציא הצעת מחיר. אל תשלח 'הצעת מחיר רשמית' ביוזמתך. אל תדחוף העברה לאלירן רק בגלל שהתצורה חדשה לך; העבר רק כשיש צורך בהכרעה מקצועית אמיתית, תקן, בטיחות או מחיר שלא ניתן לאשר.
+"""
+
+# Optional curated catalog. Store originals on an HTTPS media host and provide
+# metadata via PHOTO_CATALOG_JSON. No catalog media is sent until configured.
+# Example record: {"url":"https://...jpg", "product":"מקלחון פינתי",
+#                  "glass":"אנטיסן ברונזה", "configuration":"פינתי הרמוניקה",
+#                  "finish":"גרפיט", "handle":"כפתור", "gaskets":"שקופות"}
+def load_photo_catalog():
+    try:
+        records = json.loads(os.getenv('PHOTO_CATALOG_JSON', '[]'))
+        if not isinstance(records, list):
+            return []
+        result = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            url = item.get('url', '')
+            if not isinstance(url, str) or not url.startswith('https://'):
+                continue
+            glass = str(item.get('glass') or '').strip()
+            if glass == 'קליר':
+                glass = 'שקופה'
+            if glass in ('א.קליר', 'א קליר'):
+                glass = 'אקסטרה קליר'
+            if glass in ('גלינה א קליר', 'גלינה א.קליר'):
+                glass = 'גלינה קליר'
+            if glass not in GLASS_COSTS:
+                continue
+            result.append({'url':url, 'glass':glass,
+                           'product':str(item.get('product') or ''),
+                           'configuration':str(item.get('configuration') or ''),
+                           'finish':str(item.get('finish') or '')})
+        return result
+    except (TypeError, ValueError):
+        app.logger.warning('Invalid PHOTO_CATALOG_JSON')
+        return []
+
+PHOTO_CATALOG = load_photo_catalog()
+
+
+def pick_sample_photos(body, history, context, max_photos=4):
+    """Send only when photos are requested or accepted; one photo per glass type."""
+    if not PHOTO_CATALOG:
+        return []
+    asked = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות (?:איך|דוגמא)|איך (?:זה |היא |הוא )?נראה|תראה לי|תשלח לי (?:תמונה|דוגמה)|צלומ', body))
+    accepted = (body.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
+                any('תמונ' in str(m.get('content','')) or 'דוגמא' in str(m.get('content',''))
+                    for m in history[-3:] if m.get('role') == 'assistant'))
+    if not (asked or accepted):
+        return []
+    text = ' '.join(str(m.get('content','')) for m in history[-5:] if m.get('role') == 'user')
+    synonyms = {'גלינה קליר': ('גלינה',),
+                'אסיד קליר': ('אסיד קליר',),
+                'אקסטרה קליר': ('אקסטרה קליר','א.קליר','א קליר'),
+                'שקופה': ('שקוף','שקופה','קליר'), 'אנטיסן ברונזה': ('אנטיסן ברונזה',),
+                'אנטיסן אפור': ('אנטיסן אפור',), 'פיפיטה': ('פיפיטה','פפיטה'),
+                'חלבי': ('חלבי','חלבית'), 'אסיד': ('אסיד',)}
+    # Prioritize the last explicitly named glass, otherwise known conversation glass.
+    target = None
+    for key, words in synonyms.items():
+        if any(w in body for w in words):
+            target = key
+            break
+    target = target or (context.get('glass_type') if context else None)
+    if target not in GLASS_COSTS:
+        target = None
+    mentions_all = bool(re.search(r'כל (?:הסוגים|הזכוכיות)|מבחר|אפשרויות|סוגי זכוכית', body))
+    if target and not mentions_all:
+        selected_types = [target]
+    else:
+        selected_types = list(GLASS_COSTS.keys())
+    # Pick closest relevant product where possible, but never require exact model.
+    product_text = text + ' ' + str((context or {}).get('product') or '')
+    results = []
+    seen_glass = set()
+    for glass in selected_types:
+        candidates = [x for x in PHOTO_CATALOG if x['glass'] == glass]
+        if not candidates:
+            continue
+        candidates.sort(key=lambda x: sum(1 for word in ('מקלחון','אמבטיון','מחיצה','מראה')
+                                          if word in product_text and word in (x['product']+' '+x['configuration'])),
+                        reverse=True)
+        pic = candidates[0]
+        if glass not in seen_glass:
+            results.append(pic)
+            seen_glass.add(glass)
+        if len(results) >= max_photos:
+            break
+    return results
+
 SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חלומות מזכוכית" בוואטסאפ. מטרתך לנהל בעצמך שיחה אנושית, מועילה ומדויקת, ולא לדקלם שאלון או לדחוף למכירה. כתוב עברית ישראלית טבעית, לרוב 1–3 משפטים קצרים ושאלה אחת לכל היותר. בלי רשימות, כותרות, נקודתיים ומקפים מיותרים, ובלי לפתוח שוב ושוב ב"מעולה". אם הלקוח כתב רק "היי", ענה בברכה אנושית פשוטה ושאל איך אפשר לעזור, בלי למנות מוצרים.
 
 כללי ניסוח מחייבים להודעות ללקוח:
@@ -587,9 +697,9 @@ def process_message(phone, body, batch_rows=None):
         showroom_question = ('אולם' in body or 'תצוגה' in body) and any(w in body for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
-        glass_images_ready = bool(GLASS_SAMPLE_IMAGES)
-        instructions = (SYSTEM + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
-                        + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(GLASS_SAMPLE_IMAGES) if glass_images_ready else 'אין עדיין')
+        glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
+        instructions = (SYSTEM + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+                        + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG})) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
                         + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
@@ -679,12 +789,21 @@ def process_message(phone, body, batch_rows=None):
             if image_ready and data.get('send_handle_images') is True:
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
-            if glass_images_ready and data.get('send_glass_images') is True:
-                for glass_name, image_url in GLASS_SAMPLE_IMAGES.items():
-                    try:
-                        send_whatsapp(phone, image_url=image_url, caption=glass_name)
-                    except requests.RequestException:
-                        app.logger.exception('Could not send glass sample %s', glass_name)
+            # Photos are optional illustrations, never sent just to push a sale.
+            # The legacy per-glass links remain supported as a fallback.
+            photos = pick_sample_photos(body, history, data or prior)
+            if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
+                requested = bool(re.search(r'תמונ|דוגמא|דוגמ|לראות|תראה לי', body))
+                if requested:
+                    wanted = data.get('glass_type') or (prior or {}).get('glass_type')
+                    names = ([wanted] if wanted in GLASS_SAMPLE_IMAGES else list(GLASS_SAMPLE_IMAGES))
+                    photos = [{'glass':name, 'url':GLASS_SAMPLE_IMAGES[name]}
+                              for name in names[:4]]
+            for photo in photos:
+                try:
+                    send_whatsapp(phone, image_url=photo['url'], caption='דוגמה לזכוכית ' + photo['glass'])
+                except requests.RequestException:
+                    app.logger.exception('Could not send sample photo for glass %s', photo['glass'])
             save_conversation(phone, history + [{'role':'assistant','content':reply}], {
                 key: data.get(key) for key in (
                     'stage','action','next_missing_fact','product','configuration',
