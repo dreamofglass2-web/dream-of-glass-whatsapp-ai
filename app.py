@@ -49,6 +49,7 @@ worker_thread = None
 worker_pid = None
 worker_start_lock = threading.Lock()
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
+APP_SECRET = os.getenv('META_APP_SECRET', '')
 TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
 TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
 
@@ -355,7 +356,7 @@ def load_photo_catalog():
             if not isinstance(item, dict):
                 continue
             url = item.get('url', '')
-            if not isinstance(url, str) or not url.startswith('https://'):
+            if not isinstance(url, str) or not re.fullmatch(r'https://res\.cloudinary\.com/[A-Za-z0-9_-]+/image/upload/[^\s]+', url):
                 continue
             glass = str(item.get('glass') or '').strip()
             if glass == 'קליר':
@@ -435,21 +436,63 @@ def pick_sample_photos(body, history, context, max_photos=4):
 
 
 def align_reply_with_sent_photos(reply, photos):
-    """Don't ask permission to send photos when the caller already requested them."""
+    """Sound like a consultant: acknowledge an already requested photo, never re-ask."""
     if not photos:
         return reply
-    original = reply.strip()
-    # Strip only a trailing redundant invitation to send photos, not sales questions.
-    cleaned = re.sub(
-        r'\s*(?:רוצה|תרצה|תרצי|אפשר|מעוניין|מעוניינת|אשמח)'
-        r'[^.!?\n]{0,90}(?:אשלח|לשלוח|שנשלח|דוגמאות|תמונות)'
-        r'[^.!?\n]{0,50}[?؟]\s*$', '', original)
-    cleaned = re.sub(r'\s*יש לנו תמונות[^.!?\n]{0,120}לשלוח לך עכשיו\??\s*$', '', cleaned)
-    if not cleaned:
-        cleaned = 'בשמחה 😊'
-    # Correct a misleading singular caption if two different glass types were selected.
-    label = ', '.join(p['glass'] for p in photos)
-    return cleaned.rstrip() + (' הנה דוגמאות של ' if len(photos) > 1 else ' הנה דוגמה לזכוכית ') + label + '.'
+    clean = (reply or '').strip()
+    # The model may append both a permission question and an intro afterwards.
+    # Remove such questions anywhere in the response, without removing advice.
+    clean = re.sub(
+        r'(?:^|(?<=[.!?\n])\s*)(?:רוצה|תרצה|תרצי|אפשר|מעוניין|מעוניינת|'
+        r'לשלוח|שנשלח|אשלח|להראות|אראה|האם תרצה|האם תרצי)'
+        r'[^.!?\n]{0,120}(?:תמונ|דוגמא|דוגמ|לשלוח|אשלח|שנשלח)'
+        r'[^.!?\n]{0,70}[?؟]\s*', ' ', clean)
+    clean = re.sub(
+        r'(?:רוצה|תרצה|תרצי|אפשר|לשלוח|שנשלח|אשלח|להראות)'
+        r'[^.!?\n]{0,120}(?:תמונ|דוגמא|דוגמ|לשלוח|אשלח|שנשלח)'
+        r'[^.!?\n]{0,50}[?؟]', '', clean)
+    clean = re.sub(r'[^.!?\n]{0,140}(?:לשלוח|אשלח|שנשלח|תמונ|דוגמא|דוגמ)[^.!?\n]{0,90}[?؟]', '', clean)
+    # Avoid mechanical inventories like "הנה דוגמאות של אפור, שקופה".
+    clean = re.sub(r'\s*הנה דוגמאות (?:של|ל) [^.!?\n]{0,100}[.!]?\s*$', '', clean)
+    clean = re.sub(r'\s*הנה דוגמה (?:של|ל) [^.!?\n]{0,100}[.!]?\s*$', '', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip(' ,.;')
+    if not clean:
+        clean = 'בשמחה'
+    if len(photos) == 1:
+        return clean.rstrip('.! ') + '. מצרף לך דוגמה כדי שתוכל להתרשם.'
+    return clean.rstrip('.! ') + '. מצרף לך תמונה מכל סוג כדי שיהיה קל להשוות.'
+
+
+PREMIUM_SERVICE_GUIDANCE = """
+תפקידך: יועץ מכירות ישראלי מקצועי של חלומות מזכוכית. חוויה נעימה ואמינה קודמת לניסוח מרשים. דבר בגובה העיניים, בגוף ראשון טבעי, בלי להישמע כמו מסמך שירות לקוחות או שאלון.
+תקשורת: ענה קודם למה שהלקוח שאל, כולל נושאים צדדיים וסקרנות שאינם קשורים למכירה. אם נושא לא קשור ואין לך מידע אמין, אמור זאת בקצרה והצע עזרה אמיתית רק כשזה מתאים. אל תמציא עובדות על העסק, על עצמך או על העולם. אם שואלים ישירות אם אתה בוט, הסבר שאתה היועץ הדיגיטלי של העסק. אין להתחזות לבן אדם.
+אכפתיות מקצועית: קח בחשבון פרטיות, ניקוי ותחזוקה, אבנית, תאורה, גודל החלל, שיפוע וניקוז, פתיחת דלת ליד אסלה או ארון, גישה נוחה, תוספות ותנאי שימוש. הבדל בין העדפה אסתטית לבין צורך פונקציונלי. אל תקבע שאנטיסן אפור יוצר פרטיות מלאה; זו זכוכית כהה יחסית ועדיין עשויה להיות שקופה. אל תבטיח שאנטיסן מטשטש כתמים או מונע אבנית, ואל תבטיח מקלחון אטום לחלוטין.
+מכירה: תן ערך לפני קריאה לפעולה. ההמלצה צריכה להיות מחוברת לצורך ולמגבלת השטח ולא להעדפה אישית פיקטיבית. אל תיצור לחץ, מבצע, זמינות מוגבלת או אישור מדידה שלא קיימים. אם הלקוח סיים או בחר מתחרה, ענה בנעימות וסיים.
+שיחה: לזכור מה כבר נאמר ולא לחזור על נתונים או אותן שאלות. שאלה אחת לכל היותר בכל הודעה, ורק כשמקדמת החלטה. בלי פתיחות חוזרות של 'מעולה' ובלי סיכום כל מפרט בכל תור. התאם את הפנייה ליחיד/רבים ולסגנון הלקוח בלי להניח מגדר כשלא ידוע. אל תגיד שאתה בדקת תמונה של הלקוח כשלא נותחה בפועל.
+תמונות: אם הלקוח ביקש דוגמאות, לא שואלים האם לשלוח. מוסיפים משפט טבעי שמסביר שהדוגמאות מצורפות. אם נדרשה השוואה, שלח דוגמה אחת מכל סוג שהוזכר ושקיים במאגר. התמונה ממחישה סוג זכוכית, לא בהכרח תצורת מקלחון זהה למבוקש. אל תבטיח תמונות שלא קיימות במאגר.
+תמחור: לא לתת סכומים מהראש או להניח תצורה, מידות, ידיות או גימור שלא נמסרו. מחיר אוטומטי יוצג רק אחרי בדיקת מנוע החישוב. עזרה כללית מותרת בלי מחיר מומצא. אל תדרוש תיאום מדידה מוקדם מדי.
+תיאום אנושי: אין להפנות לאלירן רק כי שאלה כללית לא ברורה. הצע העברה אנושית כאשר הלקוח מבקש, או נדרשת בדיקה אמיתית של בטיחות/היתכנות/תכנון לא שגרתי. אין להבטיח שמישהו יחזור לפני שהבקשה נשמרה.
+"""
+
+CONSULTATIVE_CONVERSATION_GUIDANCE = """
+עדיפות גבוהה: אתה יוסי דוד, הנציג הדיגיטלי של חלומות מזכוכית, המנהל שיחות בוואטסאפ בסגנון של יועץ מכירות מנוסה. עבוד במקצועיות, בגובה העיניים, בחום ובענייניות. אל תציג עצמך כאדם אמיתי אם נשאלת ישירות; ענה בכנות שאתה נציג דיגיטלי, בלי להפוך כל שיחה לשיחה על טכנולוגיה. אל תכתוב מילים כגון מערכת, מודל, שדות, אלגוריתם, ניתוב או תהליך, אלא אם השאלה מחייבת הסבר מדויק.
+בכל הודעה: קודם ענה לדבר שהלקוח אמר עכשיו; אחר כך קדם בעדינות את מטרתו, אם בכלל צריך. אל תחזור אוטומטית למסלול מכירה אם שאל על נושא אחר. אם שאל מה שלומך, צחק, סיפר על היום שלו או שאל שאלה כללית, שוחח באופן טבעי ובמידה. אפשר לעזור בשאלת ידע כללית פשוטה כשהמידע אמין, ולא להפנות לאלירן בגלל שאלה שאינה קשורה לזכוכית. בשאלות רגישות או כאלה שדורשות מידע עדכני שאין לך, אל תמציא ואל תטען שבדקת בזמן אמת.
+אל תסתיים בכל הודעה בשאלה, ואל תחזור על 'איך אפשר לעזור?' אחרי שהשיחה כבר התחילה. אל תפתח בכל פעם ב'בשמחה', 'מעולה', 'כמובן' או 'הבנתי'. גוון טבעי; מותר לענות במשפט אחד כשהוא מספק. הימנע משפה שיווקית מופרזת, מחמאות מיותרות, סמיילים בכל שורה ודחיפה לסגירה.
+הלקוח לא חייב לדעת זכוכית או פרזול: תרגם מונחים מקצועיים לפשטות. אם מבקש המלצה, תן המלצה קונקרטית לפי המידע הקיים וסייג קצר רק כשהכרחי. אם מתלבט, תאר את ההבדל הרלוונטי אליו ולא קטלוג כללי. אם אין מידות או צילום, אל תחזור לבקש שוב ושוב; התקדם מהמידע שיש. כשלקוח מבקש מחיר, אל תדחה את שאלת המחיר לטובת תיאום אם ניתן לענות על בסיס מחירים מאומתים; אל תמציא סכום או הנחה.
+אם שאל על שירות, אחריות, שעות, חשבונית או זמני התקנה, ענה רק מעובדות העסק שהוגדרו, ואם לא ידוע — אמור זאת בפשטות. אל תטען שקבעת פגישה, שהעברת פנייה, ששלחת תמונה או ששוחחת עם הבעלים אם הפעולה לא בוצעה. אין הבטחה לפרטיות מלאה בזכוכית אנטיסן אפור, ואין הבטחה למקלחון אטום ב-100 אחוז.
+מענה לאי שביעות רצון: אם הלקוח אומר שהתשובה לא עזרה או שאתה שואל שוב, הכֵּר בזה בקצרה, תקן את הכיוון וענה. אם לקוח אומר שיקר לו, שאל בעדינות על פערי ההצעות רק כשהרלוונטיות ברורה. אם בחר מתחרה או סיים את השיחה, כבד זאת ללא לחץ. אל תעביר לאלירן שאלות חברתיות, בחירת צבע שגרתית, תיאור מקלחון רגיל או שאלת ידע פשוטה.
+בקשות תמונה: אם הלקוח ביקש לראות, המערכת היא שמצרפת תמונות מאושרות. אין צורך לשאול שוב 'לשלוח?'. בקשת השוואה של שתי זכוכיות — דוגמה אחת מכל סוג רלוונטי. הסבר קצר על ההבדל, בלי הקדמה רובוטית או רשימת שמות תמונות. אם התמונה לא זמינה, אל תבטיח שנשלחה.
+התאם לשון יחיד או רבים לפי הלקוח, ואל תניח שם, מצב משפחתי, מקצוע או כוונה לסגור עסקה. התשובה צריכה להרגיש מותאמת לשיחה המסוימת, לא תשובת תבנית.
+"""
+
+
+SALES_TONE_GUIDANCE = """
+התנהגות של יועץ מכירות מקצועי: אתה לא רשימת פקודות ולא צ'אט טכני. קודם להבין את השיקול האנושי של הלקוח, אחר כך לתת המלצה קצרה ומנומקת, ורק אם באמת חסר מידע הכרחי לשאול שאלה אחת. תן תחושה נעימה, כנה, בטוחה ונגישה, בלי עודף מחמאות, ביטויים קבועים, לחץ לסגירה או שאלון.
+בכל תגובה בחר את הפעולה שהלקוח צריך עכשיו: תשובה, המלצה, השוואה, תמונה, או פרט נוסף כדי להתקדם. אל תחזור על פרטי השיחה בצורה רובוטית. אל תציע שיחה עם בעל העסק אלא אם יש צורך מקצועי אמיתי או שהלקוח מבקש אדם.
+כשלקוח מבקש תמונות או דוגמאות, המערכת תשלח אותן באותה תגובה. אל תשאל "לשלוח?", "רוצה שאשלח?" או "אפשר לשלוח?". תן תשובה לעניין והוסף לכל היותר משפט טבעי כמו "מצרף לך דוגמה כדי שתוכל להתרשם". כשמבקשים השוואה בין שני סוגי זכוכית, התייחס לשניהם ושחרר למערכת לשלוח דוגמה אחת מכל סוג. אל תכתוב רשימת סוגים רובוטית כהקדמה לתמונות.
+בייעוץ על זכוכית אנטיסן אפור: זו זכוכית כהה בגוון אפור, לא זכוכית אטומה; לא להבטיח פרטיות מלאה, הסתרת סימנים או יתרון ניקוי ללא בסיס. זכוכית שקופה נותנת מראה קליל ובהיר; אקסטרה קליר נותנת גוון ניטרלי יותר בשוליים. הפרד בין העדפה אסתטית להיתכנות טכנית.
+פנה בלשון שמתאימה ללקוח, יחיד או רבים לפי האופן שבו הוא כותב. כשלקוח פונה ביחיד, אל תקפוץ אוטומטית ללשון רבים. לעולם אל תבטיח פעולה שעוד לא בוצעה, מחיר שלא אומת, אטימה מלאה או תכונה לא מוכחת. אם אין מספיק מידע, ציין זאת בקצרה בלי להתחמק.
+"""
 
 SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חלומות מזכוכית" בוואטסאפ. מטרתך לנהל בעצמך שיחה אנושית, מועילה ומדויקת, ולא לדקלם שאלון או לדחוף למכירה. כתוב עברית ישראלית טבעית, לרוב 1–3 משפטים קצרים ושאלה אחת לכל היותר. בלי רשימות, כותרות, נקודתיים ומקפים מיותרים, ובלי לפתוח שוב ושוב ב"מעולה". אם הלקוח כתב רק "היי", ענה בברכה אנושית פשוטה ושאל איך אפשר לעזור, בלי למנות מוצרים.
 
@@ -680,25 +723,40 @@ def identity_reply(body, history):
         return 'יוסי 😊'
     return None
 
-def simple_social_reply(body):
-    """Handle unmistakable greetings/small talk without model escalation."""
+def simple_social_reply(body, history=None):
+    """Respond naturally to clear small talk without escalating or restarting a sale."""
     normalized = re.sub(r'[\u200e\u200f]', '', body or '')
     normalized = re.sub(r'[!?.,،😊🙂👋]+', ' ', normalized)
     normalized = re.sub(r'\s+', ' ', normalized).strip()
-    if not re.fullmatch(
-        r'(?:(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)(?: יוסי)?'
-        r'(?: (?:מה שלומך|מה נשמע|איך אתה|מה קורה|מה איתך))?'
-        r'|(?:אני בסדר|הכל טוב|הכול טוב|בסדר גמור)'
-        r'(?: (?:איך אתה|מה איתך|מה שלומך))?'
-        r'|(?:איך אתה|מה שלומך|מה נשמע|מה קורה|מה איתך))',
-        normalized, flags=re.IGNORECASE
-    ):
-        return None
-    if any(phrase in normalized for phrase in ('איך אתה', 'מה שלומך', 'מה איתך', 'מה נשמע')):
-        return 'הכול טוב אצלי, תודה ששאלת 😊 איך אפשר לעזור?'
-    if normalized in ('אני בסדר', 'הכל טוב', 'הכול טוב', 'בסדר גמור'):
+    prior_user_count = sum(1 for m in (history or [])[:-1] if m.get('role') == 'user')
+    greeting = re.fullmatch(r'(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)(?: יוסי)?', normalized, re.I)
+    well_being = re.fullmatch(
+        r'(?:היי |שלום |אהלן )?(?:יוסי )?(?:מה שלומך|מה נשמע|איך אתה|מה קורה|מה איתך)',
+        normalized, re.I)
+    both = re.fullmatch(
+        r'(?:היי|שלום|אהלן)(?: יוסי)? (?:מה שלומך|מה נשמע|איך אתה|מה קורה|מה איתך)',
+        normalized, re.I)
+    status = re.fullmatch(
+        r'(?:אני בסדר|הכל טוב|הכול טוב|בסדר גמור|אני סבבה)'
+        r'(?: (?:איך אתה|מה איתך|מה שלומך|מה נשמע))?', normalized, re.I)
+    if greeting:
+        return 'היי 😊 מה שלומך?' if prior_user_count == 0 else 'היי 😊'
+    if well_being or both or status:
+        if any(phrase in normalized for phrase in ('איך אתה', 'מה שלומך', 'מה איתך', 'מה נשמע', 'מה קורה')):
+            return 'הכול טוב אצלי, תודה ששאלת 😊' if prior_user_count else 'הכול טוב אצלי, תודה ששאלת 😊 איך אפשר לעזור?'
         return 'כיף לשמוע 😊'
-    return 'היי 😊 מה שלומך?'
+    return None
+
+
+# A model's needs_human flag by itself is not sufficient to promise a callback.
+# Only specialized/unsafe-to-quote glass work should cause proactive escalation.
+def requires_specialist_review(body):
+    text = body or ''
+    return bool(re.search(
+        r'מעקה|קונסטרוקצי|חישוב עומס|אישור מהנדס|\bCNC\b|חיתוך מיוחד|'
+        r'תקרה לרצפה|רצפה עד התקרה|עבודה לא סטנדרטית|זכוכית קונסטרוקטיבית',
+        text, re.IGNORECASE))
+
 
 
 def process_message(phone, body, batch_rows=None):
@@ -708,7 +766,7 @@ def process_message(phone, body, batch_rows=None):
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
         # Social chat is handled before callbacks/AI to avoid stale needs_human state.
-        social_reply = simple_social_reply(body)
+        social_reply = simple_social_reply(body, history)
         if social_reply is not None:
             if has_new_messages(phone, batch_rows):
                 return False
@@ -721,6 +779,16 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.exception('Failed to reply to simple social message')
                 return False
+        # Acknowledge customer attachments truthfully until a real media/vision pipeline exists.
+        if '[נשלחה ' in body and ' שלא נותחה]' in body:
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = ('קיבלתי את הקובץ ששלחת. כרגע אני לא יכול לפתוח ולבדוק אותו כאן, '
+                     'אז לא ארצה לנחש מה מופיע בו. תוכל לתאר לי בקצרה מה רואים '
+                     'ומה היית רוצה לעשות עם הזכוכית?')
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior or {}))
+            return True
         # Handle a time answer before AI: otherwise needs_human can repeat the
         # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
         callback_answer = (is_callback_time_answer(body) and
@@ -756,7 +824,7 @@ def process_message(phone, body, batch_rows=None):
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
-        instructions = (SYSTEM + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
+        instructions = (SYSTEM + '\n' + PREMIUM_SERVICE_GUIDANCE + '\n' + CONSULTATIVE_CONVERSATION_GUIDANCE + '\n' + SALES_TONE_GUIDANCE + '\n' + PROFESSIONAL_GLASS_GUIDANCE + '\n' + BUSINESS_UPDATES + '\n' + SALES_GUIDANCE + '\n' + IDENTITY_AND_EDGE_CASES + '\nמצב שיחה מפורש: ' + json.dumps(facts, ensure_ascii=False) + '\nסוגי הזכוכית המלאים הזמינים: ' + GLASS_TYPES_TEXT
                         + '\nתמונות זכוכית זמינות לסוגים: ' + ('، '.join(sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG})) if glass_images_ready else 'אין עדיין')
                         + '\nתמונות ידיות זמינות לשליחה: '
                         + ('כן' if image_ready else 'לא')
@@ -813,7 +881,7 @@ def process_message(phone, body, batch_rows=None):
                 else:
                     reply = 'היי 😊 מה שלומך?'
 
-            automatic_handoff = (bool(data.get('needs_human')) and not callback_requested
+            automatic_handoff = (bool(data.get('needs_human')) and requires_specialist_review(body) and not callback_requested
                                  and not direct_identity and not showroom_question
                                  and not competitor_exit and not re.fullmatch(r'\s*(?:היי|שלום|אהלן|תודה|ביי)[!?.\s]*', body))
             callback_followup = (not callback_requested and is_callback_time_answer(body) and
@@ -952,6 +1020,11 @@ def webhook():
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return request.args.get('hub.challenge', ''), 200
         return 'Verification failed', 403
+    if APP_SECRET:
+        signature = request.headers.get('X-Hub-Signature-256', '')
+        expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return 'Invalid signature', 403
     ensure_worker_started()
     data = request.get_json(silent=True) or {}
     received = 0
@@ -962,11 +1035,21 @@ def webhook():
             value = change.get('value') or {}
             statuses += len(value.get('statuses', []))
             for message in value.get('messages', []):
-                if message.get('type') != 'text':
+                message_type = message.get('type')
+                if message_type not in ('text', 'image', 'document', 'audio', 'video'):
                     ignored += 1
                     continue
                 phone = message.get('from')
-                body = ((message.get('text') or {}).get('body') or '').strip()
+                if message_type == 'text':
+                    body = ((message.get('text') or {}).get('body') or '').strip()
+                else:
+                    caption = ((message.get(message_type) or {}).get('caption') or '').strip()
+                    # Media is NOT downloaded or analyzed by this application yet.
+                    # Inform the customer truthfully instead of ignoring them or pretending to see it.
+                    media_names = {'image':'תמונה', 'document':'מסמך', 'audio':'הודעה קולית', 'video':'סרטון'}
+                    body = '[נשלחה ' + media_names[message_type] + ' שלא נותחה]'
+                    if caption:
+                        body += ' ' + caption
                 message_id = message.get('id')
                 if not phone or not body:
                     continue
@@ -976,7 +1059,7 @@ def webhook():
                 except Exception:
                     app.logger.exception('Could not queue incoming message')
                     return 'Queue unavailable', 503
-    app.logger.info('WEBHOOK_RECEIVED text_messages=%s statuses=%s ignored=%s', received, statuses, ignored)
+    app.logger.info('WEBHOOK_RECEIVED accepted_messages=%s statuses=%s ignored=%s', received, statuses, ignored)
     return 'EVENT_RECEIVED', 200
 
 
