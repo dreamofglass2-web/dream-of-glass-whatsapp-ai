@@ -257,11 +257,15 @@ class FollowupStartupTests(unittest.TestCase):
         from unittest.mock import MagicMock
         with patch.object(yossi, 'ensure_db') as customer_schema, \
              patch.object(yossi, 'ensure_followup_table') as schema, \
+             patch.object(yossi, 'ensure_inbound_queue_table') as queue_schema, \
+             patch.object(yossi, 'restore_inbound_queue') as restore, \
              patch.object(yossi.threading, 'Thread') as thread, \
              patch.object(yossi.os, 'getpid', return_value=-999):
             yossi.ensure_worker_started()
             customer_schema.assert_called_once()
             schema.assert_called_once()
+            queue_schema.assert_called_once()
+            restore.assert_called_once()
             thread.assert_called_once()
 
     def test_failed_schema_does_not_start_worker(self):
