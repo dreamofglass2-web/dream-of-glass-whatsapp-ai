@@ -155,6 +155,8 @@ class ConversationSimulation(unittest.TestCase):
         answer = self.step("זה יותר ממה שתכננתי. קיבלתי הצעה זולה ב-700 שקל.",
                            self.model("המחיר שלנו הוא 700 שקל יותר"))
         self.assertIn("פער כזה במחיר", answer)
+        self.assertIn("שירות אישי", answer)
+        self.assertIn("גם אחרי ההתקנה", answer)
         self.assertIn("ההצעה שקיבלת כוללת גם התקנה", answer)
         self.assertNotIn("המחיר המאומת למפרט", answer)
 
