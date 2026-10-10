@@ -237,6 +237,52 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MetaLeadDetailsTests(unittest.TestCase):
+    def test_no_token_never_calls_meta(self):
+        with patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', ''), \
+             patch.object(yossi.requests, 'get') as request_get:
+            self.assertIsNone(yossi.fetch_meta_lead_details('123'))
+            request_get.assert_not_called()
+
+    def test_fetch_uses_authorization_header_and_validates_id(self):
+        response = types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {'id': '123', 'field_data': [
+                {'name': 'full_name', 'values': ['Test Person']}]})
+        with patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', 'dummy-token'), \
+             patch.object(yossi.requests, 'get', return_value=response) as request_get:
+            details = yossi.fetch_meta_lead_details('123')
+            self.assertEqual(details['id'], '123')
+            kwargs = request_get.call_args.kwargs
+            self.assertEqual(kwargs['headers']['Authorization'], 'Bearer dummy-token')
+            self.assertNotIn('access_token', kwargs['params'])
+
+    def test_invalid_lead_details_fail_closed(self):
+        response = types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {'id': 'wrong', 'field_data': []})
+        with patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', 'dummy-token'), \
+             patch.object(yossi.requests, 'get', return_value=response):
+            with self.assertRaises(ValueError):
+                yossi.fetch_meta_lead_details('123')
+
+    def test_webhook_does_not_send_messages_when_meta_fetch_fails(self):
+        import hmac
+        payload = {'object': 'page', 'entry': [{'id': 'PAGE1', 'changes': [
+            {'field': 'leadgen', 'value': {'leadgen_id': 'LEAD1'}}]}]}
+        body = json.dumps(payload).encode()
+        signature = 'sha256=' + hmac.new(b'test-secret', body, 'sha256').hexdigest()
+        with patch.object(yossi, 'APP_SECRET', 'test-secret'), \
+             patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', 'dummy-token'), \
+             patch.object(yossi, 'store_meta_leadgen_event'), \
+             patch.object(yossi, 'fetch_meta_lead_details', side_effect=RuntimeError('fail')), \
+             patch.object(yossi, 'send_whatsapp') as send:
+            result = yossi.app.test_client().post('/meta-leads/webhook', data=body,
+                headers={'X-Hub-Signature-256': signature}, content_type='application/json')
+            self.assertEqual(result.status_code, 200)
+            send.assert_not_called()
+
+
 class MetaLeadgenReceiverTests(unittest.TestCase):
     def setUp(self):
         self.app = yossi.app.test_client()
