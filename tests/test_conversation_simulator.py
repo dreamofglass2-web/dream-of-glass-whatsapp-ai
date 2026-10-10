@@ -252,6 +252,24 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class FollowupStartupTests(unittest.TestCase):
+    def test_worker_creates_followup_table_before_start(self):
+        from unittest.mock import MagicMock
+        with patch.object(yossi, 'ensure_followup_table') as schema, \
+             patch.object(yossi.threading, 'Thread') as thread, \
+             patch.object(yossi.os, 'getpid', return_value=-999):
+            yossi.ensure_worker_started()
+            schema.assert_called_once()
+            thread.assert_called_once()
+
+    def test_failed_schema_does_not_start_worker(self):
+        with patch.object(yossi, 'ensure_followup_table', side_effect=RuntimeError('test')), \
+             patch.object(yossi.threading, 'Thread') as thread, \
+             patch.object(yossi.os, 'getpid', return_value=-998):
+            yossi.ensure_worker_started()
+            thread.assert_not_called()
+
+
 class DurableFollowupTests(unittest.TestCase):
     def test_schedule_is_dry_run_only(self):
         from datetime import datetime, timezone
