@@ -48,6 +48,23 @@ class QuoteFlowTests(unittest.TestCase):
                 "אני מאשר את ההצעה")
         self.assertIn("כתובת ההתקנה", out)
 
+    def test_legacy_rewrites_do_not_override_validated_quote(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("if not quote_record.get('issued') and generic_price_question", source)
+        self.assertIn("if not quote_record.get('issued') and re.search", source)
+
+    def test_quote_change_requires_customer_input(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("prior_quote and explicit_spec_change and any(", source)
+        self.assertIn("next_context.pop('validated_quote', None)", source)
+
+    def test_existing_lead_and_media_paths_preserved(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        for key in ("def save_callback(", "def pick_portfolio_photos(",
+                    "def analyze_customer_media(", "def send_whatsapp(",
+                    "def admin_leads(", "def calculate_quote("):
+            self.assertIn(key, source)
+
     def test_no_early_measurement(self):
         out = scope["close_validated_quote"]({"issued": True, "approved": True},
                 [{"role": "user", "content": "הריצוף עוד לא הסתיים"}],
