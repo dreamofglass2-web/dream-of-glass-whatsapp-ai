@@ -1820,6 +1820,82 @@ def health():
             'worker_alive':bool(worker_thread and worker_thread.is_alive()),
             'queued_messages':queued,'processing_chats':active}, 200
 
+# Meta Page leadgen delivery is deliberately separate from the WhatsApp responder.
+# Only persist verified event identifiers; customer details are fetched in a later,
+# permission-checked integration stage. Never send a WhatsApp message from here.
+META_LEADS_VERIFY_TOKEN = os.getenv('META_LEADS_VERIFY_TOKEN', '')
+
+
+def store_meta_leadgen_event(lead_id, page_id, form_id, created_time):
+    """Durably deduplicate Meta lead notifications before acknowledging delivery."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS meta_leadgen_events (
+                    lead_id TEXT PRIMARY KEY,
+                    page_id TEXT NOT NULL,
+                    form_id TEXT NOT NULL DEFAULT '',
+                    meta_created_time BIGINT,
+                    state TEXT NOT NULL DEFAULT 'pending_details',
+                    received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute("""
+                INSERT INTO meta_leadgen_events
+                    (lead_id, page_id, form_id, meta_created_time)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (lead_id) DO NOTHING
+            """, (lead_id, page_id, form_id, created_time))
+
+
+@app.route('/meta-leads/webhook', methods=['GET', 'POST'])
+def meta_leads_webhook():
+    """Receive Page leadgen notifications; no customer outreach is triggered."""
+    if request.method == 'GET':
+        if (META_LEADS_VERIFY_TOKEN
+                and request.args.get('hub.mode') == 'subscribe'
+                and hmac.compare_digest(request.args.get('hub.verify_token', ''), META_LEADS_VERIFY_TOKEN)):
+            return request.args.get('hub.challenge', ''), 200
+        return 'Verification failed', 403
+
+    # Refuse unverified delivery, even if another endpoint is configured more loosely.
+    if not APP_SECRET:
+        return 'Meta app secret not configured', 503
+    signature = request.headers.get('X-Hub-Signature-256', '')
+    expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return 'Invalid signature', 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get('object') != 'page' or not isinstance(data.get('entry'), list):
+        return 'Invalid page payload', 400
+
+    events = []
+    for entry in data['entry']:
+        if not isinstance(entry, dict):
+            return 'Invalid entry', 400
+        page_id = str(entry.get('id') or '')
+        for change in entry.get('changes', []):
+            if not isinstance(change, dict) or change.get('field') != 'leadgen':
+                continue
+            value = change.get('value')
+            if not isinstance(value, dict):
+                return 'Invalid leadgen value', 400
+            lead_id = str(value.get('leadgen_id') or '')
+            if not (page_id and lead_id):
+                return 'Missing lead identifier', 400
+            created_time = value.get('created_time')
+            if created_time is not None and (not isinstance(created_time, int) or isinstance(created_time, bool)):
+                created_time = None
+            events.append((lead_id, page_id, str(value.get('form_id') or ''), created_time))
+    try:
+        for event in events:
+            store_meta_leadgen_event(*event)
+    except Exception:
+        app.logger.exception('Meta leadgen storage failed')
+        return 'Temporary storage error', 503
+    return {'status': 'ok', 'stored': len(events)}, 200
+
+
 @app.route('/webhook', methods=['GET','POST'])
 def webhook():
     if request.method == 'GET':
