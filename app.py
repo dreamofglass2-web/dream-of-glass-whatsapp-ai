@@ -959,7 +959,7 @@ def calculate_quote(data):
 
 
 def quote_intent(text):
-    return bool(re.search(r'מחיר|כמה\s+(?:עול|יעל)|כמה\s+יצא|הצעת\s+מחיר|עלות', str(text or '')))
+    return bool(re.search(r'מחיר|כמה\s+(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות', str(text or '')))
 
 
 def closing_intent(text):
@@ -1011,6 +1011,41 @@ def missing_quote_detail(data):
         if expected and (not isinstance(data.get('handles'), list) or len(data['handles']) != expected):
             return 'איזה סוג ידית תרצו, כפתור או מגבת?'
     return 'חסר עוד אימות של פרט במפרט כדי לתת מחיר מדויק. אפשר לוודא את חלוקת המקלחון?'
+
+
+
+
+def confirmed_corner_two_door_specs(history, data):
+    """Use explicit customer statements, never inferred model fields, for this common layout."""
+    customer_turns = [customer_written_text(m.get('content', ''))
+                      for m in history if m.get('role') == 'user']
+    text = ' '.join(customer_turns)
+    if not ('פינתי' in text and re.search(r'(?:שתי|2)\s+דלתות', text)):
+        return data
+    # Never assume which of the two different corner configurations is wanted.
+    no_fixed = any(re.search(r'(?:אין|בלי)\s+(?:זכוכיות\s+)?קבוע|'
+                             r'(?:ישר|ישירות|מחוברות)\s+(?:על|ל)?\s*(?:ה)?קירות', t)
+                   for t in customer_turns)
+    if not no_fixed:
+        return data
+    result = dict(data)
+    result['configuration'] = 'פינתי 2 דלתות'
+    m = re.search(r'(\d{2,3})\s*(?:על|x|X|×|/)\s*(\d{2,3})', text)
+    if m:
+        result['width_cm'] = int(m.group(1))
+        result['second_width_cm'] = int(m.group(2))
+    m = re.search(r'גובה\s*(\d{2,3})', text)
+    if m:
+        result['height_cm'] = int(m.group(1))
+    if re.search(r'זכוכית\s+שקופה', text):
+        result['glass_type'] = 'שקופה'
+    if re.search(r'פרזול\s+שחור', text):
+        result['finish'] = 'שחור'
+    if re.search(r'(?:ידיות|ידית)[^.!?\n]{0,32}כפתור|כפתור\s+רגיל', text):
+        result['handles'] = ['ידית כפתור', 'ידית כפתור']
+    elif re.search(r'(?:ידיות|ידית)\s+מגבת', text):
+        result['handles'] = ['ידית מגבת', 'ידית מגבת']
+    return result
 
 
 
@@ -1316,6 +1351,7 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm', 'glass_type', 'finish', 'handles'):
                 if data.get(key) is not None:
                     merged_pricing[key] = data[key]
+            merged_pricing = confirmed_corner_two_door_specs(history, merged_pricing)
             # Any changed quote specification invalidates the previous offer.
             explicit_spec_change = bool(re.search(
                 r'בעצם|תיקון|תשנה|לשנות|תחליף|להחליף|במקום|לא\s+רוצה|החלטתי\s+על|מעכשיו|עדכנתי|'
@@ -1370,6 +1406,26 @@ def process_message(phone, body, batch_rows=None):
             if quote_changed and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
+            # Never treat agreement as approval of a price that was not issued.
+            if ordinary_turn and is_shower and closing_intent(customer_request) and not quote_record.get('issued'):
+                checked_price = calculate_quote(merged_pricing) if SEND_QUOTES else None
+                if checked_price is not None:
+                    quote_record = {
+                        'issued': True, 'approved': False,
+                        'amount_ils_pre_vat': checked_price,
+                        'configuration': merged_pricing.get('configuration'),
+                        'glass_type': merged_pricing.get('glass_type'),
+                        'finish': merged_pricing.get('finish'),
+                        'width_cm': merged_pricing.get('width_cm'),
+                        'second_width_cm': merged_pricing.get('second_width_cm'),
+                        'height_cm': merged_pricing.get('height_cm'),
+                        'handles': merged_pricing.get('handles'),
+                    }
+                    reply = (f'בשמחה, לפני שסוגרים חשוב שתראה את המחיר: ₪{checked_price:,.0f} לפני מע״מ, '
+                             'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות. מתאים לך לאשר את ההצעה הזו?')
+                else:
+                    reply = ('בשמחה נתקדם 🙂 עוד לא נתתי לך הצעת מחיר מאומתת, '
+                             'אז לפני סגירה ' + missing_quote_detail(merged_pricing))
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
                 reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))

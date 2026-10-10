@@ -125,6 +125,23 @@ class ConversationSimulation(unittest.TestCase):
         reply = self.step("אני מאשר את ההצעה", self.model("נתקדם"))
         self.assertNotIn("כתובת ההתקנה", reply)
 
+    def test_real_report_corner_quote_after_customer_confirms_layout(self):
+        opening = "אהלן, אני צריך מקלחון פינתי 100 על 100, שתי דלתות שנפתחות, זכוכית שקופה ופרזול שחור. כמה עולה?"
+        first = self.step(opening, self.model("איך מחולקות הדלתות?", quote_requested=True))
+        self.assertIn("דלתות", first)
+        self.step("הדלתות ישר על הקירות, אין קבועים. גובה 200.", self.model("איזה ידיות תרצה?"))
+        answer = self.step("ידיות רגילות, כפתור. כמה זה ייצא?",
+                           self.model("איך מחולקות הזכוכיות והדלתות?", quote_requested=True))
+        self.assertIn("₪", answer)
+        self.assertNotIn("איך מחולקות הזכוכיות והדלתות", answer)
+        self.assertTrue(self.memory[self.phone][1].get("validated_quote", {}).get("issued"))
+
+    def test_cannot_accept_unissued_quote(self):
+        self.step("שלום, רוצה מקלחון פינתי, כמה עולה?", self.model("צריך עוד פרטים"))
+        answer = self.step("אני מאשר את ההצעה", self.model("סגור, נבוא למדוד"))
+        self.assertNotIn("ההצעה מאושרת", answer)
+        self.assertIn("עוד לא נתתי", answer)
+
     def test_customer_reset_does_not_touch_real_db(self):
         reply = self.step("התחל שיחה חדשה")
         self.assertIn("מתחילים מחדש", reply)
