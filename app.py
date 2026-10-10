@@ -1013,6 +1013,26 @@ def missing_quote_detail(data):
     return 'חסר עוד אימות של פרט במפרט כדי לתת מחיר מדויק. אפשר לוודא את חלוקת המקלחון?'
 
 
+
+def helpful_quote_followup(data, customer_request, first_message=False):
+    """Respond like a consultant, without asking to repeat a configuration already supplied."""
+    text = str(customer_request or '')
+    greeting = 'היי, מה שלומך? 🙂 ' if first_message else ''
+    explicit_corner_two_doors = (
+        'פינתי' in text and
+        bool(re.search(r'(?:שתי|2)\\s+דלתות|דלתות\\s+פתיחה', text))
+    )
+    if explicit_corner_two_doors:
+        # Do not guess whether fixed side panels were requested.
+        prefix = ('קיבלתי: מקלחון פינתי עם שתי דלתות פתיחה. '
+                  'כדי לחשב מחיר לפי המפרט ולא לנחש, ')
+        if not data.get('configuration') or data.get('configuration') not in BOM:
+            return greeting + prefix + 'רק דבר אחד: הדלתות מחוברות ישירות לקירות, או שיש לצדן גם זכוכיות קבועות?'
+        if not data.get('handles'):
+            return greeting + prefix + 'איזה ידיות תרצה לדלתות — כפתור או מגבת?'
+    return greeting + missing_quote_detail(data)
+
+
 def close_validated_quote(quote, history, message):
     if not (quote.get('approved') or explicit_quote_approval(message)):
         return 'בשמחה 🙂 ההצעה שקיבלת היא הבסיס להמשך. אם אתה מאשר אותה, נתקדם לתיאום מדידה סופית לאחר שהריצוף הסתיים.'
@@ -1346,13 +1366,13 @@ def process_message(phone, body, batch_rows=None):
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
                              'המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
                 elif contains_ils_amount(reply):
-                    reply = missing_quote_detail(merged_pricing)
+                    reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             if quote_changed and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
-                reply = missing_quote_detail(merged_pricing)
+                reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             # Even after issuing a quote, an unrelated AI amount must not replace it.
             if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
