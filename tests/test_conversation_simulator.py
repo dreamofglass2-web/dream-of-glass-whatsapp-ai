@@ -237,6 +237,39 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MetaLeadCustomerTests(unittest.TestCase):
+    def test_israeli_mobile_normalization(self):
+        self.assertEqual(yossi.normalize_meta_lead_phone('+972-50-123-4567'), '972501234567')
+        self.assertEqual(yossi.normalize_meta_lead_phone('0501234567'), '972501234567')
+        self.assertEqual(yossi.normalize_meta_lead_phone('00972501234567'), '972501234567')
+        self.assertEqual(yossi.normalize_meta_lead_phone('1234567'), '')
+        self.assertEqual(yossi.normalize_meta_lead_phone('03-1234567'), '')
+
+    def test_creates_record_with_original_questions_but_no_outreach(self):
+        fake_cursor = types.SimpleNamespace(execute=unittest.mock.Mock())
+        fields = {
+            'phone_number': ['0501234567'],
+            'full_name': ['Test Person'],
+            'מה_הכי_חשוב_לכם_בפרויקט?': ['איכות'],
+        }
+        with patch.object(yossi, 'send_whatsapp') as send:
+            self.assertTrue(yossi.save_meta_lead_customer(fake_cursor, 'lead123', fields))
+            send.assert_not_called()
+        query, params = fake_cursor.execute.call_args.args
+        self.assertIn('ON CONFLICT', query)
+        self.assertIn('glass_leads.name', query)
+        self.assertNotIn('status=', query)
+        self.assertEqual(params[0], '972501234567')
+        self.assertEqual(params[1], 'Test Person')
+        saved = json.loads(params[2])
+        self.assertEqual(saved['meta_leads']['lead123']['fields']['מה_הכי_חשוב_לכם_בפרויקט?'], ['איכות'])
+
+    def test_invalid_phone_does_not_create_customer(self):
+        cursor = types.SimpleNamespace(execute=unittest.mock.Mock())
+        self.assertFalse(yossi.save_meta_lead_customer(cursor, 'lead123', {'phone_number': ['bad']}))
+        cursor.execute.assert_not_called()
+
+
 class MetaLeadDetailsTests(unittest.TestCase):
     def test_no_token_never_calls_meta(self):
         with patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', ''), \

@@ -1849,6 +1849,49 @@ def fetch_meta_lead_details(lead_id):
     return details
 
 
+def normalize_meta_lead_phone(raw):
+    """Only accept plausible Israeli mobile numbers for an automatic customer record."""
+    digits = re.sub(r'\D', '', str(raw or ''))
+    if digits.startswith('00972'):
+        digits = digits[2:]
+    if digits.startswith('972') and len(digits) == 12:
+        digits = '0' + digits[3:]
+    if len(digits) != 10 or not digits.startswith('05'):
+        return ''
+    return '972' + digits[1:]
+
+
+def meta_field_first(fields, name):
+    values = fields.get(name)
+    if isinstance(values, list) and values:
+        return str(values[0]).strip()
+    return ''
+
+
+def save_meta_lead_customer(cur, lead_id, fields):
+    """Merge verified Meta form data; never alter live sales status or conversations."""
+    phone = normalize_meta_lead_phone(meta_field_first(fields, 'phone_number'))
+    if not phone:
+        return False
+    name = meta_field_first(fields, 'full_name')[:100]
+    context = {'meta_leads': {lead_id: {'source': 'meta_instant_form', 'fields': fields}}}
+    cur.execute("""
+        INSERT INTO glass_leads(phone, name, context)
+        VALUES (%s, %s, %s::jsonb)
+        ON CONFLICT (phone) DO UPDATE SET
+            name=CASE WHEN glass_leads.name='' THEN EXCLUDED.name ELSE glass_leads.name END,
+            context=jsonb_set(
+                COALESCE(glass_leads.context, '{}'::jsonb),
+                '{meta_leads}',
+                COALESCE(glass_leads.context->'meta_leads', '{}'::jsonb)
+                    || EXCLUDED.context->'meta_leads',
+                true
+            ),
+            updated_at=now()
+    """, (phone, name, json.dumps(context, ensure_ascii=False)))
+    return True
+
+
 def persist_meta_lead_details(lead_id, details):
     """Store original form fields, preserving changing campaigns and question names."""
     fields = {}
@@ -1865,6 +1908,7 @@ def persist_meta_lead_details(lead_id, details):
                 WHERE lead_id=%s
             """, (json.dumps({'fields': fields, 'created_time': details.get('created_time')},
                              ensure_ascii=False), lead_id))
+            save_meta_lead_customer(cur, lead_id, fields)
 
 
 def try_fetch_meta_lead_details(lead_id):
