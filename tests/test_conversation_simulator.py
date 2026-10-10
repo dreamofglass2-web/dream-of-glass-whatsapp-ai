@@ -257,11 +257,15 @@ class FollowupStartupTests(unittest.TestCase):
         from unittest.mock import MagicMock
         with patch.object(yossi, 'ensure_db') as customer_schema, \
              patch.object(yossi, 'ensure_followup_table') as schema, \
+             patch.object(yossi, 'ensure_inbound_queue_table') as queue_schema, \
+             patch.object(yossi, 'restore_inbound_queue') as restore, \
              patch.object(yossi.threading, 'Thread') as thread, \
              patch.object(yossi.os, 'getpid', return_value=-999):
             yossi.ensure_worker_started()
             customer_schema.assert_called_once()
             schema.assert_called_once()
+            queue_schema.assert_called_once()
+            restore.assert_called_once()
             thread.assert_called_once()
 
     def test_failed_schema_does_not_start_worker(self):
@@ -354,7 +358,8 @@ class DurableFollowupTests(unittest.TestCase):
             self.assertIn('ממתין לחזרה', query)
 
     def test_new_message_cancels_pending_followup(self):
-        with patch.object(yossi, 'cancel_followup_dry_run') as cancel:
+        with patch.object(yossi, 'cancel_followup_dry_run') as cancel, \
+             patch.object(yossi, 'persist_inbound_message', return_value=True):
             yossi.queue_message('TEST_PHONE', 'שלום', 'TEST_FOLLOWUP_MSG_001')
             cancel.assert_called_once_with('TEST_PHONE')
         with yossi.lock:
