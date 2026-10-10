@@ -235,3 +235,56 @@ class ConversationSimulation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MetaLeadgenReceiverTests(unittest.TestCase):
+    def setUp(self):
+        self.app = yossi.app.test_client()
+
+    def test_verification_requires_separate_configured_token(self):
+        with patch.object(yossi, 'META_LEADS_VERIFY_TOKEN', 'lead-verify-test'):
+            response = self.app.get('/meta-leads/webhook', query_string={
+                'hub.mode': 'subscribe', 'hub.verify_token': 'lead-verify-test',
+                'hub.challenge': 'challenge123',
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_data(as_text=True), 'challenge123')
+            self.assertEqual(self.app.get('/meta-leads/webhook', query_string={
+                'hub.mode': 'subscribe', 'hub.verify_token': 'wrong',
+            }).status_code, 403)
+        with patch.object(yossi, 'META_LEADS_VERIFY_TOKEN', ''):
+            self.assertEqual(self.app.get('/meta-leads/webhook', query_string={
+                'hub.mode': 'subscribe', 'hub.verify_token': '',
+            }).status_code, 403)
+
+    def test_valid_signed_leadgen_is_saved_without_any_outreach(self):
+        import hmac
+        payload = {'object': 'page', 'entry': [{'id': 'PAGE1', 'changes': [
+            {'field': 'leadgen', 'value': {
+                'leadgen_id': 'LEAD1', 'form_id': 'FORM1', 'created_time': 12345,
+            }},
+        ]}]}
+        body = json.dumps(payload).encode()
+        signature = 'sha256=' + hmac.new(b'test-secret', body, 'sha256').hexdigest()
+        with patch.object(yossi, 'APP_SECRET', 'test-secret'), \
+                patch.object(yossi, 'store_meta_leadgen_event') as store, \
+                patch.object(yossi, 'send_whatsapp') as send:
+            response = self.app.post('/meta-leads/webhook', data=body,
+                headers={'X-Hub-Signature-256': signature}, content_type='application/json')
+            self.assertEqual(response.status_code, 200)
+            store.assert_called_once_with('LEAD1', 'PAGE1', 'FORM1', 12345)
+            send.assert_not_called()
+            self.assertEqual(self.app.post('/meta-leads/webhook', data=body,
+                content_type='application/json').status_code, 403)
+
+    def test_receiver_fails_closed_and_retries_storage_failures(self):
+        import hmac
+        body = b'{"object":"page","entry":[{"id":"PAGE1","changes":[{"field":"leadgen","value":{"leadgen_id":"LEAD1"}}]}]}'
+        signature = 'sha256=' + hmac.new(b'test-secret', body, 'sha256').hexdigest()
+        with patch.object(yossi, 'APP_SECRET', ''):
+            self.assertEqual(self.app.post('/meta-leads/webhook', data=body).status_code, 503)
+        with patch.object(yossi, 'APP_SECRET', 'test-secret'), \
+                patch.object(yossi, 'store_meta_leadgen_event', side_effect=RuntimeError('offline')):
+            self.assertEqual(self.app.post('/meta-leads/webhook', data=body,
+                headers={'X-Hub-Signature-256': signature}, content_type='application/json').status_code, 503)
+
