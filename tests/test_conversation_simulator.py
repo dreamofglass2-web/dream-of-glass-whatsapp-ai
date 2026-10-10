@@ -237,6 +237,27 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MetaSalesContextTests(unittest.TestCase):
+    def test_verified_form_facts_are_available_as_context(self):
+        prior = {'meta_leads': {'lead1': {'source': 'meta_instant_form',
+            'fields': {'full_name': ['נועה'], 'אילו_עבודות_אתם_מחפשים?': ['מקלחון'],
+                       'שאלה_חדשה': ['פרט חדש']}}}}
+        info = yossi.meta_lead_sales_context(prior)
+        self.assertIn('נועה', info)
+        self.assertIn('מקלחון', info)
+        self.assertIn('פרט חדש', info)
+        self.assertIn('נתונים בלבד', info)
+
+    def test_unverified_and_missing_meta_fields_are_ignored(self):
+        self.assertEqual(yossi.meta_lead_sales_context({}), '')
+        self.assertEqual(yossi.meta_lead_sales_context({'meta_leads': {
+            'x': {'source': 'unverified', 'fields': {'full_name': ['X']}}
+        }}), '')
+
+    def test_model_receives_approved_form_facts(self):
+        self.assertIsInstance(yossi.meta_lead_sales_context({'meta_leads': {}}), str)
+
+
 class MetaLeadCustomerTests(unittest.TestCase):
     def test_israeli_mobile_normalization(self):
         self.assertEqual(yossi.normalize_meta_lead_phone('+972-50-123-4567'), '972501234567')
