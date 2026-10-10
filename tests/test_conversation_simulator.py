@@ -128,6 +128,19 @@ class ConversationSimulation(unittest.TestCase):
         self.assertNotIn("איך מחולקות הזכוכיות והדלתות", answer)
         self.assertNotIn("₪", answer)
 
+    def test_sales_guidance_recognizes_objection_and_preserves_name_intro(self):
+        opening = [{"role": "user", "content": "שלום, אני רוצה מקלחון"}]
+        first = yossi.sales_turn_guidance("שלום, אני רוצה מקלחון", opening)
+        self.assertIn("שם הלקוח", first)
+        history = [
+            {"role": "user", "content": "אני צריך מקלחון"},
+            {"role": "assistant", "content": "אשמח לעזור"},
+            {"role": "user", "content": "קיבלתי הצעה זולה יותר"},
+        ]
+        objections = yossi.sales_turn_guidance("קיבלתי הצעה זולה יותר", history)
+        self.assertIn("התנגדות", objections)
+        self.assertIn("ערך מבוסס", objections)
+
     def test_warm_open_and_no_invented_price(self):
         message = "אהלן, רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה?"
         reply = self.step(message, self.model("כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?", quote_requested=True))
