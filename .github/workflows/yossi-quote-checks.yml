@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Python syntax
-        run: python -m py_compile app.py
+        run: python -m py_compile app.py tools/yossi_ai_simulator.py
       - name: Install application dependencies for isolated simulation
         run: pip install -r requirements.txt
       - name: Offline multi-turn customer simulations
