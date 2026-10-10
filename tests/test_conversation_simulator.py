@@ -142,6 +142,22 @@ class ConversationSimulation(unittest.TestCase):
         self.assertNotIn("ההצעה מאושרת", answer)
         self.assertIn("עוד לא נתתי", answer)
 
+    def test_cheaper_competitor_offer_is_addressed_without_fake_discount(self):
+        specs = dict(
+            product="מקלחון", configuration="פינתי 2 דלתות",
+            width_cm=100, second_width_cm=100, height_cm=200,
+            glass_type="שקופה", finish="שחור",
+            handles=["ידית כפתור", "ידית כפתור"],
+            quote_requested=True, solution_agreed=True,
+        )
+        self.step("כמה עולה מקלחון פינתי 100 על 100 שתי דלתות גובה 200?",
+                  self.model("הנה המחיר", **specs))
+        answer = self.step("זה יותר ממה שתכננתי. קיבלתי הצעה זולה ב-700 שקל.",
+                           self.model("המחיר שלנו הוא 700 שקל יותר"))
+        self.assertIn("פער במחיר", answer)
+        self.assertIn("מה כלול אצלם", answer)
+        self.assertNotIn("המחיר המאומת למפרט", answer)
+
     def test_customer_reset_does_not_touch_real_db(self):
         reply = self.step("התחל שיחה חדשה")
         self.assertIn("מתחילים מחדש", reply)
