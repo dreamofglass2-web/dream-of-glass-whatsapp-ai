@@ -1283,6 +1283,16 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm', 'glass_type', 'finish', 'handles'):
                 if data.get(key) is not None:
                     merged_pricing[key] = data[key]
+            # Any changed quote specification invalidates the previous offer.
+            quote_changed = bool(prior_quote and any(
+                data.get(key) is not None and data.get(key) != quote_record.get(key)
+                for key in ('configuration', 'width_cm', 'second_width_cm',
+                            'height_cm', 'glass_type', 'finish', 'handles')
+                if quote_record.get(key) is not None
+            ))
+            if quote_changed:
+                quote_record = {}
+                prior_quote = False
             is_shower = (str(merged_pricing.get('product') or '').startswith('מקלחון') or
                          'מקלחון' in ' '.join(customer_written_text(m.get('content', ''))
                                               for m in history[-12:] if m.get('role') == 'user'))
@@ -1293,7 +1303,7 @@ def process_message(phone, body, batch_rows=None):
                     quote_record['approved'] = True
                 reply = close_validated_quote(quote_record, history, customer_request)
             elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and (
-                    quote_intent(customer_request) or data.get('quote_requested') is True):
+                    quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
                 if verified_price is not None and (data.get('solution_agreed') is True or
                                                    merged_pricing.get('solution_agreed') is True or
@@ -1313,6 +1323,9 @@ def process_message(phone, body, batch_rows=None):
                              'המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
                 elif contains_ils_amount(reply):
                     reply = missing_quote_detail(merged_pricing)
+            if quote_changed and not quote_intent(customer_request):
+                reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
+                         'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
                 reply = missing_quote_detail(merged_pricing)
@@ -1420,6 +1433,8 @@ def process_message(phone, body, batch_rows=None):
                         'handles','quote_requested','solution_agreed','needs_human'):
                 if data.get(key) is not None:
                     next_context[key] = data[key]
+            if quote_changed:
+                next_context.pop('validated_quote', None)
             if quote_record.get('issued'):
                 next_context['validated_quote'] = quote_record
             save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
