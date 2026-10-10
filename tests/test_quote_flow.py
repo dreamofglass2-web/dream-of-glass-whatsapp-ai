@@ -7,7 +7,7 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 TREE = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
 FUNCTIONS = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
 SELECTED = ("quote_intent", "closing_intent", "explicit_quote_approval",
-            "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup")
+            "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup", "confirmed_corner_two_door_specs")
 scope = {"re": re, "customer_written_text": lambda s: s, "BOM": {"פינתי 2 דלתות": {"ידית כפתור": 2}}, "SLIDING": {}}
 code = compile(ast.Module(body=[FUNCTIONS[n] for n in SELECTED], type_ignores=[]), "<extracted helpers>", "exec")
 exec(code, scope)
@@ -29,6 +29,23 @@ class QuoteFlowTests(unittest.TestCase):
         self.assertIn("שתי דלתות", answer)
         self.assertIn("יש לצדן גם זכוכיות קבועות", answer)
         self.assertNotIn("איך מחולקות הזכוכיות והדלתות", answer)
+
+    def test_customer_confirmed_corner_layout_has_priceable_specs(self):
+        history = [
+            {"role": "user", "content": "מקלחון פינתי 100 על 100 שתי דלתות גובה 200 זכוכית שקופה פרזול שחור"},
+            {"role": "assistant", "content": "איך הדלתות מחוברות?"},
+            {"role": "user", "content": "ישר לקירות, אין קבועים. ידיות כפתור"},
+        ]
+        data = scope["confirmed_corner_two_door_specs"](history, {})
+        self.assertEqual(data["configuration"], "פינתי 2 דלתות")
+        self.assertEqual(data["width_cm"], 100)
+        self.assertEqual(data["second_width_cm"], 100)
+        self.assertEqual(data["height_cm"], 200)
+        self.assertEqual(data["handles"], ["ידית כפתור", "ידית כפתור"])
+
+    def test_no_price_from_unconfirmed_corner_layout(self):
+        history = [{"role": "user", "content": "מקלחון פינתי 100 על 100 שתי דלתות"}]
+        self.assertNotIn("configuration", scope["confirmed_corner_two_door_specs"](history, {}))
 
     def test_quote_intent(self):
         self.assertTrue(scope["quote_intent"]("כמה עולה מקלחון?"))
