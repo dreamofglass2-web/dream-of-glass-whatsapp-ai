@@ -1,0 +1,36 @@
+name: Yossi followup PostgreSQL integration
+on:
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'tests/test_followup_database.py'
+      - '.github/workflows/followup-postgres-test.yml'
+  workflow_dispatch:
+jobs:
+  followup-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tester
+          POSTGRES_PASSWORD: tester
+          POSTGRES_DB: yossi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tester -d yossi_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://tester:tester@localhost:5432/yossi_test
+      OPENAI_API_KEY: sk-offline-test-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Run disposable database tests; never send WhatsApp
+        run: python -m unittest discover -s tests -p test_followup_database.py -v
