@@ -7,8 +7,8 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 TREE = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
 FUNCTIONS = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
 SELECTED = ("quote_intent", "closing_intent", "explicit_quote_approval",
-            "tiling_completed", "contains_ils_amount", "close_validated_quote")
-scope = {"re": re, "customer_written_text": lambda s: s}
+            "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup")
+scope = {"re": re, "customer_written_text": lambda s: s, "BOM": {"פינתי 2 דלתות": {"ידית כפתור": 2}}, "SLIDING": {}}
 code = compile(ast.Module(body=[FUNCTIONS[n] for n in SELECTED], type_ignores=[]), "<extracted helpers>", "exec")
 exec(code, scope)
 
@@ -16,6 +16,14 @@ exec(code, scope)
 class QuoteFlowTests(unittest.TestCase):
     def test_source_syntax(self):
         self.assertGreater(len(TREE.body), 30)
+
+    def test_friendly_corner_opening(self):
+        message = "אהלן, אני רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה לי?"
+        answer = scope["helpful_quote_followup"]({}, message, first_message=True)
+        self.assertIn("היי, מה שלומך", answer)
+        self.assertIn("שתי דלתות", answer)
+        self.assertIn("יש לצדן גם זכוכיות קבועות", answer)
+        self.assertNotIn("איך מחולקות הזכוכיות והדלתות", answer)
 
     def test_quote_intent(self):
         self.assertTrue(scope["quote_intent"]("כמה עולה מקלחון?"))
