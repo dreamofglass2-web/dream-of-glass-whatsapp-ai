@@ -65,6 +65,22 @@ class QuoteFlowTests(unittest.TestCase):
                     "def admin_leads(", "def calculate_quote("):
             self.assertIn(key, source)
 
+    def test_latest_tiling_correction_wins(self):
+        self.assertFalse(scope["tiling_completed"]([
+            {"role": "user", "content": "הריצוף הסתיים"},
+            {"role": "assistant", "content": "מעולה"},
+            {"role": "user", "content": "טעיתי, הריצוף עוד לא הסתיים"}
+        ]))
+        self.assertTrue(scope["tiling_completed"]([
+            {"role": "user", "content": "אנחנו עדיין בשיפוץ"},
+            {"role": "user", "content": "הריצוף הסתיים"}
+        ]))
+
+    def test_future_tiling_not_completed(self):
+        self.assertFalse(scope["tiling_completed"]([
+            {"role": "user", "content": "הריצוף יסתיים בעוד שבוע"}
+        ]))
+
     def test_no_early_measurement(self):
         out = scope["close_validated_quote"]({"issued": True, "approved": True},
                 [{"role": "user", "content": "הריצוף עוד לא הסתיים"}],
