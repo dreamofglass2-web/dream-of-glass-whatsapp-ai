@@ -16,5 +16,13 @@ jobs:
           python-version: "3.11"
       - name: Python syntax
         run: python -m py_compile app.py
+      - name: Install application dependencies for isolated simulation
+        run: pip install -r requirements.txt
+      - name: Offline multi-turn customer simulations
+        env:
+          OPENAI_API_KEY: sk-offline-test-only
+          DATABASE_URL: ""
+          WHATSAPP_TOKEN: ""
+        run: python -m unittest discover -s tests -p "test_conversation_simulator.py" -v
       - name: Focused regression checks
         run: python -m unittest discover -s tests -p "test_quote_flow.py" -v
