@@ -1,0 +1,20 @@
+name: Yossi quote safety checks
+on:
+  push:
+    branches:
+      - fix/yossi-quote-closing-review-20261010
+  pull_request:
+    branches:
+      - main
+jobs:
+  quote-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python syntax
+        run: python -m py_compile app.py
+      - name: Focused regression checks
+        run: python -m unittest discover -s tests -p "test_quote_flow.py" -v
