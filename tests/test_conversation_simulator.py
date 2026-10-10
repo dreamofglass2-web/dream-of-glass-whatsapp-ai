@@ -75,6 +75,21 @@ class ConversationSimulation(unittest.TestCase):
             "quote_requested": False, "solution_agreed": False,
         }, **fields)
 
+    def test_tomorrow_callback_collects_hour_and_saves_exact_date(self):
+        with patch.object(yossi, 'save_callback', return_value=True) as store:
+            first = self.step('היי תתקשרו אליי מחר')
+            self.assertIn('באיזו שעה מחר', first)
+            self.assertNotIn('נקבע', first)
+            store.assert_called_once_with(self.phone)
+            self.assertEqual(self.memory[self.phone][1]['callback_requested_day'], 'מחר')
+            with patch.object(yossi, 'waiting_for_callback_time', return_value=True):
+                reply = self.step('בשעה 10', self.model('נחזור אליך'))
+            self.assertIn('10:00', reply)
+            self.assertIn('אלירן', reply)
+            self.assertNotIn('תאריך טרם תואם', reply)
+            self.assertEqual(store.call_count, 2)
+            self.assertIsNone(self.memory[self.phone][1].get('callback_requested_day'))
+
     def test_outgoing_messages_never_contain_emojis(self):
         self.assertEqual(yossi.without_emojis("היי 😊 מה שלומך? 🙂"), "היי מה שלומך?")
         self.assertEqual(yossi.without_emojis("תודה רבה 👍"), "תודה רבה")
