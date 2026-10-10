@@ -1485,6 +1485,11 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'סליחה, ניסיתי לשלוח תמונות אבל השליחה לא הצליחה כרגע. לא אטען שהן נשלחו. אפשר לנסות שוב מעט מאוחר יותר.'
                 elif failed_photos:
                     reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
+            # Guarantee a warm introduction for the first substantive customer turn.
+            # Model-generated replies may bypass the quote fallback, so apply at send time.
+            if len(history) == 1 and re.search(r'מקלחון|אמבטיון|זכוכית', customer_request):
+                if not re.match(r'^\s*(?:היי|אהלן|שלום|בוקר טוב|ערב טוב)', reply):
+                    reply = 'היי, מה שלומך? 🙂 ' + reply
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
