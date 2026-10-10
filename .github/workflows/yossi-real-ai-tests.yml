@@ -1,0 +1,33 @@
+name: Yossi real AI conversation tests
+on:
+  workflow_dispatch:
+jobs:
+  real-model-sales-conversations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.YOSSI_TEST_OPENAI_API_KEY }}
+      RUN_LIVE_YOSSI_TESTS: "1"
+      DATABASE_URL: ""
+      WHATSAPP_TOKEN: ""
+      SEND_QUOTES: "true"
+      TYPING_MIN_SECONDS: "0"
+      TYPING_MAX_SECONDS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Require dedicated API test secret
+        run: test -n "$OPENAI_API_KEY"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run isolated real-model conversations
+        run: python tools/yossi_ai_simulator.py
+      - name: Preserve only synthetic dialogue report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yossi-ai-test-transcripts
+          path: yossi_ai_test_report.json
+          if-no-files-found: ignore
