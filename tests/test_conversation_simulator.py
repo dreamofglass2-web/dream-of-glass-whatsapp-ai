@@ -91,6 +91,18 @@ class ConversationSimulation(unittest.TestCase):
                             self.model("יש שחור או כרום, וגם ניקל מוברש."))
         self.assertIn("שחור או כרום", opening)
 
+    def test_corner_sliding_customer_is_not_asked_same_layout_again(self):
+        self.step("אני מחפש מקלחון פינתי 90 על 90 גובה 200",
+                  self.model("איזה סוג דלתות תרצה?"))
+        self.step("מעדיף מקלחון פינתי עם דלתות הזזה. כמה זה עולה?",
+                  self.model("איך מחולקות הזכוכיות והדלתות?", quote_requested=True))
+        answer = self.step("אמרתי לך הזזה", self.model(
+            "כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?"))
+        self.assertIn("דלתות הזזה", answer)
+        self.assertIn("אין לי כרגע מחיר מאומת", answer)
+        self.assertNotIn("איך מחולקות הזכוכיות והדלתות", answer)
+        self.assertNotIn("₪", answer)
+
     def test_warm_open_and_no_invented_price(self):
         message = "אהלן, רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה?"
         reply = self.step(message, self.model("כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?", quote_requested=True))
