@@ -92,19 +92,29 @@ class ConversationSimulation(unittest.TestCase):
                             self.model("יש שחור או כרום, וגם ניקל מוברש."))
         self.assertIn("שחור או כרום", opening)
 
+    def test_custom_quote_mentions_eliran_and_uses_known_name(self):
+        self.step("שלום, קוראים לי דניאל. צריך מקלחון פינתי",
+                  self.model("איזה סוג דלתות תרצה?"))
+        reply = self.step("הזזה פינתי, כמה יעלה?",
+                          self.model("איך מחולקות הדלתות?", quote_requested=True))
+        self.assertIn("אלירן דוד הכהן", reply)
+        self.assertIn("בעל העסק", reply)
+        self.assertIn("שמרתי את הפנייה", reply)
+        self.assertNotIn("איך קוראים לך", reply)
+
     def test_unsupported_corner_sliding_creates_owner_lead(self):
         self.step("אני רוצה מקלחון פינתי 90 על 90 גובה 200",
                   self.model("כמה דלתות?"))
         reply = self.step("אני רוצה דלתות הזזה. כמה יעלה?",
                           self.model("איך מחולקות הדלתות?", quote_requested=True))
-        self.assertIn("רשמתי את הפנייה", reply)
+        self.assertIn("שמרתי את הפנייה", reply)
         self.assertIn("איך קוראים לך", reply)
         self.assertTrue(self.memory[self.phone][1].get("custom_quote_lead_saved"))
         with patch.object(yossi, "save_custom_quote_lead") as store:
             again = self.step("אמרתי לך הזזה",
                               self.model("איך מחולקות הדלתות?"))
             store.assert_not_called()
-            self.assertIn("כבר נרשמה", again)
+            self.assertIn("כבר שמורה", again)
 
     def test_corner_sliding_customer_is_not_asked_same_layout_again(self):
         self.step("אני מחפש מקלחון פינתי 90 על 90 גובה 200",
