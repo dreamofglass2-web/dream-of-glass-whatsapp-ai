@@ -270,6 +270,57 @@ class MetaLeadCustomerTests(unittest.TestCase):
         cursor.execute.assert_not_called()
 
 
+    def test_full_meta_details_to_customer_flow_is_silent_and_idempotent(self):
+        """Run the persistence path twice using fake DB cursors, never real customers."""
+        from contextlib import contextmanager
+        all_queries = []
+
+        @contextmanager
+        def fake_connection():
+            class Conn:
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    pass
+                def cursor(self):
+                    class Cur:
+                        def __enter__(self):
+                            return self
+                        def __exit__(self, *args):
+                            pass
+                        def execute(self, query, params):
+                            all_queries.append((query, params))
+                    return Cur()
+            yield Conn()
+
+        details = {
+            'id': 'synthetic-lead-01',
+            'field_data': [
+                {'name': 'phone_number', 'values': ['0501234567']},
+                {'name': 'full_name', 'values': ['לקוח בדיקה']},
+                {'name': 'city', 'values': ['בדיקה']},
+                {'name': 'שאלה_חדשה_בקמפיין', 'values': ['תשובה חדשה']},
+            ],
+        }
+        with patch.object(yossi, 'db_connection', side_effect=fake_connection), \
+             patch.object(yossi, 'send_whatsapp') as send:
+            yossi.persist_meta_lead_details('synthetic-lead-01', details)
+            yossi.persist_meta_lead_details('synthetic-lead-01', details)
+            send.assert_not_called()
+
+        self.assertEqual(len(all_queries), 4)
+        customer_statements = [(sql, params) for sql, params in all_queries
+                               if 'INSERT INTO glass_leads' in sql]
+        self.assertEqual(len(customer_statements), 2)
+        for query, params in customer_statements:
+            self.assertIn('ON CONFLICT (phone) DO UPDATE', query)
+            self.assertNotIn("status=", query)
+            self.assertEqual(params[0], '972501234567')
+            self.assertEqual(params[1], 'לקוח בדיקה')
+            fields = json.loads(params[2])['meta_leads']['synthetic-lead-01']['fields']
+            self.assertEqual(fields['שאלה_חדשה_בקמפיין'], ['תשובה חדשה'])
+
+
 class MetaLeadDetailsTests(unittest.TestCase):
     def test_no_token_never_calls_meta(self):
         with patch.object(yossi, 'META_LEADS_ACCESS_TOKEN', ''), \
