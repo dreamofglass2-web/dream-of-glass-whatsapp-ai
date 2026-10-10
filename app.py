@@ -1428,6 +1428,24 @@ def process_message(phone, body, batch_rows=None):
             if quote_changed and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
+            # Corner sliding is not in the verified price catalogue. Do not trap the
+            # customer in repeated layout questions once sliding was stated.
+            customer_history_text = ' '.join(
+                customer_written_text(m.get('content', ''))
+                for m in history if m.get('role') == 'user')
+            wants_corner_sliding = ('פינתי' in customer_history_text and
+                                    'הזזה' in customer_history_text)
+            if (ordinary_turn and is_shower and wants_corner_sliding and
+                    not quote_record.get('issued') and
+                    calculate_quote(merged_pricing) is None and
+                    (quote_intent(customer_request) or
+                     re.search(r'איך מחולקות הזכוכיות והדלתות|צריך לוודא את תצורת המקלחון',
+                               reply))):
+                reply = ('הבנתי שאתה מעוניין במקלחון פינתי עם דלתות הזזה. '
+                         'לתצורה הזאת אין לי כרגע מחיר מאומת במערכת, '
+                         'ולכן לא אתן לך סכום לא מבוסס. '
+                         'אפשר לרכז את הפרטים לבדיקת תמחור פרטנית. '
+                         'תרצה שנתקדם כך?')
             # Never treat agreement as approval of a price that was not issued.
             if ordinary_turn and is_shower and closing_intent(customer_request) and not quote_record.get('issued'):
                 checked_price = calculate_quote(merged_pricing) if SEND_QUOTES else None
