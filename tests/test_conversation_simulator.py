@@ -34,6 +34,7 @@ class ConversationSimulation(unittest.TestCase):
             patch.object(yossi, "send_whatsapp", side_effect=self.send),
             patch.object(yossi, "reset_conversation_for_phone", side_effect=self.reset),
             patch.object(yossi, "save_callback", return_value=True),
+            patch.object(yossi, "save_custom_quote_lead", return_value=True),
             patch.object(yossi, "has_new_messages", return_value=False),
             patch.object(yossi.time, "sleep", return_value=None),
             patch.object(yossi.client.responses, "create", side_effect=self.ai.create),
@@ -90,6 +91,20 @@ class ConversationSimulation(unittest.TestCase):
         opening = self.step("איזה גוונים יש לפרזול?",
                             self.model("יש שחור או כרום, וגם ניקל מוברש."))
         self.assertIn("שחור או כרום", opening)
+
+    def test_unsupported_corner_sliding_creates_owner_lead(self):
+        self.step("אני רוצה מקלחון פינתי 90 על 90 גובה 200",
+                  self.model("כמה דלתות?"))
+        reply = self.step("אני רוצה דלתות הזזה. כמה יעלה?",
+                          self.model("איך מחולקות הדלתות?", quote_requested=True))
+        self.assertIn("רשמתי את הפנייה", reply)
+        self.assertIn("איך קוראים לך", reply)
+        self.assertTrue(self.memory[self.phone][1].get("custom_quote_lead_saved"))
+        with patch.object(yossi, "save_custom_quote_lead") as store:
+            again = self.step("אמרתי לך הזזה",
+                              self.model("איך מחולקות הדלתות?"))
+            store.assert_not_called()
+            self.assertIn("כבר נרשמה", again)
 
     def test_corner_sliding_customer_is_not_asked_same_layout_again(self):
         self.step("אני מחפש מקלחון פינתי 90 על 90 גובה 200",
