@@ -77,7 +77,7 @@ class FollowupPostgresIntegration(unittest.TestCase):
             yossi.schedule_followup_dry_run(phone)
         with test_connection() as db:
             with db.cursor() as cur:
-                cur.execute("SELECT count(*) FROM yossi_followup_jobs WHERE phone LIKE 'TEST_FOLLOWUP_%' AND phone<>%s", ("TEST_FOLLOWUP_ELIGIBLE",))
+                cur.execute("SELECT count(*) FROM yossi_followup_jobs WHERE starts_with(phone, 'TEST_FOLLOWUP_') AND phone<>%s", ("TEST_FOLLOWUP_ELIGIBLE",))
                 self.assertEqual(cur.fetchone()[0], 0)
 
 
