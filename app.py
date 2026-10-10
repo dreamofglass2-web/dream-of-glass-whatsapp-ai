@@ -2008,7 +2008,13 @@ def batch_worker():
 
 
 def ensure_worker_started():
-    """Start in the process that actually serves requests, not at import/preload."""
+    """Start processing only after durable followup schema initialization."""
+    try:
+        ensure_followup_table()
+    except Exception:
+        app.logger.exception('Followup table initialization failed; worker will not start')
+        return
+
     global worker_thread, worker_pid
     with worker_start_lock:
         pid = os.getpid()
