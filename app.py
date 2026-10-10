@@ -1434,8 +1434,19 @@ def process_message(phone, body, batch_rows=None):
             if (ordinary_turn and is_shower and len(history) == 1 and
                     quote_intent(customer_request) and not quote_record.get('issued')):
                 reply = helpful_quote_followup(merged_pricing, customer_request, first_message=True)
+            # A competitor's discount is a customer objection, not a new quote.
+            competitor_price_objection = bool(
+                quote_record.get('issued') and ordinary_turn and
+                re.search(r'מתחר|הצעה\\s+(?:זולה|זול)|זול\\s+ב|פחות\\s+מ|הציעו\\s+לי', customer_request)
+            )
+            if competitor_price_objection:
+                reply = ('מבין אותך, פער במחיר הוא בהחלט משהו שכדאי לבדוק. '
+                         'אצלנו ההצעה כוללת זכוכית מחוסמת 8 מ״מ, פרזול פליז, '
+                         'התקנה, 7 שנות אחריות על הפרזול ושנה על ההתקנה. '
+                         'אם המפרט והתנאים אצלם זהים, אין טעם להבטיח סתם שאנחנו טובים יותר. '
+                         'מה כלול אצלם במחיר?')
             # Even after issuing a quote, an unrelated AI amount must not replace it.
-            if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
+            if ordinary_turn and is_shower and quote_record.get('issued') and not competitor_price_objection and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
                 mentioned_numbers = [int(v.replace(',', '')) for v in re.findall(
                     r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)',
