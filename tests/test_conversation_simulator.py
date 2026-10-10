@@ -35,6 +35,7 @@ class ConversationSimulation(unittest.TestCase):
             patch.object(yossi, "reset_conversation_for_phone", side_effect=self.reset),
             patch.object(yossi, "save_callback", return_value=True),
             patch.object(yossi, "has_new_messages", return_value=False),
+            patch.object(yossi.time, "sleep", return_value=None),
             patch.object(yossi.client.responses, "create", side_effect=self.ai.create),
         ]
         for p in self.patches:
