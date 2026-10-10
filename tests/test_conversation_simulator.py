@@ -255,10 +255,12 @@ if __name__ == "__main__":
 class FollowupStartupTests(unittest.TestCase):
     def test_worker_creates_followup_table_before_start(self):
         from unittest.mock import MagicMock
-        with patch.object(yossi, 'ensure_followup_table') as schema, \
+        with patch.object(yossi, 'ensure_db') as customer_schema, \
+             patch.object(yossi, 'ensure_followup_table') as schema, \
              patch.object(yossi.threading, 'Thread') as thread, \
              patch.object(yossi.os, 'getpid', return_value=-999):
             yossi.ensure_worker_started()
+            customer_schema.assert_called_once()
             schema.assert_called_once()
             thread.assert_called_once()
 

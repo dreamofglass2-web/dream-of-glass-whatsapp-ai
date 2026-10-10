@@ -2092,9 +2092,10 @@ def ensure_worker_started():
         pid = os.getpid()
         if worker_pid != pid or worker_thread is None or not worker_thread.is_alive():
             try:
+                ensure_db()
                 ensure_followup_table()
             except Exception:
-                app.logger.exception('Followup table initialization failed; worker will not start')
+                app.logger.exception('Database schema initialization failed; worker will not start')
                 return
             worker_thread = threading.Thread(target=batch_worker, daemon=True,
                                              name='whatsapp-batch-worker')
