@@ -252,6 +252,19 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class CallHandoffPolicyTests(unittest.TestCase):
+    def test_explicit_callback_intent(self):
+        self.assertTrue(yossi.is_callback_request('היי תתקשרו אליי מחר'))
+        self.assertTrue(yossi.is_callback_request('אני רוצה לדבר עם נציג'))
+        self.assertFalse(yossi.is_callback_request('כמה עולה מקלחון?'))
+        self.assertFalse(yossi.is_callback_request('אפשר הצעת מחיר?'))
+        self.assertFalse(yossi.is_callback_request('לא רוצה שתתקשרו אליי'))
+
+    def test_only_specialist_work_requires_proactive_review(self):
+        self.assertFalse(yossi.requires_specialist_review('אני רק משווה מחירים'))
+        self.assertTrue(yossi.requires_specialist_review('צריך אישור מהנדס למעקה'))
+
+
 class OptOutRegressionTests(unittest.TestCase):
     def test_declining_calls_does_not_create_callback(self):
         self.assertTrue(yossi.refuses_phone_calls('לא רוצה שתתקשרו אליי'))
