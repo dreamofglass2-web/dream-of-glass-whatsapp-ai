@@ -1041,7 +1041,7 @@ def confirmed_corner_two_door_specs(history, data):
         result['glass_type'] = 'שקופה'
     if re.search(r'פרזול\s+שחור', text):
         result['finish'] = 'שחור'
-    if re.search(r'(?:ידיות|ידית)\s+(?:רגילות?\s*,?\s*)?כפתור|כפתור\s+רגיל', text):
+    if re.search(r'(?:ידיות|ידית)[^.!?\n]{0,32}כפתור|כפתור\s+רגיל', text):
         result['handles'] = ['ידית כפתור', 'ידית כפתור']
     elif re.search(r'(?:ידיות|ידית)\s+מגבת', text):
         result['handles'] = ['ידית מגבת', 'ידית מגבת']
