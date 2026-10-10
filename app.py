@@ -290,7 +290,44 @@ def queue_message(phone, body, message_id):
         app.logger.info("QUEUE_ADDED phone_suffix=%s pending=%s", phone[-4:], len(pending[phone]))
 
 
+# Sales-message hours: Sunday-Thursday, 08:00-20:00 Israel local time.
+# Followup send scheduling remains disabled until a durable, consent-aware worker
+# and WhatsApp template policy have been verified.
+FOLLOWUP_DELAY_HOURS = 4
+AUTO_FOLLOWUPS_ENABLED = False
+
+
+def is_yossi_business_hours(now=None):
+    local = (now or datetime.now(ZoneInfo('Asia/Jerusalem'))).astimezone(
+        ZoneInfo('Asia/Jerusalem'))
+    return local.weekday() in (6, 0, 1, 2, 3) and 8 <= local.hour < 20
+
+
+def next_yossi_business_open(now=None):
+    local = (now or datetime.now(ZoneInfo('Asia/Jerusalem'))).astimezone(
+        ZoneInfo('Asia/Jerusalem'))
+    if is_yossi_business_hours(local):
+        return local
+    for days_ahead in range(8):
+        day = local.date() + timedelta(days=days_ahead)
+        candidate = datetime(day.year, day.month, day.day, 8, 0,
+                             tzinfo=ZoneInfo('Asia/Jerusalem'))
+        if candidate.weekday() in (6, 0, 1, 2, 3) and candidate >= local:
+            return candidate
+    raise ValueError('Could not resolve business opening')
+
+
+def earliest_followup_at(last_outbound_at):
+    """Calculate eligibility only, without authorizing sending a message."""
+    local = last_outbound_at.astimezone(ZoneInfo('Asia/Jerusalem'))
+    return next_yossi_business_open(local + timedelta(hours=FOLLOWUP_DELAY_HOURS))
+
+
 def next_batch():
+    # Do not process or answer WhatsApp customer messages outside operating hours.
+    # Queued messages currently live in memory; durable recovery is separate work.
+    if not is_yossi_business_hours():
+        return None
     with lock:
         now = time.monotonic()
         for phone, messages in list(pending.items()):
