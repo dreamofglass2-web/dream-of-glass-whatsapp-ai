@@ -30,6 +30,27 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 cur.execute("DELETE FROM glass_leads WHERE phone LIKE 'TEST_FOLLOWUP_%'")
         cls.connection_patcher.stop()
 
+    def test_inbound_timestamp_in_disposable_database(self):
+        """Verified inbound time persists, advances and does not send WhatsApp."""
+        from datetime import datetime, timedelta, timezone
+        phone = "TEST_FOLLOWUP_INBOUND"
+        with patch.object(yossi, "send_whatsapp") as send:
+            self.assertTrue(yossi.record_customer_inbound(phone))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("SELECT last_inbound_at FROM glass_leads WHERE phone=%s", (phone,))
+                    first = cur.fetchone()[0]
+                    self.assertIsNotNone(first)
+                    self.assertLess(datetime.now(timezone.utc) - first, timedelta(minutes=2))
+            self.assertTrue(yossi.record_customer_inbound(phone))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("SELECT count(*), max(last_inbound_at) FROM glass_leads WHERE phone=%s", (phone,))
+                    count, second = cur.fetchone()
+                    self.assertEqual(count, 1)
+                    self.assertGreaterEqual(second, first)
+            send.assert_not_called()
+
     def test_persist_reschedule_and_cancel(self):
         phone = "TEST_FOLLOWUP_ELIGIBLE"
         with test_connection() as db:
