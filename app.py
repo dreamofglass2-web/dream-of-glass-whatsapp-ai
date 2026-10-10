@@ -85,6 +85,7 @@ def ensure_db():
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )""")
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ')
         _db_ready = True
 
 
@@ -276,6 +277,35 @@ def last_assistant_asked_callback(history):
             text = str(item.get('content', ''))
             return ('מתי נוח' in text and ('לחזור' in text or 'יחזור' in text or 'שנבקש' in text))
     return False
+
+
+def record_customer_inbound(phone):
+    """Persist server-observed inbound time; never infer it from outbound messages."""
+    if not phone:
+        return False
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, last_inbound_at)
+                    VALUES (%s, now())
+                    ON CONFLICT (phone) DO UPDATE SET
+                       last_inbound_at=now(), updated_at=now()
+                """, (phone,))
+        return True
+    except Exception:
+        app.logger.exception('Could not persist customer inbound timestamp')
+        return False
+
+
+def freeform_whatsapp_window_valid(last_inbound_at, now=None):
+    """Free-form followups require a verified customer inbound in last 24h."""
+    if not isinstance(last_inbound_at, datetime) or last_inbound_at.tzinfo is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    elapsed = now - last_inbound_at
+    return timedelta(0) <= elapsed < timedelta(hours=24)
 
 
 def queue_message(phone, body, message_id):
@@ -1265,7 +1295,7 @@ def inspect_due_followups(now=None, limit=50):
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT j.phone, j.due_at, j.last_outbound_at,
-                           l.status, l.context, l.conversation
+                           l.status, l.context, l.conversation, l.last_inbound_at
                     FROM yossi_followup_jobs j
                     JOIN glass_leads l ON l.phone=j.phone
                     WHERE j.status='pending' AND j.due_at<=%s
@@ -1277,7 +1307,7 @@ def inspect_due_followups(now=None, limit=50):
         return {'enabled': False, 'reason': 'database_unavailable',
                 'due': 0, 'eligible': 0, 'blocked': 0}
     counts = {'due': len(rows), 'eligible': 0, 'blocked': 0, 'reasons': {}}
-    for phone, due_at, last_outbound_at, status, context, conversation in rows:
+    for phone, due_at, last_outbound_at, status, context, conversation, last_inbound_at in rows:
         context = context if isinstance(context, dict) else {}
         reason = None
         if status in ('ממתין לחזרה', 'ממתין לתמחור', 'סגור', 'נסגר'):
@@ -1286,11 +1316,12 @@ def inspect_due_followups(now=None, limit=50):
             reason = 'opted_out'
         elif context.get('followup_consent') is not True:
             reason = 'no_explicit_followup_consent'
+        elif not freeform_whatsapp_window_valid(last_inbound_at, now):
+            reason = 'whatsapp_window_expired_template_required'
         else:
-            # A verified inbound timestamp would be required for a free-form
-            # WhatsApp message. Historical conversation records lack one.
-            # An approved template + opt-in flow must be built separately.
-            reason = 'no_verified_whatsapp_window_or_template'
+            # Eligibility is informational only until approved send workflow,
+            # consent verification and durable scheduler are implemented.
+            reason = 'send_automation_disabled'
         counts['blocked'] += 1
         counts['reasons'][reason] = counts['reasons'].get(reason, 0) + 1
     return {'enabled': AUTO_FOLLOWUPS_ENABLED, **counts}
@@ -2312,6 +2343,8 @@ def webhook():
                 if not phone or not body:
                     continue
                 try:
+                    if not record_customer_inbound(phone):
+                        return 'Inbound timestamp unavailable', 503
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
                     received += 1
                 except Exception:

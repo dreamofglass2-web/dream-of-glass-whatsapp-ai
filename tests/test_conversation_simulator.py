@@ -270,6 +270,31 @@ class FollowupStartupTests(unittest.TestCase):
             thread.assert_not_called()
 
 
+class CustomerInboundWindowTests(unittest.TestCase):
+    def test_24_hour_window_boundaries(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 11, 9, tzinfo=timezone.utc)
+        self.assertTrue(yossi.freeform_whatsapp_window_valid(now-timedelta(hours=23), now))
+        self.assertFalse(yossi.freeform_whatsapp_window_valid(now-timedelta(hours=24), now))
+        self.assertFalse(yossi.freeform_whatsapp_window_valid(now+timedelta(minutes=1), now))
+        self.assertFalse(yossi.freeform_whatsapp_window_valid(None, now))
+
+    def test_inbound_timestamp_is_persisted_without_outreach(self):
+        from unittest.mock import MagicMock
+        connection = MagicMock()
+        cursor = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value.__enter__.return_value = cursor
+        with patch.object(yossi, 'db_connection', return_value=connection), \
+             patch.object(yossi, 'ensure_db'), \
+             patch.object(yossi, 'send_whatsapp') as sender:
+            self.assertTrue(yossi.record_customer_inbound('TEST_NUMBER'))
+            sql, args = cursor.execute.call_args.args
+            self.assertIn('last_inbound_at', sql)
+            self.assertEqual(args, ('TEST_NUMBER',))
+            sender.assert_not_called()
+
+
 class FollowupSendPreflightTests(unittest.TestCase):
     def test_fails_closed_outside_hours(self):
         from datetime import datetime
@@ -290,10 +315,10 @@ class FollowupSendPreflightTests(unittest.TestCase):
         connection.__enter__.return_value = connection
         connection.cursor.return_value.__enter__.return_value = cursor
         cursor.fetchall.return_value = [
-            ('TEST_A', None, None, 'חדש', {}, []),
-            ('TEST_B', None, None, 'חדש', {'followup_consent': True}, []),
-            ('TEST_C', None, None, 'ממתין לחזרה', {}, []),
-            ('TEST_D', None, None, 'חדש', {'no_followups': True}, []),
+            ('TEST_A', None, None, 'חדש', {}, [], None),
+            ('TEST_B', None, None, 'חדש', {'followup_consent': True}, [], None),
+            ('TEST_C', None, None, 'ממתין לחזרה', {}, [], None),
+            ('TEST_D', None, None, 'חדש', {'no_followups': True}, [], None),
         ]
         with patch.object(yossi, 'db_connection', return_value=connection), \
              patch.object(yossi, 'ensure_followup_table'), \
@@ -303,7 +328,7 @@ class FollowupSendPreflightTests(unittest.TestCase):
             self.assertEqual(result['eligible'], 0)
             self.assertEqual(result['blocked'], 4)
             self.assertEqual(result['reasons']['no_explicit_followup_consent'], 1)
-            self.assertEqual(result['reasons']['no_verified_whatsapp_window_or_template'], 1)
+            self.assertEqual(result['reasons']['whatsapp_window_expired_template_required'], 1)
             sender.assert_not_called()
 
 
