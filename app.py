@@ -1020,7 +1020,7 @@ def helpful_quote_followup(data, customer_request, first_message=False):
     greeting = 'היי, מה שלומך? 🙂 ' if first_message else ''
     explicit_corner_two_doors = (
         'פינתי' in text and
-        bool(re.search(r'(?:שתי|2)\\s+דלתות|דלתות\\s+פתיחה', text))
+        bool(re.search(r'(?:שתי|2)\s+דלתות|דלתות\s+פתיחה', text))
     )
     if explicit_corner_two_doors:
         # Do not guess whether fixed side panels were requested.
