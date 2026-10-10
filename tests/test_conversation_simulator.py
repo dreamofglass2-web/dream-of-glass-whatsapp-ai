@@ -358,7 +358,8 @@ class DurableFollowupTests(unittest.TestCase):
             self.assertIn('ממתין לחזרה', query)
 
     def test_new_message_cancels_pending_followup(self):
-        with patch.object(yossi, 'cancel_followup_dry_run') as cancel:
+        with patch.object(yossi, 'cancel_followup_dry_run') as cancel, \
+             patch.object(yossi, 'persist_inbound_message', return_value=True):
             yossi.queue_message('TEST_PHONE', 'שלום', 'TEST_FOLLOWUP_MSG_001')
             cancel.assert_called_once_with('TEST_PHONE')
         with yossi.lock:
