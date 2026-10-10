@@ -17,6 +17,11 @@ class QuoteFlowTests(unittest.TestCase):
     def test_source_syntax(self):
         self.assertGreater(len(TREE.body), 30)
 
+    def test_first_customer_turn_has_final_greeting_guard(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("if len(history) == 1 and re.search", source)
+        self.assertIn("reply = 'היי, מה שלומך? 🙂 ' + reply", source)
+
     def test_friendly_corner_opening(self):
         message = "אהלן, אני רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה לי?"
         answer = scope["helpful_quote_followup"]({}, message, first_message=True)
