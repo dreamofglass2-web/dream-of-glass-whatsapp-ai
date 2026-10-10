@@ -1249,6 +1249,53 @@ def cancel_followup_dry_run(phone):
         app.logger.exception('Followup dry-run cancellation failed')
 
 
+def inspect_due_followups(now=None, limit=50):
+    """Read-only send preflight. NEVER sends or marks a followup as sent.
+
+    The WhatsApp 24-hour conversation window is measured from an inbound
+    customer message, not the last outbound sales message.
+    """
+    now = now or datetime.now(timezone.utc)
+    if not is_yossi_business_hours(now):
+        return {'enabled': False, 'reason': 'outside_business_hours', 'due': 0,
+                'eligible': 0, 'blocked': 0}
+    try:
+        ensure_followup_table()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT j.phone, j.due_at, j.last_outbound_at,
+                           l.status, l.context, l.conversation
+                    FROM yossi_followup_jobs j
+                    JOIN glass_leads l ON l.phone=j.phone
+                    WHERE j.status='pending' AND j.due_at<=%s
+                    ORDER BY j.due_at LIMIT %s
+                """, (now, min(max(int(limit), 1), 100)))
+                rows = cur.fetchall()
+    except Exception:
+        app.logger.exception('Followup preflight read failed')
+        return {'enabled': False, 'reason': 'database_unavailable',
+                'due': 0, 'eligible': 0, 'blocked': 0}
+    counts = {'due': len(rows), 'eligible': 0, 'blocked': 0, 'reasons': {}}
+    for phone, due_at, last_outbound_at, status, context, conversation in rows:
+        context = context if isinstance(context, dict) else {}
+        reason = None
+        if status in ('ממתין לחזרה', 'ממתין לתמחור', 'סגור', 'נסגר'):
+            reason = 'owner_or_closed'
+        elif context.get('no_followups') or context.get('no_phone_calls'):
+            reason = 'opted_out'
+        elif context.get('followup_consent') is not True:
+            reason = 'no_explicit_followup_consent'
+        else:
+            # A verified inbound timestamp would be required for a free-form
+            # WhatsApp message. Historical conversation records lack one.
+            # An approved template + opt-in flow must be built separately.
+            reason = 'no_verified_whatsapp_window_or_template'
+        counts['blocked'] += 1
+        counts['reasons'][reason] = counts['reasons'].get(reason, 0) + 1
+    return {'enabled': AUTO_FOLLOWUPS_ENABLED, **counts}
+
+
 def polish_reply(reply, history):
     """Light-touch output guard. Never remove substantive answers or quote details."""
     reply = reply.strip()
