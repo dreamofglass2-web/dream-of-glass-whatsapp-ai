@@ -1440,11 +1440,16 @@ def process_message(phone, body, batch_rows=None):
                 re.search(r'מתחר|הצעה\s+(?:זולה|זול)|זול\s+ב|פחות\s+מ|הציעו\s+לי', customer_request)
             )
             if competitor_price_objection:
-                reply = ('מבין אותך, פער במחיר הוא בהחלט משהו שכדאי לבדוק. '
+                reply = ('מבין אותך לגמרי, פער כזה במחיר בהחלט מרגישים בכיס 🙂 '
+                         'אבל כשבוחרים מקלחון חשוב להסתכל על מה מקבלים לאורך זמן, '
+                         'לא רק על המחיר ביום ההזמנה. '
                          'אצלנו ההצעה כוללת זכוכית מחוסמת 8 מ״מ, פרזול פליז, '
                          'התקנה, 7 שנות אחריות על הפרזול ושנה על ההתקנה. '
-                         'אם המפרט והתנאים אצלם זהים, אין טעם להבטיח סתם שאנחנו טובים יותר. '
-                         'מה כלול אצלם במחיר?')
+                         'מעבר לזה, אנחנו נותנים שירות אישי וליווי לאורך התהליך, ' 
+                         'וזמינים לשאלות ולסיוע גם אחרי ההתקנה — יש לך למי לפנות. ' 
+                         'המטרה היא שתהיה מרוצה מהמקלחון גם הרבה אחרי ההתקנה. '
+                         'בוא נוודא שאנחנו באמת משווים את אותו המפרט — '
+                         'ההצעה שקיבלת כוללת גם התקנה ואחריות על הפרזול?')
             # Even after issuing a quote, an unrelated AI amount must not replace it.
             if ordinary_turn and is_shower and quote_record.get('issued') and not competitor_price_objection and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
