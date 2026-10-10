@@ -193,6 +193,23 @@ def save_conversation(phone, history, context):
         app.logger.exception('Database save failed; message was still handled')
 
 
+def save_custom_quote_lead(phone):
+    """Persist a lead needing an owner's custom quote review, without claiming a booked callback."""
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO glass_leads(phone, status, product)
+                    VALUES (%s, 'ממתין לתמחור', 'מקלחון')
+                    ON CONFLICT(phone) DO UPDATE SET
+                      status='ממתין לתמחור', product='מקלחון', updated_at=now()""",
+                    (phone,))
+        return True
+    except Exception:
+        app.logger.exception('Custom quote lead could not be saved')
+        return False
+
+
 def save_callback(phone, preferred_time=None):
     try:
         ensure_db()
@@ -1428,6 +1445,7 @@ def process_message(phone, body, batch_rows=None):
             if quote_changed and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
+            custom_quote_lead_saved = False
             # Corner sliding is not in the verified price catalogue. Do not trap the
             # customer in repeated layout questions once sliding was stated.
             customer_history_text = ' '.join(
@@ -1439,13 +1457,23 @@ def process_message(phone, body, batch_rows=None):
                     not quote_record.get('issued') and
                     calculate_quote(merged_pricing) is None and
                     (quote_intent(customer_request) or
+                     prior.get('custom_quote_lead_saved') or
                      re.search(r'איך מחולקות הזכוכיות והדלתות|צריך לוודא את תצורת המקלחון',
                                reply))):
-                reply = ('הבנתי שאתה מעוניין במקלחון פינתי עם דלתות הזזה. '
-                         'לתצורה הזאת אין לי כרגע מחיר מאומת במערכת, '
-                         'ולכן לא אתן לך סכום לא מבוסס. '
-                         'אפשר לרכז את הפרטים לבדיקת תמחור פרטנית. '
-                         'תרצה שנתקדם כך?')
+                if prior.get('custom_quote_lead_saved'):
+                    reply = ('הבקשה למקלחון פינתי עם דלתות הזזה כבר נרשמה לבדיקה אישית. '
+                             'אין לי כרגע מחיר מאומת לתצורה הזאת, אבל הפרטים אצלנו. '
+                             'אם תרצה אפשר להמשיך כאן עם שאלות נוספות.')
+                elif save_custom_quote_lead(phone):
+                    custom_quote_lead_saved = True
+                    reply = ('למקלחון פינתי עם דלתות הזזה אין לי מחיר מאומת שאוכל לתת '
+                             'כרגע. רשמתי את הפנייה שלך לבדיקה אישית של הצוות, '
+                             'עם מספר הוואטסאפ שממנו פנית ופרטי השיחה שכבר מסרת. '
+                             'איך קוראים לך?')
+                else:
+                    reply = ('לתצורה הזאת נדרשת בדיקת מחיר אישית. '
+                             'כרגע לא הצלחתי לשמור את הפנייה, ולכן לא אאשר שהיא נרשמה. '
+                             'אפשר לנסות שוב בעוד כמה דקות?')
             # Never treat agreement as approval of a price that was not issued.
             if ordinary_turn and is_shower and closing_intent(customer_request) and not quote_record.get('issued'):
                 checked_price = calculate_quote(merged_pricing) if SEND_QUOTES else None
@@ -1605,6 +1633,8 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
+            if custom_quote_lead_saved:
+                next_context['custom_quote_lead_saved'] = True
             for key in ('stage','action','next_missing_fact','product','configuration',
                         'width_cm','second_width_cm','height_cm','glass_type','finish',
                         'handles','quote_requested','solution_agreed','needs_human'):
