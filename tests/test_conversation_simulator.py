@@ -252,6 +252,21 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class OptOutRegressionTests(unittest.TestCase):
+    def test_declining_calls_does_not_create_callback(self):
+        self.assertTrue(yossi.refuses_phone_calls('לא רוצה שתתקשרו אליי'))
+        self.assertFalse(yossi.is_callback_request('לא רוצה שתתקשרו אליי'))
+        self.assertTrue(yossi.is_callback_request('תתקשרו אליי מחר'))
+
+    def test_no_followup_messages(self):
+        self.assertTrue(yossi.refuses_further_contact('אל תשלחו לי עוד הודעות'))
+
+    def test_simple_price_discovery(self):
+        text = yossi.sales_turn_guidance('כמה עולה מקלחון?', [
+            {'role':'user','content':'כמה עולה מקלחון?'}])
+        self.assertIn('חזיתי או פינתי', text)
+
+
 class MetaSalesContextTests(unittest.TestCase):
     def test_verified_form_facts_are_available_as_context(self):
         prior = {'meta_leads': {'lead1': {'source': 'meta_instant_form',

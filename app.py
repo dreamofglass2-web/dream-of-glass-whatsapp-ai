@@ -130,8 +130,31 @@ CALLBACK_TRIGGERS = ('לדבר עם', 'שיחזרו אלי', 'שיחזרו אל�
                      'תתקשר אליי', 'תתקשרו אליי', 'בטלפון עם')
 
 
+def refuses_phone_calls(body):
+    """Explicit no-calls request always overrides an earlier callback."""
+    return bool(re.search(
+        r'לא\s+(?:רוצה|מעוניינ[ת]?)\s+(?:ש)?(?:תתקשרו|יתקשרו|שיחה\s+טלפונית)|'
+        r'אל\s+(?:תתקשרו|תתקשר|תחזרו)\s+אל[יי]|'
+        r'(?:בלי|ללא)\s+(?:שיחות|טלפונים)|'
+        r'לא\s+(?:צריך|צריכה)\s+(?:ש)?תחזרו\s+אל[יי]',
+        str(body or '')
+    ))
+
+
+def refuses_further_contact(body):
+    """Broader opt-out: no automated followup of any kind."""
+    return bool(re.search(
+        r'(?:אל|לא)\s+(?:תשלחו|תפנו|לשלוח)\s+(?:לי\s+)?(?:עוד\s+)?הודעות|'
+        r'תפסיקו\s+(?:לשלוח|לפנות)|'
+        r'לא\s+(?:מעוניין|מעוניינת)\s+בהמשך\s+קשר',
+        str(body or '')
+    ))
+
+
 def is_callback_request(body):
     """Recognize a customer's request for a phone call, including named staff."""
+    if refuses_phone_calls(body) or refuses_further_contact(body):
+        return False
     normalized = re.sub(r'[\u200e\u200f]', '', body).strip()
     if any(phrase in normalized for phrase in CALLBACK_TRIGGERS):
         return True
@@ -811,6 +834,8 @@ def sales_turn_guidance(customer_request, history):
         info.append('זו תחילת השיחה: קבל את הלקוח בנעימות בלי נאום או שיחת חולין מאולצת.')
         info.append('ברר את שם הלקוח מוקדם ובטבעיות, אבל אל תדחה מענה לשאלת המחיר. אם הוא כבר הציג את עצמו אל תשאל שוב.')
     if re.search(r'מחיר|כמה\s+עול|כמה\s+יצא', text):
+        if not re.search(r'\\d+\\s*[/×xX]\\s*\\d+', entire):
+            info.append('הלקוח מבקש מחיר ראשוני, לא ייעוץ טכני. שאל קודם בפשטות האם המקלחון חזיתי או פינתי; אל תשאל בשלב הזה איך מחולקות הזכוכיות והדלתות.')
         info.append('הלקוח שאל מחיר. אל תתחמק. אם חסר נתון קריטי לתמחור, הסבר בקצרה ושאל רק עליו או על המצב התכנוני שמכריע את ההמלצה; אם כל נתוני החישוב מוכנים תן רק מחיר מחושב.')
     if re.search(r'\d+\s*[/×xX]\s*\d+', text):
         info.append('הלקוח כבר נתן מידות. אין צורך לצטט לו את כל המפרט או לבקש אותן שוב.')
@@ -1241,6 +1266,33 @@ def process_message(phone, body, batch_rows=None):
             return True
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        # Explicit opt-outs win over stale sales/callback requests.
+        if refuses_phone_calls(body) or refuses_further_contact(body):
+            if has_new_messages(phone, batch_rows):
+                return False
+            safe_context = dict(prior or {})
+            safe_context.pop('callback_requested_day', None)
+            safe_context['no_phone_calls'] = True
+            if refuses_further_contact(body):
+                safe_context['no_followups'] = True
+                reply = 'הבנתי, לא נשלח לך הודעות המשך.'
+            else:
+                reply = 'הבנתי, לא נתקשר אליך. אפשר להמשיך כאן בהודעות אם תרצה.'
+            try:
+                ensure_db()
+                with db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE glass_leads SET callback_time='', status=CASE
+                                WHEN status='ממתין לחזרה' THEN 'חדש' ELSE status END
+                            WHERE phone=%s
+                        """, (phone,))
+            except Exception:
+                app.logger.warning('Could not clear callback after opt-out')
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], safe_context)
+            send_whatsapp(phone, body=reply)
+            return True
+
         # A plain callback request with a day but no clock time needs a precise
         # follow-up, not an AI-generated promise or a generic scheduling question.
         if is_callback_request(body) and 'מחר' in body and callback_time_from_text(body) is None:
@@ -1360,6 +1412,12 @@ def process_message(phone, body, batch_rows=None):
                         + '\nמחירים אוטומטיים מופעלים: ' + ('כן' if SEND_QUOTES else 'לא')
                         + '\nסיכום מצב קודם, לבדיקה מול ההיסטוריה: '
                         + json.dumps({} if generic_price_question and not mentions_current_picture else prior, ensure_ascii=False) + '\nפרטי רשתות מאומתים: אינסטגרם=' + (INSTAGRAM_URL or 'קיים, קישור טרם הוגדר') + '; דף נחיתה=' + (LANDING_PAGE_URL or 'קיים, קישור טרם הוגדר') + '\nעקרונות שיחה מחייבים, קרא כסדר עבודה ולא כנוסח לדקלום:\n' + YOSSI_SALES_PLAYBOOK + '\nהנחיה ממוקדת לתור הנוכחי: ' + sales_turn_guidance(customer_request, history) + '\n' + HUMAN_CONSULTANT_PRIORITY + '\nכללי הכרעה אחרונים, גוברים על תבניות ישנות: קודם להבין מה הלקוח כתב כעת, ורק לאחר מכן לשקול הקשר קודם. בקשת מחיר כללית אינה הזמנה לתכנון מקלחון; השב עניינית בהתאם לפרטים שכבר מסר; ללא הצעת מחיר מאומתת אל תמציא מספר ואל תדקלם מינימום הזמנה. אל תזכיר צילום, מידה או דלתות הזזה אם לא הוזכרו בהודעה הנוכחית ולא נשאלת עליהם כעת. מילים כמו ״איזו תמונה״ או ״לא שלחתי תמונה״ הן תיקון של הלקוח, לא בקשת קטלוג. כשלקוח מתקן אותך: הכרה קצרה בטעות, תיקון אמיתי, חזרה לשאלתו ללא משפטים תבניתיים. בדבר על ייעוץ צילום/תוכנית, הצע כיוון ראשוני בכפוף לאימות ולא פתרון יחיד נחרץ. אל תשאל על גוון לפני שביררת תצורה אם הלקוח לא שאל על גוון. בלי לחץ, בלי שאלון, בלי תבניות חוזרות. אין להעמיד פנים שאתה אדם כאשר נשאלת ישירות.\n')
+        # Never treat a sales playbook as consent to an unwanted phone call.
+        if (prior or {}).get('no_phone_calls'):
+            instructions += '\nהלקוח ביקש שלא יתקשרו אליו. אסור להציע או לקבוע חזרה טלפונית אלא אם ביקש זאת מפורשות כעת.\n'
+        if (prior or {}).get('no_followups'):
+            instructions += '\nהלקוח ביקש שלא יקבל פניות המשך. אל תציע יצירת קשר יזומה.\n'
+        instructions += '\nאל תחזור ותבקש את שם הלקוח לאחר ששאלת כבר פעם אחת והלקוח המשיך לנושא אחר. ענה ישירות לשאלתו; אם הלקוח מסר שם בטופס Meta, לא לבקש אותו מחדש.\n'
         instructions += meta_lead_sales_context(prior)
         try:
             app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
