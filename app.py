@@ -1457,11 +1457,13 @@ def process_message(phone, body, batch_rows=None):
                     not quote_record.get('issued') and
                     calculate_quote(merged_pricing) is None and
                     (quote_intent(customer_request) or
+                     prior.get('custom_quote_lead_saved') or
                      re.search(r'איך מחולקות הזכוכיות והדלתות|צריך לוודא את תצורת המקלחון',
                                reply))):
                 if prior.get('custom_quote_lead_saved'):
-                    reply = ('הבקשה לתמחור המקלחון הפינתי עם דלתות ההזזה כבר נרשמה '
-                             'לבדיקה אישית. אפשר להמשיך כאן עם שאלות נוספות.')
+                    reply = ('הבקשה למקלחון פינתי עם דלתות הזזה כבר נרשמה לבדיקה אישית. '
+                             'אין לי כרגע מחיר מאומת לתצורה הזאת, אבל הפרטים אצלנו. '
+                             'אם תרצה אפשר להמשיך כאן עם שאלות נוספות.')
                 elif save_custom_quote_lead(phone):
                     custom_quote_lead_saved = True
                     reply = ('למקלחון פינתי עם דלתות הזזה אין לי מחיר מאומת שאוכל לתת '
