@@ -270,6 +270,43 @@ class FollowupStartupTests(unittest.TestCase):
             thread.assert_not_called()
 
 
+class FollowupSendPreflightTests(unittest.TestCase):
+    def test_fails_closed_outside_hours(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        with patch.object(yossi, 'db_connection') as db, \
+             patch.object(yossi, 'send_whatsapp') as sender:
+            result = yossi.inspect_due_followups(datetime(2026, 10, 17, 12, tzinfo=ZoneInfo('Asia/Jerusalem')))
+            self.assertEqual(result['reason'], 'outside_business_hours')
+            db.assert_not_called()
+            sender.assert_not_called()
+
+    def test_blocks_followups_without_optin_and_whatsapp_template(self):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from unittest.mock import MagicMock
+        connection = MagicMock()
+        cursor = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value.__enter__.return_value = cursor
+        cursor.fetchall.return_value = [
+            ('TEST_A', None, None, 'חדש', {}, []),
+            ('TEST_B', None, None, 'חדש', {'followup_consent': True}, []),
+            ('TEST_C', None, None, 'ממתין לחזרה', {}, []),
+            ('TEST_D', None, None, 'חדש', {'no_followups': True}, []),
+        ]
+        with patch.object(yossi, 'db_connection', return_value=connection), \
+             patch.object(yossi, 'ensure_followup_table'), \
+             patch.object(yossi, 'send_whatsapp') as sender:
+            result = yossi.inspect_due_followups(datetime(2026, 10, 12, 10, tzinfo=ZoneInfo('Asia/Jerusalem')))
+            self.assertEqual(result['due'], 4)
+            self.assertEqual(result['eligible'], 0)
+            self.assertEqual(result['blocked'], 4)
+            self.assertEqual(result['reasons']['no_explicit_followup_consent'], 1)
+            self.assertEqual(result['reasons']['no_verified_whatsapp_window_or_template'], 1)
+            sender.assert_not_called()
+
+
 class DurableFollowupTests(unittest.TestCase):
     def test_schedule_is_dry_run_only(self):
         from datetime import datetime, timezone
