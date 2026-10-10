@@ -1284,7 +1284,11 @@ def process_message(phone, body, batch_rows=None):
                 if data.get(key) is not None:
                     merged_pricing[key] = data[key]
             # Any changed quote specification invalidates the previous offer.
-            quote_changed = bool(prior_quote and any(
+            explicit_spec_change = bool(re.search(
+                r'בעצם|תיקון|תשנה|לשנות|תחליף|להחליף|במקום|לא\s+רוצה|החלטתי\s+על|מעכשיו|עדכנתי|'
+                r'רוחב|גובה|מידה|זכוכית|פרזול|ידית|דלת|קבוע|צלע',
+                customer_request))
+            quote_changed = bool(prior_quote and explicit_spec_change and any(
                 data.get(key) is not None and data.get(key) != quote_record.get(key)
                 for key in ('configuration', 'width_cm', 'second_width_cm',
                             'height_cm', 'glass_type', 'finish', 'handles')
@@ -1347,12 +1351,12 @@ def process_message(phone, body, batch_rows=None):
                     reply = (f'המחיר המאומת למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
                              if isinstance(saved_amount, (int, float)) else
                              'כדי לא למסור מספר שגוי, צריך לאמת את המחיר.')
-            if generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
+            if not quote_record.get('issued') and generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
                     reply = ('אפשר לתת מחיר מדויק יותר כשנבין מה צריך להתקין. '
                              'אם תספר לי קצת על השטח ומה חשוב לכם, אוכל לכוון אותך לפתרון מתאים.')
-            if re.search(r'רוצה\s+(?:לסגור|להתקדם)|מה\s+צריך\s+ממני', customer_request, re.I) and re.search(r'מתי\s+נוח.*מדיד|נבוא\s+למדיד|כדי\s+להתקדם\s+צריך\s+מדידה', reply, re.I):
+            if not quote_record.get('issued') and re.search(r'רוצה\s+(?:לסגור|להתקדם)|מה\s+צריך\s+ממני', customer_request, re.I) and re.search(r'מתי\s+נוח.*מדיד|נבוא\s+למדיד|כדי\s+להתקדם\s+צריך\s+מדידה', reply, re.I):
                 reply = ('אפשר להתקדם כבר עכשיו להצעת מחיר לפי מה שידוע על השטח. אחרי אישור ההצעה וסיום הריצוף נגיע למדידה סופית. '
                          'יש לך מידה משוערת או צילום של האזור?')
             # Do not expose internal infrastructure or disabled pricing to customers.
