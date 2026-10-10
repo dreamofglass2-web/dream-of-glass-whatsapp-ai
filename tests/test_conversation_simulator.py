@@ -252,6 +252,33 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class DurableFollowupTests(unittest.TestCase):
+    def test_schedule_is_dry_run_only(self):
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock
+        cursor = MagicMock()
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value.__enter__.return_value = cursor
+        with patch.object(yossi, 'db_connection', return_value=connection), \
+             patch.object(yossi, 'ensure_followup_table'), \
+             patch.object(yossi, 'send_whatsapp') as sender:
+            yossi.schedule_followup_dry_run('972501234567',
+                datetime(2026, 10, 12, 10, 0, tzinfo=timezone.utc))
+            sender.assert_not_called()
+            query = cursor.execute.call_args.args[0]
+            self.assertIn('ON CONFLICT', query)
+            self.assertIn('no_followups', query)
+            self.assertIn('ממתין לחזרה', query)
+
+    def test_new_message_cancels_pending_followup(self):
+        with patch.object(yossi, 'cancel_followup_dry_run') as cancel:
+            yossi.queue_message('TEST_PHONE', 'שלום', 'TEST_FOLLOWUP_MSG_001')
+            cancel.assert_called_once_with('TEST_PHONE')
+        with yossi.lock:
+            yossi.pending.pop('TEST_PHONE', None)
+
+
 class BusinessHoursPolicyTests(unittest.TestCase):
     def test_open_days_and_boundaries(self):
         from datetime import datetime

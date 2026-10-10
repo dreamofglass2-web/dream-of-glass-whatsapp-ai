@@ -279,6 +279,7 @@ def last_assistant_asked_callback(history):
 
 
 def queue_message(phone, body, message_id):
+    cancel_followup_dry_run(phone)
     with lock:
         if message_id in seen:
             return
@@ -1186,6 +1187,67 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
     app.logger.info('WhatsApp send status: %s', result.status_code)
     result.raise_for_status()
+    # Store a candidate followup time. No followup message is ever sent here.
+    if not image_url:
+        schedule_followup_dry_run(phone)
+
+def ensure_followup_table():
+    """Durable planning only. No automated sending is enabled."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS yossi_followup_jobs (
+                    phone TEXT PRIMARY KEY,
+                    due_at TIMESTAMPTZ NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    last_outbound_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+
+
+def schedule_followup_dry_run(phone, last_outbound_at=None):
+    """Record eligibility after outbound message; never send automatically."""
+    if not phone:
+        return
+    sent_at = last_outbound_at or datetime.now(timezone.utc)
+    due = earliest_followup_at(sent_at)
+    try:
+        ensure_followup_table()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO yossi_followup_jobs(phone, due_at, last_outbound_at, status)
+                    SELECT %s, %s, %s, 'pending'
+                    WHERE EXISTS (
+                        SELECT 1 FROM glass_leads
+                        WHERE phone=%s
+                          AND status NOT IN ('ממתין לחזרה', 'ממתין לתמחור', 'סגור', 'נסגר')
+                          AND COALESCE(context->>'no_followups','false') <> 'true'
+                          AND COALESCE(context->>'no_phone_calls','false') <> 'true'
+                    )
+                    ON CONFLICT (phone) DO UPDATE SET
+                        due_at=EXCLUDED.due_at, last_outbound_at=EXCLUDED.last_outbound_at,
+                        status='pending', updated_at=now()
+                """, (phone, due, sent_at, phone))
+    except Exception:
+        app.logger.exception('Followup dry-run scheduling failed')
+
+
+def cancel_followup_dry_run(phone):
+    """A new inbound message invalidates the old unanswered-message timer."""
+    try:
+        ensure_followup_table()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE yossi_followup_jobs
+                    SET status='cancelled', updated_at=now()
+                    WHERE phone=%s AND status='pending'
+                """, (phone,))
+    except Exception:
+        app.logger.exception('Followup dry-run cancellation failed')
+
 
 def polish_reply(reply, history):
     """Light-touch output guard. Never remove substantive answers or quote details."""
