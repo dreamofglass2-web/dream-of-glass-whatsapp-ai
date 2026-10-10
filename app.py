@@ -1302,6 +1302,13 @@ def process_message(phone, body, batch_rows=None):
                 if explicit_quote_approval(customer_request):
                     quote_record['approved'] = True
                 reply = close_validated_quote(quote_record, history, customer_request)
+            elif ordinary_turn and prior_quote and quote_intent(customer_request):
+                saved_amount = quote_record.get('amount_ils_pre_vat')
+                if isinstance(saved_amount, (int, float)) and saved_amount > 0:
+                    reply = (f'לפי ההצעה שסיכמנו, המחיר המשוער הוא ₪{saved_amount:,.0f} לפני מע״מ, '
+                             'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.')
+                else:
+                    reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
             elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and (
                     quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
@@ -1329,6 +1336,17 @@ def process_message(phone, body, batch_rows=None):
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
                 reply = missing_quote_detail(merged_pricing)
+            # Even after issuing a quote, an unrelated AI amount must not replace it.
+            if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
+                saved_amount = quote_record.get('amount_ils_pre_vat')
+                mentioned_numbers = [int(v.replace(',', '')) for v in re.findall(
+                    r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)',
+                    reply) for v in v if v]
+                if mentioned_numbers and (not isinstance(saved_amount, (int, float)) or
+                                          any(n != round(saved_amount) for n in mentioned_numbers)):
+                    reply = (f'המחיר המאומת למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
+                             if isinstance(saved_amount, (int, float)) else
+                             'כדי לא למסור מספר שגוי, צריך לאמת את המחיר.')
             if generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
