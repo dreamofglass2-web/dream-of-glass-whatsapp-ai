@@ -74,6 +74,12 @@ class ConversationSimulation(unittest.TestCase):
             "quote_requested": False, "solution_agreed": False,
         }, **fields)
 
+    def test_outgoing_messages_never_contain_emojis(self):
+        self.assertEqual(yossi.without_emojis("היי 😊 מה שלומך? 🙂"), "היי מה שלומך?")
+        self.assertEqual(yossi.without_emojis("תודה רבה 👍"), "תודה רבה")
+        self.assertEqual(yossi.without_emojis("מחיר ₪2,595 לפני מע״מ"), "מחיר ₪2,595 לפני מע״מ")
+        self.assertNotIn("🙂", yossi.polish_reply("אני כאן בשבילך 🙂", []))
+
     def test_warm_open_and_no_invented_price(self):
         message = "אהלן, רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה?"
         reply = self.step(message, self.model("כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?", quote_requested=True))

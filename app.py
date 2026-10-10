@@ -1052,7 +1052,7 @@ def confirmed_corner_two_door_specs(history, data):
 def helpful_quote_followup(data, customer_request, first_message=False):
     """Respond like a consultant, without asking to repeat a configuration already supplied."""
     text = str(customer_request or '')
-    greeting = 'היי, מה שלומך? 🙂 ' if first_message else ''
+    greeting = 'היי, מה שלומך? ' if first_message else ''
     explicit_corner_two_doors = (
         'פינתי' in text and
         bool(re.search(r'(?:שתי|2)\s+דלתות|דלתות\s+פתיחה', text))
@@ -1075,7 +1075,18 @@ def close_validated_quote(quote, history, message):
         return 'בשמחה 🙂 ההצעה מאושרת והריצוף כבר הסתיים, אז אפשר להתקדם לתיאום מדידה סופית. מה כתובת ההתקנה?'
     return 'בשמחה 🙂 ההצעה מאושרת. לאחר סיום הריצוף נוכל להתקדם לתיאום מדידה סופית ולוודא את התכנון בשטח.'
 
+# User-facing sales messages are professional and contain no emoji.
+EMOJI_PATTERN = re.compile(r'[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]')
+
+def without_emojis(message):
+    if message is None:
+        return None
+    return re.sub(r' {2,}', ' ', EMOJI_PATTERN.sub('', str(message))).strip()
+
+
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
+    body = without_emojis(body)
+    caption = without_emojis(caption)
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
     payload = {'messaging_product':'whatsapp','to':phone}
     if image_url:
@@ -1101,7 +1112,7 @@ def polish_reply(reply, history):
             if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
                 reply = rest.strip()
     reply = re.sub(r'\s*(?:רוצה|תרצה|תרצי|תרצו)\s+(?:שנכין|שאכין|להכין|לקבל|שאשלח|שנשלח)\s+(?:לך\s+|לכם\s+)?(?:הצעת\s+מחיר\s+רשמית|הצעת\s+מחיר|הצעה\s+רשמית)(?:\s+בכתב)?\s*[?!.]*\s*$', '', reply)
-    return re.sub(r'[-\u2013\u2014]', ' ', reply).strip()
+    return without_emojis(re.sub(r'[-\u2013\u2014]', ' ', reply).strip())
 
 def identity_reply(body, history):
     """Deterministic identity answers; never let the model invent a person's name."""
@@ -1110,7 +1121,7 @@ def identity_reply(body, history):
     if correction:
         return 'סליחה על הבלבול, אני יוסי דוד מצוות המכירות של חלומות מזכוכית 😊'
     if 'מי זה אלירן' in normalized or 'מי אלירן' in normalized:
-        return 'אלירן דוד הכהן הוא בעל העסק. אני יוסי דוד, סוכן המכירות 😊'
+        return 'אלירן דוד הכהן הוא בעל העסק. אני יוסי דוד, סוכן המכירות'
     if re.search(r'(?:אתה|את|מדבר|מדברת).{0,12}אלירן', normalized):
         return 'אני יוסי דוד מצוות המכירות. אלירן הוא בעל העסק 😊'
     if any(x in normalized for x in ('שם משפחה', 'שם המשפחה', 'מה המשפחה שלך')):
