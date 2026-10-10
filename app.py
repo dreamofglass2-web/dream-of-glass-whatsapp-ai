@@ -1296,12 +1296,12 @@ def process_message(phone, body, batch_rows=None):
             reply = avoid_repeated_dimensions(reply, facts, body)
             # Keep the hardware finish question open-ended unless the customer asks for available finishes.
             finish_options_requested = bool(re.search(
-                r'איזה\\s+(?:גוונים|צבעים)\\s+(?:יש|קיימים)|מה\\s+(?:הגוונים|הצבעים)|'
-                r'אילו\\s+(?:גוונים|צבעים)|במה\\s+אפשר\\s+לבחור',
+                r'איזה\s+(?:גוונים|צבעים)\s+(?:יש|קיימים)|מה\s+(?:הגוונים|הצבעים)|'
+                r'אילו\s+(?:גוונים|צבעים)|במה\s+אפשר\s+לבחור',
                 customer_request or ''))
             if not finish_options_requested and re.search(
-                    r'(?:פרזול|גוון|צבע).{0,45}(?:שחור\\s+או\\s+כרום|כרום\\s+או\\s+שחור|'
-                    r'שחור\\s+או\\s+ניקל|ניקל\\s+או\\s+שחור)',
+                    r'(?:פרזול|גוון|צבע).{0,45}(?:שחור\s+או\s+כרום|כרום\s+או\s+שחור|'
+                    r'שחור\s+או\s+ניקל|ניקל\s+או\s+שחור)',
                     reply):
                 reply = 'איזה גוון פרזול תרצו?'
 
