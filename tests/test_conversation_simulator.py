@@ -252,6 +252,27 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class BusinessHoursPolicyTests(unittest.TestCase):
+    def test_open_days_and_boundaries(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Asia/Jerusalem')
+        self.assertTrue(yossi.is_yossi_business_hours(datetime(2026, 10, 11, 8, 0, tzinfo=tz)))
+        self.assertTrue(yossi.is_yossi_business_hours(datetime(2026, 10, 15, 19, 59, tzinfo=tz)))
+        self.assertFalse(yossi.is_yossi_business_hours(datetime(2026, 10, 15, 20, 0, tzinfo=tz)))
+        self.assertFalse(yossi.is_yossi_business_hours(datetime(2026, 10, 16, 12, 0, tzinfo=tz)))
+        self.assertFalse(yossi.is_yossi_business_hours(datetime(2026, 10, 17, 12, 0, tzinfo=tz)))
+
+    def test_followup_four_hours_and_next_open(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Asia/Jerusalem')
+        self.assertEqual(yossi.earliest_followup_at(datetime(2026, 10, 12, 10, 0, tzinfo=tz)).hour, 14)
+        self.assertEqual(yossi.earliest_followup_at(datetime(2026, 10, 15, 19, 0, tzinfo=tz)).isoformat(),
+                         datetime(2026, 10, 18, 8, 0, tzinfo=tz).isoformat())
+        self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
+
+
 class CallHandoffPolicyTests(unittest.TestCase):
     def test_explicit_callback_intent(self):
         self.assertTrue(yossi.is_callback_request('היי תתקשרו אליי מחר'))
