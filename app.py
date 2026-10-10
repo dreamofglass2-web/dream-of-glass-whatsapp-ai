@@ -1851,7 +1851,7 @@ def fetch_meta_lead_details(lead_id):
 
 def normalize_meta_lead_phone(raw):
     """Only accept plausible Israeli mobile numbers for an automatic customer record."""
-    digits = re.sub(r'\\D', '', str(raw or ''))
+    digits = re.sub(r'\D', '', str(raw or ''))
     if digits.startswith('00972'):
         digits = digits[2:]
     if digits.startswith('972') and len(digits) == 12:
