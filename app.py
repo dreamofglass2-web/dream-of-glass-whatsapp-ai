@@ -957,6 +957,56 @@ def calculate_quote(data):
     amount = area * GLASS_COSTS[glass_type] + hardware + 1500 + 150
     return round(max(2000, amount), 2)
 
+
+def quote_intent(text):
+    return bool(re.search(r'מחיר|כמה\s+עול|כמה\s+יצא|הצעת\s+מחיר|עלות', str(text or '')))
+
+
+def closing_intent(text):
+    return bool(re.search(r'רוצה\s+(?:להתקדם|לסגור)|(?:אני\s+)?מאשר\s+(?:את\s+)?(?:ההצעה|המחיר)|מה\s+השלב\s+הבא|מה\s+צריך\s+לעשות\s+עכשיו|איך\s+מתקדמים|כבר\s+החלטתי|אני\s+מחליט\s+לבד', str(text or '')))
+
+
+def explicit_quote_approval(text):
+    return bool(re.search(r'מאשר\s+(?:את\s+)?(?:הצעת\s+המחיר|ההצעה|המחיר)|סגור\s+מבחינתי|אני\s+סוגר\s+איתכם', str(text or '')))
+
+
+def tiling_completed(history):
+    customer_text = ' '.join(customer_written_text(m.get('content', '')) for m in history if m.get('role') == 'user')
+    return bool(re.search(r'הריצוף\s+(?:כבר\s+)?(?:הסתיים|נגמר|הושלם)|סיימנו\s+(?:את\s+)?הריצוף|החדר\s+(?:כבר\s+)?מוכן', customer_text))
+
+
+def contains_ils_amount(reply):
+    return bool(re.search(r'(?:₪\s*[\d,]+|[\d,]+\s*(?:₪|ש[״"]ח|שקל(?:ים)?))', str(reply or '')))
+
+
+def missing_quote_detail(data):
+    config = data.get('configuration')
+    if config not in BOM and config not in SLIDING:
+        return 'כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?'
+    if not data.get('glass_type'):
+        return 'איזה סוג זכוכית תרצו למקלחון?'
+    if not data.get('finish'):
+        return 'איזה גוון פרזול תרצו?'
+    if not data.get('width_cm'):
+        return 'מה הרוחב המשוער של המקלחון?'
+    if not data.get('height_cm'):
+        return 'איזה גובה תרצו?'
+    if config.startswith('פינתי') and not data.get('second_width_cm'):
+        return 'מה המידה המשוערת של הצלע השנייה?'
+    if config in BOM:
+        expected = BOM[config].get('ידית כפתור', 0) + BOM[config].get('ידית מגבת', 0)
+        if expected and (not isinstance(data.get('handles'), list) or len(data['handles']) != expected):
+            return 'איזה סוג ידית תרצו, כפתור או מגבת?'
+    return 'חסר עוד אימות של פרט במפרט כדי לתת מחיר מדויק. אפשר לוודא את חלוקת המקלחון?'
+
+
+def close_validated_quote(quote, history, message):
+    if not (quote.get('approved') or explicit_quote_approval(message)):
+        return 'בשמחה 🙂 ההצעה שקיבלת היא הבסיס להמשך. אם אתה מאשר אותה, נתקדם לתיאום מדידה סופית לאחר שהריצוף הסתיים.'
+    if tiling_completed(history):
+        return 'בשמחה 🙂 ההצעה מאושרת והריצוף כבר הסתיים, אז אפשר להתקדם לתיאום מדידה סופית. מה כתובת ההתקנה?'
+    return 'בשמחה 🙂 ההצעה מאושרת. לאחר סיום הריצוף נוכל להתקדם לתיאום מדידה סופית ולוודא את התכנון בשטח.'
+
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
     payload = {'messaging_product':'whatsapp','to':phone}
@@ -1225,11 +1275,47 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'תודה, ארשום את הזמן שביקשת לחזרה למספר שממנו כתבת לנו.'
             if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
-            # Only send validated shower quotes, never an AI-invented number.
-            if not generic_price_question and not direct_identity and not showroom_question and not competitor_exit and not callback_requested and not callback_followup and not automatic_handoff and SEND_QUOTES and data.get('quote_requested') is True and data.get('solution_agreed') is True and not data.get('needs_human'):
-                price = calculate_quote(data)
-                if price is not None:
-                    reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
+            # Only the calculator may authorize a numeric shower quote.
+            quote_record = dict((prior or {}).get('validated_quote') or {})
+            prior_quote = bool(quote_record.get('issued'))
+            merged_pricing = dict(prior or {})
+            for key in ('product', 'configuration', 'width_cm', 'second_width_cm',
+                        'height_cm', 'glass_type', 'finish', 'handles'):
+                if data.get(key) is not None:
+                    merged_pricing[key] = data[key]
+            is_shower = (str(merged_pricing.get('product') or '').startswith('מקלחון') or
+                         'מקלחון' in ' '.join(customer_written_text(m.get('content', ''))
+                                              for m in history[-12:] if m.get('role') == 'user'))
+            ordinary_turn = not (direct_identity or showroom_question or competitor_exit or
+                                 callback_requested or callback_followup or automatic_handoff)
+            if ordinary_turn and prior_quote and closing_intent(customer_request):
+                if explicit_quote_approval(customer_request):
+                    quote_record['approved'] = True
+                reply = close_validated_quote(quote_record, history, customer_request)
+            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and (
+                    quote_intent(customer_request) or data.get('quote_requested') is True):
+                verified_price = calculate_quote(merged_pricing)
+                if verified_price is not None and (data.get('solution_agreed') is True or
+                                                   merged_pricing.get('solution_agreed') is True or
+                                                   quote_intent(customer_request)):
+                    quote_record = {
+                        'issued': True, 'approved': False,
+                        'amount_ils_pre_vat': verified_price,
+                        'configuration': merged_pricing.get('configuration'),
+                        'glass_type': merged_pricing.get('glass_type'),
+                        'finish': merged_pricing.get('finish'),
+                        'width_cm': merged_pricing.get('width_cm'),
+                        'second_width_cm': merged_pricing.get('second_width_cm'),
+                        'height_cm': merged_pricing.get('height_cm'),
+                        'handles': merged_pricing.get('handles'),
+                    }
+                    reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
+                             'המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
+                elif contains_ils_amount(reply):
+                    reply = missing_quote_detail(merged_pricing)
+            # An AI-generated ILS amount is never permission to quote a shower.
+            if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
+                reply = missing_quote_detail(merged_pricing)
             if generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
@@ -1327,12 +1413,16 @@ def process_message(phone, body, batch_rows=None):
                 elif failed_photos:
                     reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
             send_whatsapp(phone, body=reply)
-            save_conversation(phone, history + [{'role':'assistant','content':reply}], {
-                key: data.get(key) for key in (
-                    'stage','action','next_missing_fact','product','configuration',
-                    'width_cm','second_width_cm','height_cm','glass_type','finish',
-                    'handles','quote_requested','solution_agreed','needs_human')
-            })
+            # Preserve known facts and issued quote across subsequent messages.
+            next_context = dict(prior or {})
+            for key in ('stage','action','next_missing_fact','product','configuration',
+                        'width_cm','second_width_cm','height_cm','glass_type','finish',
+                        'handles','quote_requested','solution_agreed','needs_human'):
+                if data.get(key) is not None:
+                    next_context[key] = data[key]
+            if quote_record.get('issued'):
+                next_context['validated_quote'] = quote_record
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
             return True
         except Exception:
             app.logger.exception('Message processing failed')
