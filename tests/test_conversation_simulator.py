@@ -80,6 +80,17 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(yossi.without_emojis("מחיר ₪2,595 לפני מע״מ"), "מחיר ₪2,595 לפני מע״מ")
         self.assertNotIn("🙂", yossi.polish_reply("אני כאן בשבילך 🙂", []))
 
+    def test_finish_question_does_not_offer_colors_unasked(self):
+        opening = self.step("שלום, רוצה מקלחון פינתי",
+                            self.model("איזה גוון פרזול תרצו, שחור או כרום?"))
+        self.assertIn("איזה גוון פרזול תרצו?", opening)
+        self.assertNotIn("שחור או כרום", opening)
+
+    def test_finish_colors_can_be_listed_when_customer_asks(self):
+        opening = self.step("איזה גוונים יש לפרזול?",
+                            self.model("יש שחור או כרום, וגם ניקל מוברש."))
+        self.assertIn("שחור או כרום", opening)
+
     def test_warm_open_and_no_invented_price(self):
         message = "אהלן, רוצה מקלחון פינתי 100 על 100, גובה 200, שתי דלתות פתיחה, זכוכית שקופה ופרזול שחור. כמה יעלה?"
         reply = self.step(message, self.model("כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?", quote_requested=True))
