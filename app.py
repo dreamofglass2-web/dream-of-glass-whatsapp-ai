@@ -1437,7 +1437,7 @@ def process_message(phone, body, batch_rows=None):
             # A competitor's discount is a customer objection, not a new quote.
             competitor_price_objection = bool(
                 quote_record.get('issued') and ordinary_turn and
-                re.search(r'מתחר|הצעה\\s+(?:זולה|זול)|זול\\s+ב|פחות\\s+מ|הציעו\\s+לי', customer_request)
+                re.search(r'מתחר|הצעה\s+(?:זולה|זול)|זול\s+ב|פחות\s+מ|הציעו\s+לי', customer_request)
             )
             if competitor_price_objection:
                 reply = ('מבין אותך, פער במחיר הוא בהחלט משהו שכדאי לבדוק. '
