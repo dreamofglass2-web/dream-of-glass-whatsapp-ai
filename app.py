@@ -1373,6 +1373,11 @@ def process_message(phone, body, batch_rows=None):
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
                 reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
+            # On the first quote request, acknowledge known facts even if the model
+            # withheld a numeric figure rather than making one up.
+            if (ordinary_turn and is_shower and len(history) == 1 and
+                    quote_intent(customer_request) and not quote_record.get('issued')):
+                reply = helpful_quote_followup(merged_pricing, customer_request, first_message=True)
             # Even after issuing a quote, an unrelated AI amount must not replace it.
             if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
