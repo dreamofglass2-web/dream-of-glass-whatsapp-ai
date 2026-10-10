@@ -1826,6 +1826,60 @@ def health():
 META_LEADS_VERIFY_TOKEN = os.getenv('META_LEADS_VERIFY_TOKEN', '')
 
 
+META_LEADS_ACCESS_TOKEN = os.getenv('META_LEADS_ACCESS_TOKEN', '')
+META_LEADS_GRAPH_VERSION = 'v26.0'
+
+
+def fetch_meta_lead_details(lead_id):
+    """Retrieve lead field_data with a dedicated, server-side Meta token."""
+    if not META_LEADS_ACCESS_TOKEN:
+        return None
+    response = requests.get(
+        'https://graph.facebook.com/' + META_LEADS_GRAPH_VERSION + '/' + lead_id,
+        params={'fields': 'id,created_time,field_data,form_id'},
+        headers={'Authorization': 'Bearer ' + META_LEADS_ACCESS_TOKEN},
+        timeout=12,
+    )
+    response.raise_for_status()
+    details = response.json()
+    if not isinstance(details, dict) or str(details.get('id')) != lead_id:
+        raise ValueError('Unexpected Meta lead details response')
+    if not isinstance(details.get('field_data'), list):
+        raise ValueError('Meta lead field_data missing')
+    return details
+
+
+def persist_meta_lead_details(lead_id, details):
+    """Store original form fields, preserving changing campaigns and question names."""
+    fields = {}
+    for item in details.get('field_data', []):
+        if isinstance(item, dict) and isinstance(item.get('name'), str):
+            values = item.get('values')
+            if isinstance(values, list):
+                fields[item['name'][:200]] = [str(v)[:3000] for v in values[:20]]
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE meta_leadgen_events SET details=%s::jsonb, state='details_saved',
+                       details_fetched_at=now()
+                WHERE lead_id=%s
+            """, (json.dumps({'fields': fields, 'created_time': details.get('created_time')},
+                             ensure_ascii=False), lead_id))
+
+
+def try_fetch_meta_lead_details(lead_id):
+    """Never fail webhook delivery for Meta API outages; pending rows remain retryable."""
+    if not META_LEADS_ACCESS_TOKEN:
+        return
+    try:
+        details = fetch_meta_lead_details(lead_id)
+        if details is not None:
+            persist_meta_lead_details(lead_id, details)
+    except Exception:
+        # Avoid logging API responses or user PII.
+        app.logger.warning('Meta lead details not retrieved; remains pending: %s', lead_id)
+
+
 def store_meta_leadgen_event(lead_id, page_id, form_id, created_time):
     """Durably deduplicate Meta lead notifications before acknowledging delivery."""
     with db_connection() as conn:
@@ -1837,9 +1891,13 @@ def store_meta_leadgen_event(lead_id, page_id, form_id, created_time):
                     form_id TEXT NOT NULL DEFAULT '',
                     meta_created_time BIGINT,
                     state TEXT NOT NULL DEFAULT 'pending_details',
-                    received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    details JSONB,
+                    details_fetched_at TIMESTAMPTZ
                 )
             """)
+            cur.execute('ALTER TABLE meta_leadgen_events ADD COLUMN IF NOT EXISTS details JSONB')
+            cur.execute('ALTER TABLE meta_leadgen_events ADD COLUMN IF NOT EXISTS details_fetched_at TIMESTAMPTZ')
             cur.execute("""
                 INSERT INTO meta_leadgen_events
                     (lead_id, page_id, form_id, meta_created_time)
@@ -1893,6 +1951,8 @@ def meta_leads_webhook():
     except Exception:
         app.logger.exception('Meta leadgen storage failed')
         return 'Temporary storage error', 503
+    for lead_id, _, _, _ in events:
+        try_fetch_meta_lead_details(lead_id)
     return {'status': 'ok', 'stored': len(events)}, 200
 
 
