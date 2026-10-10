@@ -1241,6 +1241,20 @@ def process_message(phone, body, batch_rows=None):
             return True
         history, prior = load_conversation(phone)
         history.append({'role':'user','content':body})
+        # A plain callback request with a day but no clock time needs a precise
+        # follow-up, not an AI-generated promise or a generic scheduling question.
+        if is_callback_request(body) and 'מחר' in body and callback_time_from_text(body) is None:
+            if has_new_messages(phone, batch_rows):
+                return False
+            if save_callback(phone):
+                safe_context = dict(prior or {})
+                safe_context['callback_requested_day'] = 'מחר'
+                reply = 'בשמחה, רשמתי בקשה לחזרה טלפונית. באיזו שעה מחר נוח לך שאלירן יחזור אליך?'
+                save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], safe_context)
+            else:
+                reply = 'קיבלתי את הבקשה לחזור אליך מחר, אבל כרגע לא הצלחתי לשמור אותה. אפשר לנסות שוב?'
+            send_whatsapp(phone, body=reply)
+            return True
         # Social chat is handled before callbacks/AI to avoid stale needs_human state.
         social_reply = simple_social_reply(body, history)
         if social_reply is not None:
@@ -1293,7 +1307,11 @@ def process_message(phone, body, batch_rows=None):
                            (waiting_for_callback_time(phone) or
                             last_assistant_asked_callback(history)))
         if callback_answer:
-            preferred = callback_time_from_text(body)
+            safe_context = dict(prior or {})
+            scheduling_text = body
+            if safe_context.get('callback_requested_day') == 'מחר' and 'מחר' not in body and 'היום' not in body:
+                scheduling_text = 'מחר ' + body
+            preferred = callback_time_from_text(scheduling_text)
             if preferred:
                 if has_new_messages(phone, batch_rows):
                     return False
@@ -1304,7 +1322,8 @@ def process_message(phone, body, batch_rows=None):
                 else:
                     reply = 'יש כרגע תקלה בשמירת מועד החזרה, אז לא אוכל לאשר שהוא נרשם. אפשר לנסות שוב בעוד כמה דקות?'
                 send_whatsapp(phone, body=reply)
-                save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
+                safe_context.pop('callback_requested_day', None)
+                save_conversation(phone, history + [{'role':'assistant', 'content':reply}], safe_context)
                 return True
             # Day without a clock time is not a confirmed appointment.
             if has_new_messages(phone, batch_rows):
