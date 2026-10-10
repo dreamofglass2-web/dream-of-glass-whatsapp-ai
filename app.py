@@ -971,8 +971,21 @@ def explicit_quote_approval(text):
 
 
 def tiling_completed(history):
-    customer_text = ' '.join(customer_written_text(m.get('content', '')) for m in history if m.get('role') == 'user')
-    return bool(re.search(r'הריצוף\s+(?:כבר\s+)?(?:הסתיים|נגמר|הושלם)|סיימנו\s+(?:את\s+)?הריצוף|החדר\s+(?:כבר\s+)?מוכן', customer_text))
+    """Use the latest explicit renovation update, not an older completed status."""
+    for item in reversed(history):
+        if item.get('role') != 'user':
+            continue
+        text = customer_written_text(item.get('content', ''))
+        if re.search(r'הריצוף|ריצוף|החדר\s+(?:כבר\s+)?מוכן', text):
+            if re.search(r'לא\s+(?:הסתיים|נגמר|הושלם|מוכן)|עוד\s+לא|עדיין\s+לא|'
+                         r'טרם|יסתיים|ייגמר|מסיימים\s+(?:מחר|בשבוע)|'
+                         r'אחרי\s+(?:שנסיים|שיסתיים)', text):
+                return False
+            if re.search(r'הריצוף\s+(?:כבר\s+)?(?:הסתיים|נגמר|הושלם)|'
+                         r'סיימנו\s+(?:את\s+)?הריצוף|'
+                         r'החדר\s+(?:כבר\s+)?מוכן', text):
+                return True
+    return False
 
 
 def contains_ils_amount(reply):
