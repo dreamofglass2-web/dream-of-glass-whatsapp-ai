@@ -1,0 +1,59 @@
+import ast
+import pathlib
+import re
+import unittest
+
+SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app.py"
+TREE = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
+FUNCTIONS = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
+SELECTED = ("quote_intent", "closing_intent", "explicit_quote_approval",
+            "tiling_completed", "contains_ils_amount", "close_validated_quote")
+scope = {"re": re, "customer_written_text": lambda s: s}
+code = compile(ast.Module(body=[FUNCTIONS[n] for n in SELECTED], type_ignores=[]), "<extracted helpers>", "exec")
+exec(code, scope)
+
+
+class QuoteFlowTests(unittest.TestCase):
+    def test_source_syntax(self):
+        self.assertGreater(len(TREE.body), 30)
+
+    def test_quote_intent(self):
+        self.assertTrue(scope["quote_intent"]("כמה עולה מקלחון?"))
+        self.assertFalse(scope["quote_intent"]("אני רוצה להתקדם איתכם"))
+
+    def test_approval_vs_interest(self):
+        self.assertFalse(scope["explicit_quote_approval"]("נשמע סביר, רוצה להתקדם"))
+        self.assertTrue(scope["explicit_quote_approval"]("אני מאשר את ההצעה"))
+
+    def test_close_intent(self):
+        self.assertTrue(scope["closing_intent"]("מה השלב הבא?"))
+        self.assertTrue(scope["closing_intent"]("אני רוצה לסגור"))
+        self.assertFalse(scope["closing_intent"]("שלום"))
+
+    def test_price_pattern(self):
+        self.assertTrue(scope["contains_ils_amount"]("4200 ש״ח"))
+        self.assertTrue(scope["contains_ils_amount"]("₪4,200"))
+        self.assertFalse(scope["contains_ils_amount"]("אין לי מחיר עדיין"))
+
+    def test_close_without_approval(self):
+        out = scope["close_validated_quote"]({"issued": True, "approved": False},
+                [{"role": "user", "content": "הריצוף הסתיים"}],
+                "נשמע סביר, רוצה להתקדם")
+        self.assertIn("מאשר", out)
+        self.assertNotIn("מה כתובת", out)
+
+    def test_close_with_approval_and_finished_tiling(self):
+        out = scope["close_validated_quote"]({"issued": True, "approved": False},
+                [{"role": "user", "content": "הריצוף הסתיים"}],
+                "אני מאשר את ההצעה")
+        self.assertIn("כתובת ההתקנה", out)
+
+    def test_no_early_measurement(self):
+        out = scope["close_validated_quote"]({"issued": True, "approved": True},
+                [{"role": "user", "content": "הריצוף עוד לא הסתיים"}],
+                "מה עושים?")
+        self.assertNotIn("מה כתובת", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
