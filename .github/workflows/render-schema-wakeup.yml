@@ -2,6 +2,9 @@ name: Ensure Render startup schemas
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/render-schema-wakeup.yml'
   workflow_dispatch:
 jobs:
   wake-and-initialize:
