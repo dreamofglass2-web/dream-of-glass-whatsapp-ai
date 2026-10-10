@@ -308,7 +308,84 @@ def freeform_whatsapp_window_valid(last_inbound_at, now=None):
     return timedelta(0) <= elapsed < timedelta(hours=24)
 
 
+def ensure_inbound_queue_table():
+    """Incoming WhatsApp messages survive app/worker restarts."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS yossi_inbound_queue (
+                    message_id TEXT PRIMARY KEY,
+                    phone TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS yossi_inbound_queue_phone_idx
+                           ON yossi_inbound_queue(phone, received_at)""")
+
+
+def restore_inbound_queue():
+    """Rebuild in-memory debounce queue after process restart."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT message_id, phone, body, received_at
+                FROM yossi_inbound_queue ORDER BY received_at, message_id
+            """)
+            rows = cur.fetchall()
+    now_utc = datetime.now(timezone.utc)
+    now_mono = time.monotonic()
+    with lock:
+        for mid, phone, body, received_at in rows:
+            if mid in seen or any(r[0] == mid for r in pending.get(phone, [])):
+                continue
+            age = max(0.0, (now_utc - received_at).total_seconds())
+            pending.setdefault(phone, []).append((mid, body, now_mono - age))
+            seen[mid] = now_mono
+    app.logger.info('INBOUND_QUEUE_RESTORED count=%s', len(rows))
+
+
+def persist_inbound_message(phone, body, message_id):
+    """Commit message and customer inbound time before acknowledging Meta."""
+    ensure_db()
+    ensure_inbound_queue_table()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO yossi_inbound_queue(message_id, phone, body)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (message_id) DO NOTHING
+                RETURNING message_id
+            """, (message_id, phone, body))
+            inserted = cur.fetchone() is not None
+            if inserted:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, last_inbound_at)
+                    VALUES (%s, now())
+                    ON CONFLICT(phone) DO UPDATE SET
+                        last_inbound_at=now(), updated_at=now()
+                """, (phone,))
+    return inserted
+
+
+def remove_processed_inbound_messages(phone, rows):
+    """Remove only messages completed by the sales responder."""
+    ids = [row[0] for row in rows]
+    if not ids:
+        return
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM yossi_inbound_queue
+                WHERE phone=%s AND message_id = ANY(%s)
+            """, (phone, ids))
+
+
 def queue_message(phone, body, message_id):
+    # Database persistence is mandatory before the webhook can acknowledge.
+    inserted = persist_inbound_message(phone, body, message_id)
+    if not inserted:
+        return
     cancel_followup_dry_run(phone)
     with lock:
         if message_id in seen:
@@ -364,6 +441,10 @@ def next_batch():
         for phone, messages in list(pending.items()):
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
                 continue
+            # Old messages remain stored rather than causing an unauthorized
+            # free-form reply after the WhatsApp 24h service window expires.
+            if now - messages[-1][2] >= 24 * 3600:
+                continue
             processing.add(phone)
             app.logger.info("BATCH_READY phone_suffix=%s count=%s", phone[-4:], len(messages))
             return phone, list(messages)
@@ -380,6 +461,13 @@ def has_new_messages(phone, batch_rows=None):
 
 
 def finish_batch(phone, rows, success=True):
+    if success:
+        # Fail closed: if deletion fails keep the work queued for retry.
+        try:
+            remove_processed_inbound_messages(phone, rows)
+        except Exception:
+            app.logger.exception('Could not acknowledge processed inbound batch')
+            success = False
     with lock:
         if success:
             done = {r[0] for r in rows}
@@ -2094,6 +2182,8 @@ def ensure_worker_started():
             try:
                 ensure_db()
                 ensure_followup_table()
+                ensure_inbound_queue_table()
+                restore_inbound_queue()
             except Exception:
                 app.logger.exception('Database schema initialization failed; worker will not start')
                 return
@@ -2344,8 +2434,6 @@ def webhook():
                 if not phone or not body:
                     continue
                 try:
-                    if not record_customer_inbound(phone):
-                        return 'Inbound timestamp unavailable', 503
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
                     received += 1
                 except Exception:
