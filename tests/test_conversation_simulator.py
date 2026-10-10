@@ -154,8 +154,8 @@ class ConversationSimulation(unittest.TestCase):
                   self.model("הנה המחיר", **specs))
         answer = self.step("זה יותר ממה שתכננתי. קיבלתי הצעה זולה ב-700 שקל.",
                            self.model("המחיר שלנו הוא 700 שקל יותר"))
-        self.assertIn("פער במחיר", answer)
-        self.assertIn("מה כלול אצלם", answer)
+        self.assertIn("פער כזה במחיר", answer)
+        self.assertIn("ההצעה שקיבלת כוללת גם התקנה", answer)
         self.assertNotIn("המחיר המאומת למפרט", answer)
 
     def test_customer_reset_does_not_touch_real_db(self):
