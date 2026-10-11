@@ -1,0 +1,51 @@
+name: Yossi quote lab PostgreSQL integration
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'quote_lab/**'
+      - 'tests/quote_lab_pg/**'
+      - '.github/workflows/quote-lab-postgres.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-quote-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tester
+          POSTGRES_PASSWORD: disposable-test-only
+          POSTGRES_DB: quote_lab_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U tester -d quote_lab_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUOTE_LAB_TEST_DATABASE_URL: postgresql://quote_lab_writer:disposable-test-only@127.0.0.1:5432/quote_lab_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psycopg2-binary
+      - name: Create limited role in disposable test database
+        run: |
+          python - <<'PY'
+          import psycopg2
+          connection = psycopg2.connect(host='127.0.0.1', dbname='quote_lab_test', user='tester', password='disposable-test-only')
+          with connection:
+              with connection.cursor() as cur:
+                  cur.execute("CREATE ROLE quote_lab_writer LOGIN PASSWORD 'disposable-test-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION")
+                  cur.execute('GRANT CONNECT, CREATE ON DATABASE quote_lab_test TO quote_lab_writer')
+          connection.close()
+          PY
+      - name: Real disposable PostgreSQL tests (no skips, no production URL)
+        run: python -m unittest discover -s tests/quote_lab_pg -p 'test_*.py' -v
+      - name: Offline regression and isolation tests
+        run: python -m unittest discover -s quote_lab -p 'test_*.py' -v

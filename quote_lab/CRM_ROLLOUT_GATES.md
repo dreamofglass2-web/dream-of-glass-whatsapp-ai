@@ -39,3 +39,31 @@ controls or a trusted delivery-verification adapter.
 
 This remains SQLite-only integration. No Postgres adapter, deployment database
 migration or live WhatsApp delivery-receipt integration has been activated.
+
+## Disposable PostgreSQL adapter gate
+
+`PostgresQuoteStore` is test-only: it accepts an explicit PostgreSQL URL with a
+loopback host and exact database name `quote_lab_test`, overrides the connection
+address to 127.0.0.1, and rejects query-string redirection, superusers and roles
+that can create databases/roles. It never reads `DATABASE_URL` or connects to Render.
+It writes only `quote_lab_stage` in the disposable database, using a limited role.
+
+The `quote-lab-postgres.yml` workflow provisions a fresh PostgreSQL 16 container
+and limited login per CI run. No production secrets or URLs are used. Required
+integration tests fail if the explicit test URL is missing rather than skipping.
+
+Allocation and state transitions acquire the same per-quote transaction advisory
+lock before reading latest state, under READ COMMITTED. Exact-cent amounts,
+unique delivery/approval evidence, status constraints and snapshot foreign keys
+are enforced. Metadata and full snapshots commit together. Connections are
+explicitly closed on success and failure. A disconnected writer rolls back its
+partial draft; confirmed latest drafts can be restored through the same workflow
+used with SQLite. Test evidence is synthetic and does not prove real delivery.
+
+References: PostgreSQL 16 transaction advisory lock functions
+https://www.postgresql.org/docs/16/functions-admin.html and Psycopg transaction
+and connection lifecycle https://www.psycopg.org/docs/usage.html.
+
+This passes a disposable database gate only; live CRM migration, tenant access,
+verified Meta receipt ingestion, rollout/rollback and owner go-live approval
+remain separate requirements. The design-only production SQL is not executed.
