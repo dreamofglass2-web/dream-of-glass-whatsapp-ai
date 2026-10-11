@@ -77,6 +77,7 @@ class Draft:
     panels: list[Panel]
     hardware_changes: dict[str, int] = field(default_factory=dict)
     finish: str = "ניקל"
+    handle_style: str = "ידית כפתור"
     demolition_and_disposal: bool = False
     measured_and_engineered: bool = False
     special_hardware_approved: bool = False
@@ -98,6 +99,8 @@ def quote(draft: Draft) -> dict:
     expected_panels = PANEL_COUNT.get(draft.template)
     if expected_panels is not None and len(draft.panels) != expected_panels:
         raise NeedsReview("Number of panels does not match the chosen layout")
+    if draft.handle_style not in ("ידית כפתור", "ידית מגבת", "ידית 19.2"):
+        raise NeedsReview("Unapproved handle style")
     if draft.finish not in FINISH:
         raise NeedsReview("Unpriced hardware finish")
     if not draft.panels:
@@ -116,11 +119,25 @@ def quote(draft: Draft) -> dict:
         # Supplier bills the full rectangular blank for a step notch, at no cutting surcharge.
         glass_total += w * h / Decimal("10000") * Decimal(GLASS[p.glass])
     if draft.template in SLIDING_KITS:
+        if draft.handle_style != "ידית כפתור":
+            raise NeedsReview("Sliding kit has its own included handles")
         if draft.hardware_changes:
             raise NeedsReview("Sliding kit includes all hardware; do not add parts twice")
         hardware_cost = Decimal(SLIDING_KITS[draft.template])
     else:
         items = BASE_TEMPLATES[draft.template].copy()
+        if draft.handle_style != "ידית כפתור":
+            # Infer the actual door count from the trusted glass-panel mapping, not
+            # from untrusted text or an operator-entered number.
+            from quote_lab.builder import PANEL_ROLES
+            if draft.template not in PANEL_ROLES:
+                raise NeedsReview("Custom handle needs a verified panel-role mapping")
+            door_count = PANEL_ROLES[draft.template].count("door")
+            if (door_count == 0 or items.get("ידית כפתור", 0) != door_count
+                    or items.get("ידית מגבת", 0) or items.get("ידית 19.2", 0)):
+                raise NeedsReview("Cannot replace complex handle kit automatically")
+            items.pop("ידית כפתור")
+            items[draft.handle_style] = door_count
         if draft.hardware_changes:
             if not draft.special_hardware_approved:
                 raise NeedsReview("Custom hardware list requires approved fitting rules")
@@ -146,4 +163,5 @@ def quote(draft: Draft) -> dict:
         "no_expiration_promised": True,
         "requires_customer_approval": True,
         "configuration": draft.template,
+        "handle_style": draft.handle_style,
     }
