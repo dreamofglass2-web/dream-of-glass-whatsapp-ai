@@ -60,6 +60,8 @@ MINIMUM = Decimal("2000")
 FIXED = Decimal("1500")
 CONTINGENCY = Decimal("150")
 REMOVAL = Decimal("250")
+FROSTED_DECORATION_RATE = Decimal("75")
+FROSTED_DECORATIONS = ("none", "frosted_stripes", "frosted_middle")
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,7 @@ class Panel:
     glass: str
     shape: str = "rectangle"  # "step_notch" is billed as full rectangle.
     thickness_mm: int = 8
+    decoration: str = "none"
 
 
 @dataclass
@@ -106,7 +109,10 @@ def quote(draft: Draft) -> dict:
     if not draft.panels:
         raise NeedsReview("Missing glass panel dimensions")
     glass_total = Decimal("0")
+    decoration_total = Decimal("0")
     for p in draft.panels:
+        if p.decoration not in FROSTED_DECORATIONS:
+            raise NeedsReview("Unapproved glass decoration")
         if p.glass not in GLASS or p.thickness_mm != 8:
             raise NeedsReview("Glass grade or thickness not approved")
         if p.shape not in ("rectangle", "step_notch"):
@@ -117,7 +123,10 @@ def quote(draft: Draft) -> dict:
         if not (Decimal("0") < w <= 200 and Decimal("0") < h <= 220):
             raise NeedsReview("Panel dimensions outside provisional bounds")
         # Supplier bills the full rectangular blank for a step notch, at no cutting surcharge.
-        glass_total += w * h / Decimal("10000") * Decimal(GLASS[p.glass])
+        area = w * h / Decimal("10000")
+        glass_total += area * Decimal(GLASS[p.glass])
+        if p.decoration != "none":
+            decoration_total += area * FROSTED_DECORATION_RATE
     if draft.template in SLIDING_KITS:
         if draft.handle_style != "ידית כפתור":
             raise NeedsReview("Sliding kit has its own included handles")
@@ -148,12 +157,13 @@ def quote(draft: Draft) -> dict:
         hardware_cost = sum((Decimal(HARDWARE[item]) * count for item, count in items.items()), Decimal("0"))
     # A 10% special-finish retail adjustment; cost and sales are separate in a later margin report.
     hardware_charged = money(hardware_cost * FINISH[draft.finish])
-    core = max(MINIMUM, money(glass_total + hardware_charged + FIXED + CONTINGENCY))
+    core = max(MINIMUM, money(glass_total + decoration_total + hardware_charged + FIXED + CONTINGENCY))
     add_on = REMOVAL if draft.demolition_and_disposal else Decimal("0")
     return {
         "status": "draft_not_sent",
         "price_before_vat": str(money(core + add_on)),
         "glass_supplier_cost": str(money(glass_total)),
+        "frosted_decoration_charge": str(money(decoration_total)),
         "hardware_supplier_base_cost": str(money(hardware_cost)),
         "hardware_retail_charge": str(hardware_charged),
         "core_price_before_vat": str(money(core)),

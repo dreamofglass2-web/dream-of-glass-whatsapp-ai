@@ -31,6 +31,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         or Decimal(entry.get("width_cm")) != Decimal(str(p.width_cm))
         or Decimal(entry.get("height_cm")) != Decimal(str(p.height_cm))
         or entry.get("shape") != p.shape
+        or entry.get("decoration", "none") != p.decoration
         for entry, p in zip(expected, panels)
     ):
         raise NeedsReview("Panel details differ from approved calculation")
@@ -71,7 +72,11 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         role = {"fixed": "קבוע", "door": "דלת"}.get(panel.role)
         if role is None:
             raise NeedsReview("Unknown panel role")
-        lines.append(f"{index}. {role} — {panel.width_cm}×{panel.height_cm} ס״מ")
+        decoration = {"none": "", "frosted_stripes": " · פסים חלבי",
+                      "frosted_middle": " · חלבי באמצע"}.get(panel.decoration)
+        if decoration is None:
+            raise NeedsReview("Unknown frosted decoration")
+        lines.append(f"{index}. {role} — {panel.width_cm}×{panel.height_cm} ס״מ{decoration}")
     if demolition_and_disposal:
         lines.append("כולל פירוק ופינוי מקלחון ישן, לבקשת הלקוח.")
     lines += [
