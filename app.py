@@ -442,6 +442,20 @@ def is_simulation_contact(phone):
         return False
 
 
+def clear_simulation_for_business_inbound(phone):
+    """A test sender addressing the BUSINESS number does not get test-hour privileges."""
+    if phone not in SIMULATION_ALLOWED_SENDERS:
+        return
+    ensure_db()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE glass_leads
+                SET context=COALESCE(context,'{}'::jsonb)-'simulation_recipient_id'
+                WHERE phone=%s
+            """, (phone,))
+
+
 def register_simulation_inbound(phone):
     """Called only after a signed Meta webhook from our configured test number."""
     if not simulation_channel_configured() or phone not in SIMULATION_ALLOWED_SENDERS:
@@ -2787,6 +2801,12 @@ def webhook():
                 if (isinstance(message.get('referral'), dict)
                         and message['referral'].get('source_type') == 'ad'):
                     persist_verified_whatsapp_ad(phone, message)
+                if recipient_id == str(PHONE_NUMBER_ID):
+                    try:
+                        clear_simulation_for_business_inbound(phone)
+                    except Exception:
+                        app.logger.exception('Unable to separate business/test sender')
+                        return 'Sender classification unavailable', 503
                 if simulation_inbound:
                     try:
                         if not register_simulation_inbound(phone):
