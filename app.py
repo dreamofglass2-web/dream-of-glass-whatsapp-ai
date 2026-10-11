@@ -147,7 +147,11 @@ def refuses_phone_calls(body):
         r'לא\s+(?:רוצה|מעוניינ[ת]?)\s+(?:ש)?(?:תתקשרו|יתקשרו|שיחה\s+טלפונית)|'
         r'אל\s+(?:תתקשרו|תתקשר|תחזרו)\s+אל[יי]|'
         r'(?:בלי|ללא)\s+(?:שיחות|טלפונים)|'
-        r'לא\s+(?:צריך|צריכה)\s+(?:ש)?תחזרו\s+אל[יי]',
+        r'לא\s+(?:צריך|צריכה)\s+(?:ש)?תחזרו\s+אל[יי]|'
+        r'מעדיפ(?:ה|ים)?\s+(?:להתכתב|כאן|בוואטסאפ)|'
+        r'מעדיף\s+(?:להתכתב|כאן|בוואטסאפ)|'
+        r'אין\s+צורך\s+(?:ש)?(?:תחזרו|לחזור\s+אל[יי]|להתקשר)|'
+        r'לא\s+צריך\s+(?:להתקשר|שיחה|שיחזרו)',
         str(body or '')
     ))
 
@@ -1441,6 +1445,19 @@ def contains_ils_amount(reply):
     return bool(re.search(r'(?:₪\s*[\d,]+|[\d,]+\s*(?:₪|ש[״"]ח|שקל(?:ים)?))', str(reply or '')))
 
 
+def proposed_layout_guidance(history):
+    """Preserve design guidance from assistant as a proposal, not an approved quote."""
+    assistants = [str(m.get('content') or '') for m in history if m.get('role') == 'assistant']
+    proposal = next((v for v in reversed(assistants)
+                     if 'לוח קבוע' in v or 'דלת שנפתחת פנימה' in v or
+                     'דלת נפתחת פנימה' in v), '')
+    if not proposal:
+        return ''
+    return ('תצורה שהצעת קודם ללקוח, עדיין בכפוף לאישור מפרט: ' +
+            proposal[:220] + '. אל תחזור לשאול אותו כיצד לחלק זכוכיות ודלתות '
+            'כאילו לא המלצת; הצג מה נשאר לאמת לפני חישוב המחיר.')
+
+
 def missing_quote_detail(data):
     config = data.get('configuration')
     if config not in BOM and config not in SLIDING:
@@ -2036,6 +2053,9 @@ def process_message(phone, body, batch_rows=None):
                          'מקרים שדורשים מחיר ידני או הכרעה מקצועית מועברים לטיפול אלירן בלי להבטיח שיחה '
                          'שהוא לא אישר. אין הודעות פולואפ מתוזמנות ללא הסכמה ומנגנון מאושר.\n')
         instructions += meta_lead_sales_context(prior)
+        instructions += '\n' + proposed_layout_guidance(history)
+        instructions += ('\nאל תבטיח \"רק שאלה אחת\" בלי שווידאת שזה החוסר האחרון לתמחור. '
+                         'אם הצעת כבר תצורה, המשך ממנה כטיוטת מפרט לאישור ולא כשאלון טכני חדש.\n')
         try:
             app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
             response = client.responses.create(
@@ -2135,6 +2155,13 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'תודה, ארשום את הזמן שביקשת לחזרה למספר שממנו כתבת לנו.'
             if competitor_exit and not direct_identity:
                 reply = ('אה, הבנתי אותך עכשיו, התכוונת להצעה שלהם 😊 סליחה על הבלבול. אם היא מתאימה לך יותר, אני לגמרי מבין. שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.' if short_correction else 'מבין אותך. אם ההצעה שלהם מתאימה לך יותר, זה לגמרי בסדר 😊 שיהיה בהצלחה, ואם תצטרך משהו נוסף בזכוכית אנחנו כאן.')
+            # Do not push design responsibility back to the customer after giving advice.
+            if quote_intent(customer_request) and proposed_layout_guidance(history):
+                if re.search(r'איך מחולקות הזכוכיות והדלתות|צריך לוודא את תצורת המקלחון', reply):
+                    reply = ('כבר הצעתי לך כיוון לתכנון המקלחון, ואין צורך שתגדיר '
+                             'את החלוקה הטכנית בעצמך. צריך לאשר את התאמת התצורה '
+                             'למרווחים ולפרזול לפני מחיר מחושב, ולברר בנפרד אם '
+                             'צריך פירוק של המקלחון הישן. לא אתן סכום לא מאומת.')
             # Only the calculator may authorize a numeric shower quote.
             quote_record = dict((prior or {}).get('validated_quote') or {})
             prior_quote = bool(quote_record.get('issued'))
