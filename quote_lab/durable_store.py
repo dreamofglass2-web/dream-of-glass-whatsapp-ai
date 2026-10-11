@@ -13,6 +13,35 @@ class QuoteStoreError(ValueError):
     pass
 
 
+def prepare_draft(quote_id, specification, amount, catalog_version, snapshot=None):
+    if not isinstance(quote_id, str) or not quote_id.strip() or not isinstance(specification, str) or not specification.strip() or not isinstance(catalog_version, str) or not catalog_version.strip():
+        raise QuoteStoreError("Missing quote identity, specification or catalog version")
+    try:
+        value = Decimal(str(amount))
+    except (TypeError, InvalidOperation):
+        raise QuoteStoreError("Invalid amount") from None
+    if not value.is_finite() or value <= 0:
+        raise QuoteStoreError("Amount must be positive and finite")
+    payload = None
+    if snapshot is not None:
+        try:
+            payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":"), allow_nan=False)
+            spec = snapshot["specification"]
+            canonical_spec = json.dumps(spec, ensure_ascii=False, sort_keys=True,
+                                        separators=(",", ":"), allow_nan=False)
+            fingerprint = hashlib.sha256(canonical_spec.encode("utf-8")).hexdigest()
+            if (fingerprint != specification or spec["catalog_version"] != catalog_version
+                    or snapshot["calculation"]["catalog_version"] != catalog_version
+                    or Decimal(snapshot["calculation"]["price_before_vat"]) != value
+                    or not isinstance(snapshot["customer_preview_text"], str)
+                    or not snapshot["customer_preview_text"].strip()):
+                raise QuoteStoreError("Snapshot differs from quote metadata")
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            raise QuoteStoreError("Invalid or inconsistent quote snapshot") from error
+    return value, payload
+
+
 class DurableQuoteStore:
     def __init__(self, path):
         self.path = str(path)
@@ -52,31 +81,7 @@ class DurableQuoteStore:
         return db
 
     def create_draft(self, quote_id, specification, amount, catalog_version, *, snapshot=None):
-        if not isinstance(quote_id, str) or not quote_id.strip() or not isinstance(specification, str) or not specification.strip() or not isinstance(catalog_version, str) or not catalog_version.strip():
-            raise QuoteStoreError("Missing quote identity, specification or catalog version")
-        try:
-            value = Decimal(str(amount))
-        except (TypeError, InvalidOperation):
-            raise QuoteStoreError("Invalid amount") from None
-        if not value.is_finite() or value <= 0:
-            raise QuoteStoreError("Amount must be positive and finite")
-        payload = None
-        if snapshot is not None:
-            try:
-                payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True,
-                                     separators=(",", ":"), allow_nan=False)
-                spec = snapshot["specification"]
-                canonical_spec = json.dumps(spec, ensure_ascii=False, sort_keys=True,
-                                            separators=(",", ":"), allow_nan=False)
-                fingerprint = hashlib.sha256(canonical_spec.encode("utf-8")).hexdigest()
-                if (fingerprint != specification or spec["catalog_version"] != catalog_version
-                        or snapshot["calculation"]["catalog_version"] != catalog_version
-                        or Decimal(snapshot["calculation"]["price_before_vat"]) != value
-                        or not isinstance(snapshot["customer_preview_text"], str)
-                        or not snapshot["customer_preview_text"].strip()):
-                    raise QuoteStoreError("Snapshot differs from quote metadata")
-            except (KeyError, TypeError, ValueError, InvalidOperation) as error:
-                raise QuoteStoreError("Invalid or inconsistent quote snapshot") from error
+        value, payload = prepare_draft(quote_id, specification, amount, catalog_version, snapshot)
         with self._connect() as db:
             # Lock before reading latest revision; sqlite begins implicitly only on writes.
             db.execute("BEGIN IMMEDIATE")

@@ -63,3 +63,22 @@ All amounts are ILS before VAT. The current calculator function does not apply
 the new design/removal input fields; these differences are expected additions
 in the lab, not live price changes. This is a source-level calculation comparison,
 not proof that a customer received a price or a measurement was approved.
+
+### Disposable PostgreSQL integration
+
+Run `.github/workflows/quote-lab-postgres.yml` to exercise the real adapter against
+an ephemeral PostgreSQL 16 container. It uses a limited role, the loopback-only
+`quote_lab_test` database, and a dedicated `quote_lab_stage` schema. To run manually
+against an equivalent disposable setup, explicitly set
+`QUOTE_LAB_TEST_DATABASE_URL` and run:
+
+```sh
+python -m unittest discover -s tests/quote_lab_pg -p 'test_*.py' -v
+```
+
+`PostgresQuoteStore(test_database_url)` implements the same create/latest/history,
+snapshot, sent/approved interface as the SQLite lab store, so the existing quote
+creation and restart workflow can use it unchanged. No application import or live
+connection is added. Real integration tests cover exact owner prices, changes,
+parallel snapshots, a stale transition waiting behind a new version, duplicate
+receipt/approval references, partial-write disconnect, restore and corruption.
