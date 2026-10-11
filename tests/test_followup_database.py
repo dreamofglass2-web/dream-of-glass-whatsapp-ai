@@ -32,6 +32,41 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 cur.execute("DELETE FROM glass_leads WHERE phone LIKE 'TEST_FOLLOWUP_%'")
         cls.connection_patcher.stop()
 
+    def test_meta_provenance_gate_in_disposable_database(self):
+        """A lead row alone cannot authorize outgoing customer messages."""
+        import json
+        cases = [
+            ("TEST_FOLLOWUP_UNVERIFIED", {}, False),
+            ("TEST_FOLLOWUP_VERIFIED", {"meta_leads": {"lead-1": {"source": "meta_instant_form"}}}, True),
+            ("TEST_FOLLOWUP_WRONG_SOURCE", {"meta_leads": {"lead-2": {"source": "manual"}}}, False),
+            ("TEST_FOLLOWUP_OPTOUT_SOURCE", {"meta_leads": {"lead-3": {"source": "meta_instant_form"}}, "no_followups": True}, False),
+        ]
+        # Authenticated lead must also have a valid Israeli mobile phone.
+        with test_connection() as db:
+            with db.cursor() as cur:
+                for phone, context, _ in cases:
+                    cur.execute("INSERT INTO glass_leads(phone, context) VALUES (%s,%s::jsonb) "
+                                "ON CONFLICT(phone) DO UPDATE SET context=EXCLUDED.context",
+                                (phone, json.dumps(context)))
+        for phone, _, _ in cases:
+            self.assertFalse(yossi.verified_business_lead(phone))
+        real_phone = "972501234567"
+        with test_connection() as db:
+            with db.cursor() as cur:
+                cur.execute("INSERT INTO glass_leads(phone, context) VALUES (%s,%s::jsonb) "
+                            "ON CONFLICT(phone) DO UPDATE SET context=EXCLUDED.context",
+                            (real_phone, json.dumps({"meta_leads": {"test": {"source": "meta_instant_form"}}})))
+        try:
+            self.assertTrue(yossi.verified_business_lead(real_phone))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("UPDATE glass_leads SET context=jsonb_set(context, '{no_followups}', 'true'::jsonb) WHERE phone=%s", (real_phone,))
+            self.assertFalse(yossi.verified_business_lead(real_phone))
+        finally:
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("DELETE FROM glass_leads WHERE phone=%s", (real_phone,))
+
     def test_inbound_timestamp_in_disposable_database(self):
         """Verified inbound time persists, advances and does not send WhatsApp."""
         from datetime import datetime, timedelta, timezone
