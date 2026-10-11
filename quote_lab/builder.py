@@ -122,10 +122,10 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
                          measured_and_engineered=step_notch_measured))
     return {
         **result, "door_hinge_breakdown": hinge_bills, "panel_breakdown": [
-            {"role": p.role, "width_cm": str(decimal_dimension(p.width_cm)),
+            {"role": role, "width_cm": str(decimal_dimension(p.width_cm)),
              "height_cm": str(decimal_dimension(p.height_cm)), "glass": p.glass,
              "shape": p.shape, "decoration": p.decoration}
-            for p in checked],
+            for role, p in zip((p.role for p in panels), checked)],
         "layout_confirmed_for_draft": True,
         "engineering_approval": False,
         "send_authorized": False,
