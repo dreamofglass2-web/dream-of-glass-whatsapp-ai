@@ -7,12 +7,16 @@ from quote_lab.universal import NeedsReview, FINISH, GLASS
 
 
 def render_customer_preview(draft_record, *, template, panels, finish,
+                            handle_style="ידית כפתור",
                             demolition_and_disposal=False):
     if draft_record.get("state") != "draft":
         raise NeedsReview("Only offline draft previews are supported")
     if draft_record.get("can_send_whatsapp") is not False:
         raise NeedsReview("Preview requires an explicitly disabled send flag")
-    if finish not in FINISH or finish != draft_record.get("preview_finish") or not panels:
+    if (finish not in FINISH or finish != draft_record.get("preview_finish")
+            or handle_style != draft_record.get("preview_handle_style")
+            or handle_style != (draft_record.get("calculation") or {}).get("handle_style")
+            or not panels):
         raise NeedsReview("Unpriced or incomplete specification")
     calculation = draft_record.get("calculation") or {}
     if calculation.get("status") != "draft_not_sent":
@@ -41,6 +45,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         "תצורה: " + template,
         "זכוכית: " + label + " 8 מ״מ",
         "פרזול: " + finish,
+        "ידיות: " + handle_style,
         "מידות לוחות לפי המפרט:",
     ]
     for index, panel in enumerate(panels, start=1):
@@ -64,6 +69,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
 
 
 def render_current_preview(store, draft_record, *, template, panels, finish,
+                           handle_style="ידית כפתור",
                            demolition_and_disposal=False):
     """Only preview the currently stored unsent version and exact fingerprint.
 
@@ -80,4 +86,5 @@ def render_current_preview(store, draft_record, *, template, panels, finish,
         raise NeedsReview("Stored quote differs from the supplied preview data")
     return render_customer_preview(
         draft_record, template=template, panels=panels, finish=finish,
+        handle_style=handle_style,
         demolition_and_disposal=demolition_and_disposal)
