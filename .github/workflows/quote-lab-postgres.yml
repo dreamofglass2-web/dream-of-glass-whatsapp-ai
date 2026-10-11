@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'quote_lab/**'
+      - 'crm_lab/**'
       - 'tests/quote_lab_pg/**'
       - '.github/workflows/quote-lab-postgres.yml'
   workflow_dispatch:
@@ -49,3 +50,5 @@ jobs:
         run: python -m unittest discover -s tests/quote_lab_pg -p 'test_*.py' -v
       - name: Offline regression and isolation tests
         run: python -m unittest discover -s quote_lab -p 'test_*.py' -v
+      - name: Offline CRM lead preview tests
+        run: python -m unittest discover -s crm_lab -p 'test_*.py' -v
