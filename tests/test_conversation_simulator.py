@@ -775,3 +775,15 @@ class LiveWhatsAppLoopRegression(unittest.TestCase):
         self.assertIn('תצורת הדלתות', answer)
         self.assertIn('התקנה', answer)
         self.assertNotIn('הזזה', answer)
+
+
+class CustomerFirstSalesGuidanceTests(unittest.TestCase):
+    def test_guidance_covers_customer_needs_and_real_objections(self):
+        guidance = yossi.CUSTOMER_FIRST_SALES
+        for term in ('נוחות', 'ניקיון', 'תקציב', 'אסלה', 'מחיר כולל התקנה',
+                     'פרט חדש', 'שאלה אחת', 'אל תחזור'):
+            self.assertIn(term, guidance)
+
+    def test_customer_first_guidance_is_in_model_instructions(self):
+        import inspect
+        self.assertIn('CUSTOMER_FIRST_SALES', inspect.getsource(yossi.process_message))
