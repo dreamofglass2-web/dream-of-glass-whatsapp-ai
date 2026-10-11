@@ -67,3 +67,30 @@ and connection lifecycle https://www.psycopg.org/docs/usage.html.
 This passes a disposable database gate only; live CRM migration, tenant access,
 verified Meta receipt ingestion, rollout/rollback and owner go-live approval
 remain separate requirements. The design-only production SQL is not executed.
+
+## Signed status payload verification in the lab
+
+`receipt_verifier.py` verifies HMAC-SHA256 over the original request bytes before
+parsing JSON. It rejects duplicate JSON keys and inconsistent known message data,
+binds provider message IDs to the intended recipient and exact quote revision,
+and scopes statuses to the configured WABA and phone number ID. Only delivered
+or read yields delivery evidence; sent, failed, deleted and unknown messages do
+not. The parser has no network listener, environment access or database mutation.
+
+`apply_signed_fixture` is an explicit lab-only bridge into `QuoteSimulation`:
+account/phone/message/quote identities must be fixture/simulation-prefixed.
+Saved fingerprint, amount and latest version must match before transitions.
+Bad signed batches are fully validated before the first fixture transition.
+There is no cross-quote transaction for concurrent batch application; a retry
+must use idempotent per-quote transitions. This is not a live receipt endpoint.
+
+Before live integration, separately implement trusted persistent outbound-message
+bindings populated only after an authorized send, durable event ingestion/retry,
+account-scoped authorization, and real receipt verification with the protected
+server-side app secret. No live send permissions or environment changes are made
+by this stage. Existing app.py does not import this verifier.
+
+Provider references reviewed: Meta webhook endpoint payload validation
+https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/create-webhook-endpoint/
+and Meta's WhatsApp Business Platform payload reference
+https://www.postman.com/meta/whatsapp-business-platform/folder/tduohwq/webhook-payload-reference.
