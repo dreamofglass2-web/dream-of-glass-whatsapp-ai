@@ -744,3 +744,34 @@ class ConsultativeCornerAndSocialRegression(unittest.TestCase):
         history = [{'role': 'user', 'content': 'מקלחון חזיתי'}]
         reply = 'אפשר לשקול הזזה כשהמעבר צר.'
         self.assertEqual(yossi.guard_corner_shower_advice(reply, history[0]['content'], history), reply)
+
+
+class LiveWhatsAppLoopRegression(unittest.TestCase):
+    def setUp(self):
+        self.history = [
+            {'role': 'user', 'content': 'אני רוצה מקלחון פינתי 90 על 90'},
+            {'role': 'user', 'content': 'יש אסלה די קרובה, חשוב לי לנקות בקלות'},
+        ]
+
+    def test_corner_does_not_replace_answer_with_canned_text(self):
+        reply = 'האסלה עלולה להגביל פתיחה של דלת ציר. כדאי לבדוק מרווח, וקלות ניקוי של צירים.'
+        self.assertEqual(yossi.guard_corner_shower_advice(reply, 'מה היית בוחר?', self.history), reply)
+
+    def test_explicit_sliding_question_gets_actual_answer(self):
+        reply = 'אם האסלה חוסמת ציר, נבדוק מרווחים. הזזה דורשת בדיקת התאמה ותמחור מיוחד.'
+        self.assertEqual(yossi.guard_corner_shower_advice(
+            reply, 'הזזה תהיה יותר מתאימה?', self.history), reply)
+
+    def test_unsolicited_sliding_removed_without_destroying_other_advice(self):
+        reply = 'צריך לבדוק שהאסלה לא מפריעה. אפשר גם הזזה. קל יותר לנקות כשיש גישה לצירים.'
+        answer = yossi.guard_corner_shower_advice(reply, 'מה היית ממליץ?', self.history)
+        self.assertIn('אסלה', answer)
+        self.assertIn('לנקות', answer)
+        self.assertNotIn('הזזה', answer)
+
+    def test_corner_sliding_only_answer_prioritizes_actual_quote_question(self):
+        reply = 'ממליץ על הזזה למקלחון פינתי.'
+        answer = yossi.guard_corner_shower_advice(reply, 'מה חסר להצעת מחיר כולל התקנה?', self.history)
+        self.assertIn('תצורת הדלתות', answer)
+        self.assertIn('התקנה', answer)
+        self.assertNotIn('הזזה', answer)

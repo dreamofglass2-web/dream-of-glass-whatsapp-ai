@@ -1303,30 +1303,48 @@ def avoid_repeated_dimensions(reply, facts, body):
 
 
 def guard_corner_shower_advice(reply, customer_request, history):
-    """For corner showers, do not introduce sliding as a suggested option.
+    """Never replace a substantive answer with the same canned corner-shower text.
 
-    Explicit requests for corner sliding are a different workflow: they must
-    not be priced automatically and can be handled as a custom quote.
+    Keep the customer's latest question (obstruction, cleaning, quote) as
+    priority. Do not initiate sliding as an option for a corner shower, but
+    do answer clearly when the customer explicitly asks about it.
     """
     customer_turns = [customer_written_text(m.get('content', ''))
                       for m in history if m.get('role') == 'user']
     all_customer = ' '.join(customer_turns)
     if not ('מקלחון' in all_customer and 'פינתי' in all_customer):
         return reply
-    # The customer may explicitly request a sliding model: don't overrule
-    # their choice; existing manual custom-quote logic handles this case.
-    if re.search(r'(?:רוצה|מבקש|צריך|מעוניין|מעדיף|מחפש).{0,55}הזזה|'
-                 r'דלתות? הזזה|מקלחון פינתי הזזה', all_customer):
+    current = customer_written_text(customer_request)
+    # Explicit mention is a request for advice even if not phrased as
+    # "I want sliding": answer it, never blindly replace the reply.
+    if re.search(r'הזזה|נגרר', current):
         return reply
-    if not re.search(r'הזזה|דלת נגררת|דלתות נגררות', reply or ''):
+    if not re.search(r'הזזה|דלת(?:ות)? נגרר', reply or ''):
         return reply
-    # Only revise advice, never a validated calculator quote.
     if re.search(r'₪|ש[״"]ח|שקלים', reply or ''):
-        return reply
-    return ('למקלחון פינתי הייתי ממליץ להתחיל משתי דלתות ציר שנפתחות בצורה נוחה, '
-            'ולבדוק בשטח את כיוון הפתיחה והמרווחים. כך אפשר לתכנן כניסה נוחה '
-            'בלי להעמיס על החלל. אם תרצה מחיר, נוכל להשלים את פרטי המפרט '
-            'להצעה מאומתת לפני מדידה סופית.')
+        return reply  # Never tamper with verified calculated quotes.
+    # Remove only unsolicited sliding; keep tailored advice and any other details.
+    cleaned = re.sub(r'\s+או\s+(?:דלתות?\s+)?הזזה', '', reply.strip())
+    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+    kept = [part for part in sentences
+            if not re.search(r'הזזה|דלת(?:ות)? נגרר', part)
+            and 'מה אתה מעדיף' not in part]
+    retained = ' '.join(kept).strip()
+    if retained:
+        return retained
+    # A brief safe fallback is only for a fully sliding-only reply. It must
+    # answer the current need, not repeat a generic pitch.
+    if re.search(r'מחיר|הצעה|כמה עולה|כמה יצא', current):
+        return ('למחיר מדויק צריך לסגור את תצורת הדלתות והפרזול; '
+                'לא אתן סכום בלי חישוב מאומת. ההתקנה תיבדק במסגרת ההצעה.')
+    if re.search(r'אסלה|נפתח|פתיחה|תיתקע|מפריע', current):
+        return ('נכון, אם האסלה קרובה צריך לבדוק שהדלת לא תפגע בה. '
+                'אפשר לבדוק כיוון פתיחה פנימה או פתרון צירים מתאים '
+                'רק אחרי שיודעים מה המרווח בפועל.')
+    if re.search(r'ניקוי|ניקיון|לנקות|אבנית', current):
+        return ('לניקיון חשוב לבחור פרזול שקל להגיע סביבו '
+                'ולשים לב לפינות ולאבנית. את ההתאמה המדויקת נבדוק לפי המבנה.')
+    return 'במקלחון פינתי הייתי בודק שתי דלתות ציר וכיווני פתיחה שמתאימים למרווחים.'
 
 
 def calculate_quote(data):
@@ -2016,6 +2034,21 @@ def process_message(phone, body, batch_rows=None):
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
+            # A repeated assistant reply is a failed consultation, not a valid next turn.
+            last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
+                                   if m.get('role') == 'assistant'), '')
+            if reply.strip() == last_assistant.strip() and reply.strip():
+                app.logger.warning('Repeated assistant answer; regenerate based on new request phone_suffix=%s', phone[-4:])
+                if re.search(r'מחיר|הצעה|כמה עולה', body):
+                    reply = ('אתה צודק, עוד לא קיבלת תשובה למחיר. כדי לתת סכום מדויק '
+                             'נדרש להשלים תצורת דלתות ופרזול ולחשב הצעה מאומתת, '
+                             'כולל בדיקת עלות ההתקנה. לא אמציא מחיר.')
+                elif re.search(r'אסלה|ניקיון|ניקוי|לנקות|פתיחה', body):
+                    reply = ('אתה צודק. עם אסלה סמוכה צריך קודם לוודא שדלת ציר '
+                             'יכולה להיפתח בלי לפגוע בה, ושיש גישה נוחה לניקיון. '
+                             'נוכל לבדוק זאת לפי צילום או מרווח משוער.')
+                else:
+                    reply = 'סליחה, חזרתי על עצמי. מה שהעלית עכשיו חשוב, ואענה עליו לגופו.'
             reply = guard_corner_shower_advice(reply, customer_request, history)
             # Keep the hardware finish question open-ended unless the customer asks for available finishes.
             finish_options_requested = bool(re.search(
@@ -3208,4 +3241,3 @@ def privacy():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT','10000')))
-
