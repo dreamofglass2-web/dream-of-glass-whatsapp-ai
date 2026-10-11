@@ -15,8 +15,9 @@ class PostgresLeadPreviewTests(unittest.TestCase):
             cur.execute('CREATE SCHEMA IF NOT EXISTS crm_preview_stage')
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_preview_stage.leads (
                 phone TEXT PRIMARY KEY,name TEXT,product TEXT,status TEXT,
-                callback_time TEXT,notes TEXT,updated_at TIMESTAMPTZ)""")
-            cur.execute("""INSERT INTO crm_preview_stage.leads VALUES
+                callback_time TEXT,notes TEXT,updated_at TIMESTAMPTZ,
+                conversation JSONB NOT NULL DEFAULT '[]'::jsonb,context JSONB NOT NULL DEFAULT '{}'::jsonb)""")
+            cur.execute("""INSERT INTO crm_preview_stage.leads (phone,name,product,status,callback_time,notes,updated_at) VALUES
                 (%s,'לקוח בדיקה','מקלחון','נסגר','מחר','הערה',now())""",(self.phone,))
     def test_read_only_snapshot_retains_fields_without_inventing_approval(self):
         result=PostgresLeadPreview(URL).snapshot()
@@ -28,14 +29,14 @@ class PostgresLeadPreviewTests(unittest.TestCase):
             self.assertEqual(dict(cur.fetchone()),{'status':'נסגר','notes':'הערה'})
     def test_bounded_export_marks_more_rows(self):
         with self.store._transaction() as cur:
-            cur.execute("""INSERT INTO crm_preview_stage.leads VALUES
+            cur.execute("""INSERT INTO crm_preview_stage.leads (phone,name,product,status,callback_time,notes,updated_at) VALUES
                 (%s,'עוד לקוח','מקלחון','חדש','','',now())""",(self.phone+'1',))
         result=PostgresLeadPreview(URL).snapshot(limit=1)
         self.assertEqual(len(result['customers']),1);self.assertTrue(result['has_more'])
     def test_real_data_in_fixture_table_fails_closed(self):
         phone='972'+str(uuid4().int%10**10).zfill(10)
         with self.store._transaction() as cur:
-            cur.execute("INSERT INTO crm_preview_stage.leads VALUES (%s,'','','חדש','','',now())",(phone,))
+            cur.execute("INSERT INTO crm_preview_stage.leads (phone,name,product,status,callback_time,notes,updated_at) VALUES (%s,'','','חדש','','',now())",(phone,))
         try:
             with self.assertRaises(LeadPreviewError):PostgresLeadPreview(URL).snapshot()
         finally:
@@ -60,3 +61,20 @@ class PostgresLeadPreviewTests(unittest.TestCase):
         with self.store._transaction() as cur:
             cur.execute('SELECT phone FROM crm_preview_stage.leads ORDER BY phone')
             self.assertEqual([row['phone'] for row in cur.fetchall()],expected)
+
+    def test_saved_customer_detail_is_read_only_and_does_not_export_full_context(self):
+        from crm_lab.read_source import ReadOnlyLeadSource
+        import json
+        history=[{'role':'user','content':'תחזור אליי'},{'role':'assistant','content':'מתי נוח?'}]
+        context={'private_marker':'must-not-export','validated_quote':{'issued':True,'approved':True,'amount_ils_pre_vat':2828}}
+        with self.store._transaction() as cur:
+            cur.execute('UPDATE crm_preview_stage.leads SET conversation=%s,context=%s,status=%s WHERE phone=%s',
+                        (json.dumps(history),json.dumps(context),'ממתין לחזרה',self.phone))
+        result=ReadOnlyLeadSource(test_database_url=URL).detail(phone=self.phone)
+        self.assertEqual([m['content'] for m in result['conversation']],['תחזור אליי','מתי נוח?'])
+        self.assertEqual(result['legacy_quote']['amount_cents'],282800)
+        self.assertFalse(result['legacy_quote']['verified_approval']);self.assertIsNone(result['callback']['request_id'])
+        self.assertNotIn('must-not-export',str(result))
+        with self.store._transaction() as cur:
+            cur.execute('SELECT conversation,context FROM crm_preview_stage.leads WHERE phone=%s',(self.phone,))
+            row=cur.fetchone();self.assertEqual(row['conversation'],history);self.assertEqual(row['context'],context)
