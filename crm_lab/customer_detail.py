@@ -65,7 +65,8 @@ def project_detail(row,*,synthetic=True):
     callback=None
     if customer['legacy_status']=='ממתין לחזרה':
         callback={'source_status':customer['legacy_status'],'requested_time_text':customer['callback_text'],
-                  'due_at':None,'request_id':None,'identity_quality':'legacy_state_without_request_id',
+                  'due_at':None,'request_id':customer['callback_request_id'],'requested_at':customer['callback_requested_at'],
+                  'identity_quality':'durable_request_id' if customer['callback_request_id'] else 'legacy_state_without_request_id',
                   'read_only':True}
     return {'customer':customer,'conversation':messages,'conversation_complete':True,
             'conversation_timestamps_available':False,'callback':callback,'legacy_quote':evidence,

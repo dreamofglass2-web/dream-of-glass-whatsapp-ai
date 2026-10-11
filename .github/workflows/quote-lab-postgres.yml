@@ -5,6 +5,8 @@ on:
     paths:
       - 'quote_lab/**'
       - 'crm_lab/**'
+      - 'callback_store.py'
+      - 'app.py'
       - 'tests/quote_lab_pg/**'
       - '.github/workflows/quote-lab-postgres.yml'
   workflow_dispatch:
@@ -44,6 +46,7 @@ jobs:
               with connection.cursor() as cur:
                   cur.execute("CREATE ROLE quote_lab_writer LOGIN PASSWORD 'disposable-test-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION")
                   cur.execute('GRANT CONNECT, CREATE ON DATABASE quote_lab_test TO quote_lab_writer')
+                  cur.execute("CREATE ROLE yossi_crm_reader LOGIN PASSWORD 'disposable-test-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION")
           connection.close()
           PY
       - name: Real disposable PostgreSQL tests (no skips, no production URL)
