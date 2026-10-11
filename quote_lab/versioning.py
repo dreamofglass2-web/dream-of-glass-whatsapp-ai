@@ -35,3 +35,13 @@ class QuoteLedger:
         result = replace(old, status='sent', delivery_reference=delivery_reference)
         self.items[quote_id][-1] = result
         return result
+
+    def approve(self, quote_id, revision, specification, total, approval_reference):
+        old = self.current(quote_id, revision)
+        if old.status != 'sent' or not approval_reference:
+            raise ValueError('Explicit approval required')
+        if old.specification != specification or old.total != str(total):
+            raise ValueError('Approval differs from sent quote')
+        result = replace(old, status='approved', approval_reference=approval_reference)
+        self.items[quote_id][-1] = result
+        return result
