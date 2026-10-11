@@ -72,3 +72,12 @@ class BridgeTests(unittest.TestCase):
         environ={'REQUEST_METHOD':'GET','PATH_INFO':'/v1/leads','HTTP_TRANSFER_ENCODING':'chunked','HTTP_X_CRM_TIMESTAMP':str(self.now),'HTTP_X_CRM_NONCE':'a'*32,'HTTP_X_CRM_SIGNATURE':request_signature(KEY,'GET','/v1/leads',self.now,'a'*32)}
         statuses=[];wsgi_application(self.bridge)(environ,lambda status,headers:statuses.append(status))
         self.assertEqual(statuses,['401 Unauthorized']);self.assertEqual(self.source.calls,[])
+
+    def test_customer_detail_is_signed_scoped_and_replay_protected(self):
+        self.source.detail=lambda **kwargs:{'customer':{'phone':kwargs['phone']},'read_only':True}
+        target='/v1/customer?phone=000000001'
+        status,headers,raw=self.request(target);self.assertEqual(status,200)
+        result=verify_response(KEY,'a'*32,headers['X-CRM-Response-Signature'],raw,scope='fixture')
+        self.assertEqual(result['customer']['phone'],'000000001')
+        self.assertEqual(self.request(target)[0],401)
+        self.assertEqual(self.request('/v1/customer?phone=000000001&account=other',nonce='b'*32)[0],400)

@@ -62,3 +62,29 @@ storage must be durable and shared by all bridge instances; independent replica
 SQLite files are insufficient. Keys must be separate per source, server-only,
 and transmitted over HTTPS. Provisioning the reader, deployment, secrets and
 Site activation remain explicit owner-approved production work.
+
+
+## Prepared signed customer detail endpoint
+
+GET /v1/customer?phone=... authenticates the exact query, freshness and persistent
+nonce like lead pages. It selects one customer's saved conversation plus only
+context->validated_quote, never the whole context. The reader remains disabled
+by default, uses a read-only transaction and fixed identifiers, and is not mounted
+in app.py. No live database, conversation or credential was accessed.
+
+project_detail preserves ordered user/assistant messages, including repeated
+text, with stable ordinal/content-derived IDs. It exports media counts rather
+than private image URLs. It rejects unsupported roles/shapes and excessive
+history without silent truncation. No message dates or delivery evidence are
+invented. A legacy quote exposes exact cents, selected specifications and the
+recorded approval flag separately from verified approval; it has no immutable
+version number or full version history. Callback scheduling remains the saved
+text: there is no unique persisted request ID in the existing legacy state, so
+source callback completion cannot safely assume every later request is the same.
+
+Remaining live integration requirements are concrete: provision a dedicated
+SELECT-only reader, separate bridge runtime/HTTPS and shared durable nonce store,
+configure only server-side keys, add live owner-scoped CRM storage and transport,
+and verify freshness over concurrent changes. Legacy quote history and callback
+identity cannot be reconstructed as verified immutable records from these fields.
+Live reads and any active app changes require explicit owner approval.

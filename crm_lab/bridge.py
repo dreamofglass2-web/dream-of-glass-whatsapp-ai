@@ -68,15 +68,24 @@ class LeadBridge:
             if not hmac.compare_digest(signature,expected):raise BridgeError('Invalid authentication')
             if method!='GET':raise BridgeError('Read-only method required',405)
             parsed=urlsplit(target)
-            if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path!='/v1/leads':raise BridgeError('Unknown route',404)
+            if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path not in ('/v1/leads','/v1/customer'):raise BridgeError('Unknown route',404)
             pairs=parse_qsl(parsed.query,keep_blank_values=True,strict_parsing=True)
-            if len(pairs)!=len(dict(pairs)) or set(dict(pairs))-{'limit','cursor'}:raise BridgeError('Invalid page query',400)
-            query=dict(pairs);value=query.get('limit','100')
-            if not re.fullmatch(r'[0-9]{1,3}',value) or not 1<=int(value)<=300:raise BridgeError('Invalid page limit',400)
-            after=self._after(query.get('cursor',''),now)
-            self.replay.claim(nonce,now)
-            try:result=self.source.page(limit=int(value),after=after)
-            except Exception:raise BridgeError('Source unavailable; no update applied',503) from None
+            allowed={'phone'} if parsed.path=='/v1/customer' else {'limit','cursor'}
+            if len(pairs)!=len(dict(pairs)) or set(dict(pairs))-allowed:raise BridgeError('Invalid page query',400)
+            query=dict(pairs)
+            if parsed.path=='/v1/customer':
+                phone=query.get('phone','')
+                if not re.fullmatch(r'\+?[0-9]{8,20}',phone):raise BridgeError('Invalid source recipient',400)
+                self.replay.claim(nonce,now)
+                try:result=self.source.detail(phone=phone)
+                except Exception:raise BridgeError('Source detail unavailable',503) from None
+            else:
+                value=query.get('limit','100')
+                if not re.fullmatch(r'[0-9]{1,3}',value) or not 1<=int(value)<=300:raise BridgeError('Invalid page limit',400)
+                after=self._after(query.get('cursor',''),now)
+                self.replay.claim(nonce,now)
+                try:result=self.source.page(limit=int(value),after=after)
+                except Exception:raise BridgeError('Source unavailable; no update applied',503) from None
             result=dict(result);last=result.pop('next_after',None)
             result.update(source_scope=self.scope,request_nonce=nonce,
                           next_cursor=self._cursor(last,now+300) if last else None)

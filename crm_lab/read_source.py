@@ -45,3 +45,33 @@ class ReadOnlyLeadSource:
                           observed_at=datetime.now(timezone.utc).isoformat(),snapshot_scope='single_page')
             return result
         finally:connection.close()
+
+    def detail(self,*,phone):
+        if not self.enabled:raise LeadPreviewError('Live source is disabled pending owner approval')
+        if not isinstance(phone,str) or len(phone)>20:raise LeadPreviewError('Invalid source recipient')
+        # Validate source identity before opening any database connection.
+        import re
+        if not re.fullmatch(r'000[0-9]{6,17}' if self.fixture else r'\+?[1-9][0-9]{7,14}',phone):raise LeadPreviewError('Invalid source recipient')
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from crm_lab.customer_detail import project_detail
+        connection=psycopg2.connect(**self.parameters)
+        try:
+            connection.set_session(readonly=True,isolation_level='REPEATABLE READ')
+            with connection:
+                with connection.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SET LOCAL statement_timeout='5s'")
+                    cur.execute("""SELECT rolsuper,rolcreatedb,rolcreaterole,current_database() AS name,
+                        current_setting('transaction_read_only') AS read_only FROM pg_roles WHERE rolname=current_user""")
+                    role=cur.fetchone()
+                    if role['rolsuper'] or role['rolcreatedb'] or role['rolcreaterole'] or role['read_only']!='on' or (self.fixture and role['name']!='quote_lab_test'):
+                        raise LeadPreviewError('Limited read-only source role required')
+                    table='crm_preview_stage.leads' if self.fixture else 'public.glass_leads'
+                    cur.execute(f"""SELECT phone,name,product,status,callback_time,notes,updated_at,
+                        conversation,context->'validated_quote' AS legacy_quote FROM {table} WHERE phone=%s""",(phone,))
+                    row=cur.fetchone()
+            if not row:raise LeadPreviewError('Source customer not found')
+            result=project_detail(dict(row),synthetic=self.fixture)
+            result.update(observed_at=datetime.now(timezone.utc).isoformat(),snapshot_scope='single_customer')
+            return result
+        finally:connection.close()
