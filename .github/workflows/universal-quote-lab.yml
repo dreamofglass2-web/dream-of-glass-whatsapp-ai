@@ -1,0 +1,17 @@
+name: Yossi universal quote lab
+on:
+  pull_request:
+    paths:
+      - "quote_lab/**"
+      - ".github/workflows/universal-quote-lab.yml"
+  workflow_dispatch:
+jobs:
+  offline-quote-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s quote_lab -p "test_*.py" -v
+      - run: python -m py_compile quote_lab/universal.py
