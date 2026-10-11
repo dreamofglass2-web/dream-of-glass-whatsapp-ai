@@ -105,11 +105,13 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
                           layout_confirmed: bool = False,
                           step_notch_measured: bool = False,
                           finish: str = "ניקל",
+                          handle_style: str = "ידית כפתור",
                           demolition_and_disposal: bool = False) -> dict:
     """Calculate an offline DRAFT after explicit layout confirmation only."""
     checked = validate_panel_plan(template, panels, layout_confirmed=layout_confirmed)
     hinge_bills = verify_default_door_hardware(template)
     result = quote(Draft(template=template, panels=list(checked), finish=finish,
+                         handle_style=handle_style,
                          demolition_and_disposal=demolition_and_disposal,
                          measured_and_engineered=step_notch_measured))
     return {
