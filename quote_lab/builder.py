@@ -67,6 +67,7 @@ class NamedPanel:
     height_cm: object
     glass: str
     shape: str = "rectangle"
+    decoration: str = "none"
 
 
 def decimal_dimension(value) -> Decimal:
@@ -94,7 +95,8 @@ def validate_panel_plan(template: str, panels: list[NamedPanel], *,
             raise NeedsReview("Special glass shape requires personal review")
         result.append(Panel(width_cm=decimal_dimension(pane.width_cm),
                             height_cm=decimal_dimension(pane.height_cm),
-                            glass=pane.glass, shape=pane.shape))
+                            glass=pane.glass, shape=pane.shape,
+                            decoration=pane.decoration))
     # Even with an adequate quote draft, a real installation still requires site verification.
     if not layout_confirmed:
         raise NeedsReview("Proposed panel dimensions must be confirmed before calculating a draft price")
@@ -118,7 +120,7 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
         **result, "door_hinge_breakdown": hinge_bills, "panel_breakdown": [
             {"role": p.role, "width_cm": str(decimal_dimension(p.width_cm)),
              "height_cm": str(decimal_dimension(p.height_cm)), "glass": p.glass,
-             "shape": p.shape}
+             "shape": p.shape, "decoration": p.decoration}
             for p in panels],
         "layout_confirmed_for_draft": True,
         "engineering_approval": False,
