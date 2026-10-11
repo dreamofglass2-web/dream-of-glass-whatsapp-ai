@@ -1,0 +1,61 @@
+"""Pure synthetic preview of existing lead fields. No connection or writes."""
+from datetime import datetime, timezone
+import hashlib
+import re
+
+class LeadPreviewError(ValueError):
+    pass
+
+STATUS_STAGE = {'חדש':0,'בטיפול':1,'ממתין לחזרה':1,'ממתין לתמונה':1,
+                'ממתין לתמחור':1,'הצעה ניתנה':2}
+
+def text(value,limit):
+    if not isinstance(value,str) or len(value)>limit:
+        raise LeadPreviewError('Invalid lead text field')
+    return value.strip()
+
+def timestamp(value):
+    try:
+        parsed=value if isinstance(value,datetime) else datetime.fromisoformat(value)
+        if parsed.tzinfo is None or parsed.utcoffset() is None: raise ValueError
+        return parsed.astimezone(timezone.utc).isoformat()
+    except (TypeError,ValueError):
+        raise LeadPreviewError('Explicit source timestamp with timezone required') from None
+
+def preview_leads(rows,*,has_more=False):
+    """Interpret only dummy fixtures; never imply verified delivery or approval.
+
+    Missing names/products remain explicitly incomplete. Legacy closed/unknown
+    statuses require review, not a fabricated approved quote or installation.
+    Legacy callback text is shown verbatim and never schedules an action.
+    """
+    if not isinstance(rows,list) or len(rows)>300 or type(has_more) is not bool:
+        raise LeadPreviewError('Bounded explicit fixture batch required')
+    seen=set();customers=[]
+    for row in rows:
+        if not isinstance(row,dict): raise LeadPreviewError('Lead record required')
+        phone=text(row.get('phone'),20)
+        if not re.fullmatch(r'000[0-9]{6,17}',phone):
+            raise LeadPreviewError('Dummy recipient required; real data integration is disabled')
+        if phone in seen: raise LeadPreviewError('Duplicate source phone; no implicit merge')
+        seen.add(phone)
+        status=text(row.get('status'),100)
+        name=text(row.get('name',''),100);product=text(row.get('product',''),200)
+        callback=text(row.get('callback_time',''),300)
+        archived=status=='לא רלוונטי';stage=STATUS_STAGE.get(status)
+        reasons=[]
+        if not name: reasons.append('missing_name')
+        if not product: reasons.append('missing_product')
+        if stage is None and not archived: reasons.append('legacy_status_requires_review')
+        if callback: reasons.append('callback_text_requires_manual_review')
+        customers.append({'id':'preview-'+hashlib.sha256(phone.encode()).hexdigest(),
+            'source':'synthetic_glass_leads_fixture','source_phone':phone,
+            'source_updated_at':timestamp(row.get('updated_at')),
+            'name':name or 'לקוח ללא שם','product':product or 'סוג עבודה טרם זוהה',
+            'notes':text(row.get('notes',''),3000),'legacy_status':status,'stage':stage,
+            'archived':archived,'callback_text':callback,'review_reasons':reasons,
+            'quote_versions':[],'verified_delivery':False,'verified_approval':False,
+            'tasks_created':0,'read_only':True})
+    return {'mode':'synthetic_read_only_preview','live_connection_enabled':False,
+            'customer_messages_sent':0,'has_more':has_more,'customers':customers,
+            'review_count':sum(bool(c['review_reasons']) for c in customers)}
