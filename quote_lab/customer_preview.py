@@ -26,12 +26,16 @@ def render_customer_preview(draft_record, *, template, panels, finish,
     if calculation.get("configuration") != template or draft_record.get("price_before_vat") != calculation.get("price_before_vat"):
         raise NeedsReview("Preview must match the calculated draft")
     expected = calculation.get("panel_breakdown") or []
+    selected = {p.decoration for p in panels if p.decoration != "none"}
+    if len(selected) > 1 or next(iter(selected), "none") != calculation.get("shower_decoration", "none"):
+        raise NeedsReview("Frosted design must match the whole shower quote")
+    whole_shower_decoration = calculation.get("shower_decoration", "none")
     if len(expected) != len(panels) or any(
         entry.get("role") != p.role or entry.get("glass") != p.glass
         or Decimal(entry.get("width_cm")) != Decimal(str(p.width_cm))
         or Decimal(entry.get("height_cm")) != Decimal(str(p.height_cm))
         or entry.get("shape") != p.shape
-        or entry.get("decoration", "none") != p.decoration
+        or entry.get("decoration", "none") != whole_shower_decoration
         for entry, p in zip(expected, panels)
     ):
         raise NeedsReview("Panel details differ from approved calculation")
@@ -73,7 +77,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         if role is None:
             raise NeedsReview("Unknown panel role")
         decoration = {"none": "", "frosted_stripes": " · פסים חלבי",
-                      "frosted_middle": " · חלבי באמצע"}.get(panel.decoration)
+                      "frosted_middle": " · חלבי באמצע"}.get(whole_shower_decoration)
         if decoration is None:
             raise NeedsReview("Unknown frosted decoration")
         lines.append(f"{index}. {role} — {panel.width_cm}×{panel.height_cm} ס״מ{decoration}")
