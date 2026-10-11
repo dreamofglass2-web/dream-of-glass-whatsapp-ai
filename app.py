@@ -88,6 +88,7 @@ def ensure_db():
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )""")
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ')
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS manual_followup_completed_at TIMESTAMPTZ')
         _db_ready = True
 
 
@@ -2718,8 +2719,24 @@ def callback_datetime(value):
         return None
 
 
+def manual_followup_due(lead, now=None):
+    """Dashboard-only reminder; never triggers customer messages."""
+    inbound = lead.get('last_inbound_at')
+    if not isinstance(inbound, datetime) or inbound.tzinfo is None:
+        return False
+    if lead.get('status') not in ('חדש', 'בטיפול', 'הצעה ניתנה'):
+        return False
+    completed = lead.get('manual_followup_completed_at')
+    if isinstance(completed, datetime) and completed >= inbound:
+        return False
+    return (now or datetime.now(timezone.utc)) >= inbound + timedelta(hours=24)
+
+
 def decorate_lead(lead):
     lead = dict(lead)
+    lead['manual_followup_due'] = manual_followup_due(lead)
+    lead['manual_followup_display'] = 'ממתין לפולואפ ידני' if lead['manual_followup_due'] else lead['status']
+    lead['last_inbound_local'] = israel_datetime(lead.get('last_inbound_at'))
     lead['updated_local'] = israel_datetime(lead.get('updated_at'))
     lead['callback_dt'] = callback_datetime(lead.get('callback_time'))
     lead['overdue'] = bool(lead['status'] == 'ממתין לחזרה' and lead['callback_dt'] and
@@ -2746,7 +2763,7 @@ label{display:block;margin:8px 0}.fields{display:grid;grid-template-columns:repe
 textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 .overdue{background:#fff0ec;color:#a12416;font-weight:bold}.due{background:#fff4d6;color:#7b4b00}
 .summary{display:flex;gap:12px;flex-wrap:wrap}.stat{min-width:170px;flex:1;background:#f1f7fa;border-radius:12px;padding:18px}.stat strong{display:block;font-size:30px}
-.callback-panel{border:2px solid #e7c878}.small-button{font-size:14px;padding:7px 12px}.inlineform{display:inline-flex;margin:0}
+.callback-panel{border:2px solid #e7c878}.manual-panel{border:2px solid #a9bed3}.small-button{font-size:14px;padding:7px 12px}.inlineform{display:inline-flex;margin:0}
 .note{font-size:13px;color:#667085}
 </style></head><body><header><h1>חלומות מזכוכית · ניהול לידים</h1>
 {% if logged %}<a href="{{ url_for('admin_logout') }}">התנתקות</a>{% endif %}</header><main>
@@ -2762,9 +2779,14 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <label>סוג העבודה<input name="product" value="{{ selected.product }}"></label>
 <label>סטטוס<select name="status">{% for status in statuses %}<option value="{{status}}" {% if selected.status==status %}selected{% endif %}>{{status}}</option>{% endfor %}</select></label>
 <label>מועד לחזרה<input name="callback_time" value="{{selected.callback_time}}"></label></div>
+{% if selected.manual_followup_due %}<p class="due" style="padding:12px;border-radius:8px">ממתין לפולואפ ידני · הודעה אחרונה: {{selected.last_inbound_local}} · יוסי לא יוזם הודעות</p>{% endif %}
 {% if selected.status == 'ממתין לחזרה' %}<p class="{{ 'overdue' if selected.overdue else 'due' }}" style="padding:12px;border-radius:8px">
 {% if selected.overdue %}המועד לחזרה עבר{% elif selected.callback_dt %}שיחה חוזרת מתוכננת{% else %}ממתין לקביעת שעה{% endif %} · {{selected.callback_time or 'ממתין לתיאום'}}</p>{% endif %}
 <label>הערות פנימיות<textarea name="notes">{{selected.notes}}</textarea></label><button>שמירת שינויים</button></form></div>
+{% if selected.manual_followup_due %}<div class="card manual-panel">
+<form method="post" action="{{url_for('admin_complete_manual_followup',phone=selected.phone)}}">
+<input type="hidden" name="csrf" value="{{csrf}}"><button type="submit">סימנתי שטיפלתי ידנית</button>
+<span class="muted">לא שולח הודעה; התזכורת תחזור רק אחרי הודעת לקוח חדשה.</span></form></div>{% endif %}
 {% if selected.status == 'ממתין לחזרה' %}<div class="card callback-panel">
 <form method="post" action="{{ url_for('admin_complete_callback', phone=selected.phone) }}">
 <input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">✓ סימון השיחה כטופלה</button>
@@ -2775,9 +2797,19 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 {% else %}<div class="card"><h2>מרכז הלידים</h2><div class="summary">
 <div class="stat"><strong>{{ leads|length }}</strong>לקוחות בתצוגה</div>
 <div class="stat"><strong>{{ callbacks|length }}</strong>ממתינים לשיחה חוזרת</div>
-<div class="stat"><strong>{{ overdue_count }}</strong>שיחות שמועדן עבר</div></div>
+<div class="stat"><strong>{{ overdue_count }}</strong>שיחות שמועדן עבר</div>
+<div class="stat"><strong>{{ manual_followups|length }}</strong>ממתינים לפולואפ ידני</div></div>
 <p class="note">הדף מתרענן אוטומטית כל 45 שניות. כל השעות מוצגות לפי שעון ישראל. הנתונים כוללים עד 300 לידים אחרונים.</p>
 <form method="get" action="{{ url_for('admin_leads') }}"><input name="q" placeholder="חיפוש שם או טלפון" value="{{ q }}"><button>חיפוש</button></form></div>
+{% if manual_followups %}<div class="card manual-panel"><h2>ממתינים לפולואפ ידני — עברו 24 שעות</h2>
+<p class="note">הטיפול ידני בלבד. יוסי לא שולח פולואפים.</p>
+<div class="tablewrap"><table><thead><tr><th>לקוח</th><th>הודעת לקוח אחרונה</th><th>פעולה</th></tr></thead><tbody>
+{% for lead in manual_followups %}<tr>
+<td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
+<td>{{lead.last_inbound_local}}</td>
+<td><form class="inlineform" method="post" action="{{url_for('admin_complete_manual_followup',phone=lead.phone)}}">
+<input type="hidden" name="csrf" value="{{csrf}}"><button class="small-button" type="submit">טופל ידנית</button></form></td>
+</tr>{% endfor %}</tbody></table></div></div>{% endif %}
 {% if callbacks %}<div class="card callback-panel"><h2>שיחות שצריך לחזור אליהן</h2>
 <div class="tablewrap"><table><thead><tr><th>לקוח</th><th>מועד</th><th>מצב</th><th>פעולה</th></tr></thead><tbody>
 {% for lead in callbacks %}<tr class="{{'overdue' if lead.overdue else ''}}">
@@ -2787,7 +2819,7 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 </tr>{% endfor %}</tbody></table></div></div>{% endif %}
 <div class="card tablewrap"><h2>כל הלידים</h2><table><thead><tr><th>לקוח</th><th>עבודה</th><th>סטטוס</th><th>חזרה ללקוח</th><th>עדכון אחרון</th></tr></thead>
 <tbody>{% for lead in leads %}<tr><td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
-<td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.status}}</span></td>
+<td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.manual_followup_display}}</span></td>
 <td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_local }}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">אין לידים עדיין. שיחות חדשות יופיעו כאן.</td></tr>{% endfor %}</tbody></table></div>{% endif %}</main></body></html>"""
 
@@ -2848,21 +2880,22 @@ def admin_leads():
         with db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if q:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
                         FROM glass_leads WHERE phone ILIKE %s OR name ILIKE %s
                         ORDER BY updated_at DESC LIMIT 300""", (f'%{q}%',f'%{q}%'))
                 else:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
                         FROM glass_leads ORDER BY updated_at DESC LIMIT 300""")
                 leads = [decorate_lead(item) for item in cur.fetchall()]
     except Exception:
         app.logger.exception('Leads dashboard read failed')
         return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
+    manual_followups = sorted((lead for lead in leads if lead['manual_followup_due']), key=lambda lead: lead['last_inbound_at'])
     callbacks = [lead for lead in leads if lead['status'] == 'ממתין לחזרה']
     callbacks.sort(key=lambda item: (item['callback_dt'] is None,
                                     item['callback_dt'] or datetime.max.replace(tzinfo=ISRAEL_TZ)))
     return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads,
-                                  callbacks=callbacks, overdue_count=sum(lead['overdue'] for lead in callbacks),
+                                  callbacks=callbacks, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
                                   csrf=session['csrf'], q=q), 200
 
 
@@ -2909,6 +2942,31 @@ def admin_update_lead(phone):
         app.logger.exception('Could not update lead')
         return 'שמירה נכשלה', 503
     return redirect(url_for('admin_lead_detail', phone=phone))
+
+@app.route('/admin/leads/<phone>/complete-manual-followup', methods=['POST'])
+def admin_complete_manual_followup(phone):
+    gate = admin_required()
+    if gate:
+        return gate
+    if not hmac.compare_digest(request.form.get('csrf', ''), session.get('csrf', 'none')):
+        abort(403)
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE glass_leads SET manual_followup_completed_at=now()
+                    WHERE phone=%s AND last_inbound_at IS NOT NULL
+                      AND status IN ('חדש', 'בטיפול', 'הצעה ניתנה')
+                      AND (manual_followup_completed_at IS NULL
+                           OR manual_followup_completed_at < last_inbound_at)
+                      AND last_inbound_at <= now() - interval '24 hours'
+                """, (phone,))
+    except Exception:
+        app.logger.exception('Could not complete manual followup')
+        return 'שמירת טיפול ידני נכשלה', 503
+    return redirect(url_for('admin_leads'))
+
 
 @app.route('/admin/leads/<phone>/complete-callback', methods=['POST'])
 def admin_complete_callback(phone):
