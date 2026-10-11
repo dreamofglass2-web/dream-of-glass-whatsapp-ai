@@ -40,3 +40,23 @@ class PostgresLeadPreviewTests(unittest.TestCase):
             with self.assertRaises(LeadPreviewError):PostgresLeadPreview(URL).snapshot()
         finally:
             with self.store._transaction() as cur:cur.execute('DELETE FROM crm_preview_stage.leads WHERE phone=%s',(phone,))
+
+    def test_keyset_pages_cover_fixture_once_without_writes(self):
+        from crm_lab.read_source import ReadOnlyLeadSource
+        with self.store._transaction() as cur:
+            cur.execute('SELECT phone FROM crm_preview_stage.leads ORDER BY phone')
+            expected=[row['phone'] for row in cur.fetchall()]
+        reader=ReadOnlyLeadSource(test_database_url=URL)
+        after='';phones=[]
+        for _ in range(len(expected)+1):
+            page=reader.page(limit=1,after=after)
+            phones.extend(c['source_phone'] for c in page['customers'])
+            self.assertEqual(page['snapshot_scope'],'single_page')
+            self.assertFalse(page['live_connection_enabled'])
+            self.assertTrue(all(not c['verified_approval'] for c in page['customers']))
+            if page['next_after'] is None:break
+            after=page['next_after']
+        self.assertEqual(phones,expected)
+        with self.store._transaction() as cur:
+            cur.execute('SELECT phone FROM crm_preview_stage.leads ORDER BY phone')
+            self.assertEqual([row['phone'] for row in cur.fetchall()],expected)
