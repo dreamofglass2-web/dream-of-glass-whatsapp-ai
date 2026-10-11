@@ -38,7 +38,7 @@ class ReadOnlyLeadSource:
                     # These are fixed trusted identifiers, never request-supplied tables.
                     table='crm_preview_stage.leads' if self.fixture else 'public.glass_leads'
                     cur.execute(f"""SELECT phone,name,product,status,callback_time,notes,updated_at,
-                        last_inbound_at,manual_followup_completed_at
+                        created_at,last_inbound_at,manual_followup_completed_at
                         FROM {table} WHERE phone>%s ORDER BY phone LIMIT %s""",(after,limit+1))
                     rows=[dict(row) for row in cur.fetchall()]
             result=map_leads(rows[:limit],has_more=len(rows)>limit,synthetic=self.fixture)
@@ -69,7 +69,7 @@ class ReadOnlyLeadSource:
                         raise LeadPreviewError('Limited read-only source role required')
                     table='crm_preview_stage.leads' if self.fixture else 'public.glass_leads'
                     cur.execute(f"""SELECT phone,name,product,status,callback_time,notes,updated_at,
-                        last_inbound_at,manual_followup_completed_at,
+                        created_at,last_inbound_at,manual_followup_completed_at,
                         conversation,context->'validated_quote' AS legacy_quote FROM {table} WHERE phone=%s""",(phone,))
                     row=cur.fetchone()
             if not row:raise LeadPreviewError('Source customer not found')
