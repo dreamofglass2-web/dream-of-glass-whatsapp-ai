@@ -8,7 +8,7 @@ before privileged tools can be introduced.
 import os
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("Yossi WhatsApp Test Bridge", stateless_http=True, json_response=True)
+mcp = FastMCP("Yossi WhatsApp Test Bridge", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), stateless_http=True, json_response=True)
 
 
 @mcp.tool()
@@ -48,5 +48,4 @@ def test_plan() -> dict:
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "10000"))
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+    mcp.run(transport="streamable-http")
