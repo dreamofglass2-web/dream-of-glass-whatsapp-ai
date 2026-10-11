@@ -22,11 +22,13 @@ class FollowupPostgresIntegration(unittest.TestCase):
         yossi.ensure_db()
         yossi.ensure_followup_table()
         yossi.ensure_inbound_queue_table()
+        yossi.ensure_outbound_attempts_table()
 
     @classmethod
     def tearDownClass(cls):
         with test_connection() as db:
             with db.cursor() as cur:
+                cur.execute("DELETE FROM yossi_outbound_attempts WHERE phone LIKE 'TEST_FOLLOWUP_%'")
                 cur.execute("DELETE FROM yossi_followup_jobs WHERE phone LIKE 'TEST_FOLLOWUP_%'")
                 cur.execute("DELETE FROM yossi_inbound_queue WHERE starts_with(phone, 'TEST_FOLLOWUP_')")
                 cur.execute("DELETE FROM glass_leads WHERE phone LIKE 'TEST_FOLLOWUP_%'")
@@ -75,6 +77,60 @@ class FollowupPostgresIntegration(unittest.TestCase):
             with test_connection() as db:
                 with db.cursor() as cur:
                     cur.execute("DELETE FROM glass_leads WHERE phone=%s", (real_phone,))
+
+    def test_distributed_advisory_phone_claim(self):
+        phone = "TEST_FOLLOWUP_LOCK"
+        first = yossi.claim_phone_processing(phone)
+        self.assertIsNotNone(first)
+        try:
+            self.assertIsNone(yossi.claim_phone_processing(phone))
+        finally:
+            first.close()
+        second = yossi.claim_phone_processing(phone)
+        self.assertIsNotNone(second)
+        second.close()
+
+    def test_outbound_retry_is_suppressed_after_success(self):
+        from unittest.mock import Mock
+        phone = "TEST_FOLLOWUP_OUTBOUND_OK"
+        response = Mock(status_code=200)
+        response.raise_for_status.return_value = None
+        with patch.object(yossi, "verified_business_lead", return_value=True), \
+             patch.object(yossi.requests, "post", return_value=response) as send, \
+             patch.object(yossi, "schedule_followup_dry_run"):
+            try:
+                for _ in range(2):
+                    yossi._delivery_scope.current = {"fingerprint": "TEST_FOLLOWUP_BATCH_OK",
+                                                     "ordinal": 0}
+                    yossi.send_whatsapp(phone, body="מענה בדיקה (לא נשלח ל-Meta)")
+                self.assertEqual(send.call_count, 1)
+                with test_connection() as db:
+                    with db.cursor() as cur:
+                        cur.execute("SELECT state FROM yossi_outbound_attempts WHERE phone=%s", (phone,))
+                        self.assertEqual(cur.fetchone()[0], "sent")
+            finally:
+                yossi._delivery_scope.current = None
+
+    def test_network_uncertainty_never_retries_outbound(self):
+        phone = "TEST_FOLLOWUP_OUTBOUND_UNCERTAIN"
+        with patch.object(yossi, "verified_business_lead", return_value=True), \
+             patch.object(yossi.requests, "post", side_effect=OSError("simulated network")) as send, \
+             patch.object(yossi, "schedule_followup_dry_run"):
+            try:
+                yossi._delivery_scope.current = {"fingerprint": "TEST_FOLLOWUP_BATCH_UNCERTAIN",
+                                                 "ordinal": 0}
+                with self.assertRaises(OSError):
+                    yossi.send_whatsapp(phone, body="מענה בדיקה")
+                yossi._delivery_scope.current = {"fingerprint": "TEST_FOLLOWUP_BATCH_UNCERTAIN",
+                                                 "ordinal": 0}
+                yossi.send_whatsapp(phone, body="מענה בדיקה")
+                self.assertEqual(send.call_count, 1)
+                with test_connection() as db:
+                    with db.cursor() as cur:
+                        cur.execute("SELECT state FROM yossi_outbound_attempts WHERE phone=%s", (phone,))
+                        self.assertEqual(cur.fetchone()[0], "uncertain")
+            finally:
+                yossi._delivery_scope.current = None
 
     def test_inbound_timestamp_in_disposable_database(self):
         """Verified inbound time persists, advances and does not send WhatsApp."""
