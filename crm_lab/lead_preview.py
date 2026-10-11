@@ -53,9 +53,12 @@ def map_leads(rows,*,has_more=False,synthetic=True):
         if not product: reasons.append('missing_product')
         if stage is None and not archived: reasons.append('legacy_status_requires_review')
         if callback: reasons.append('callback_text_requires_manual_review')
+        request_id=row.get('callback_request_id')
+        if request_id is not None and (not isinstance(request_id,str) or not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}',request_id)):raise LeadPreviewError('Invalid callback request identity')
         customers.append({'id':('preview-' if synthetic else 'source-')+hashlib.sha256(identity.encode()).hexdigest(),
             'source':'synthetic_glass_leads_fixture' if synthetic else 'glass_leads','source_phone':phone,
             'source_updated_at':timestamp(row.get('updated_at')),
+            'callback_request_id':request_id,'callback_requested_at':timestamp(row['callback_requested_at']) if row.get('callback_requested_at') is not None else None,
             'source_created_at':timestamp(row['created_at']) if row.get('created_at') is not None else None,
             'last_inbound_at':timestamp(row['last_inbound_at']) if row.get('last_inbound_at') is not None else None,
             'manual_followup_completed_at':timestamp(row['manual_followup_completed_at']) if row.get('manual_followup_completed_at') is not None else None,

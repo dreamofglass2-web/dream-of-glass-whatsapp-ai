@@ -7,6 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
+from callback_store import save_callback_record
 import base64
 import io
 from urllib.parse import urlparse
@@ -96,6 +97,9 @@ def ensure_db():
                 )""")
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS manual_followup_completed_at TIMESTAMPTZ')
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_id TEXT')
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_requested_at TIMESTAMPTZ')
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_inbound_at TIMESTAMPTZ')
         _db_ready = True
 
 
@@ -279,11 +283,7 @@ def save_callback(phone, preferred_time=None):
         ensure_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""INSERT INTO glass_leads(phone, status, callback_time)
-                    VALUES (%s, 'ממתין לחזרה', %s)
-                    ON CONFLICT(phone) DO UPDATE SET status='ממתין לחזרה',
-                      callback_time=EXCLUDED.callback_time, updated_at=now()""",
-                    (phone, preferred_time or 'ממתין לתיאום'))
+                save_callback_record(cur, phone, preferred_time)
         return True
     except Exception:
         app.logger.exception('Callback lead could not be stored')

@@ -16,7 +16,7 @@ class PostgresLeadPreviewTests(unittest.TestCase):
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_preview_stage.leads (
                 phone TEXT PRIMARY KEY,name TEXT,product TEXT,status TEXT,
                 callback_time TEXT,notes TEXT,updated_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),last_inbound_at TIMESTAMPTZ,manual_followup_completed_at TIMESTAMPTZ,
+                callback_request_id TEXT,callback_requested_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),last_inbound_at TIMESTAMPTZ,manual_followup_completed_at TIMESTAMPTZ,
                 conversation JSONB NOT NULL DEFAULT '[]'::jsonb,context JSONB NOT NULL DEFAULT '{}'::jsonb)""")
             cur.execute("""INSERT INTO crm_preview_stage.leads (phone,name,product,status,callback_time,notes,updated_at) VALUES
                 (%s,'לקוח בדיקה','מקלחון','נסגר','מחר','הערה',now())""",(self.phone,))
