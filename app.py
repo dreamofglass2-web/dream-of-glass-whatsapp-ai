@@ -2763,7 +2763,7 @@ label{display:block;margin:8px 0}.fields{display:grid;grid-template-columns:repe
 textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 .overdue{background:#fff0ec;color:#a12416;font-weight:bold}.due{background:#fff4d6;color:#7b4b00}
 .summary{display:flex;gap:12px;flex-wrap:wrap}.stat{min-width:170px;flex:1;background:#f1f7fa;border-radius:12px;padding:18px}.stat strong{display:block;font-size:30px}
-.callback-panel{border:2px solid #e7c878}.small-button{font-size:14px;padding:7px 12px}.inlineform{display:inline-flex;margin:0}
+.callback-panel{border:2px solid #e7c878}.manual-panel{border:2px solid #a9bed3}.small-button{font-size:14px;padding:7px 12px}.inlineform{display:inline-flex;margin:0}
 .note{font-size:13px;color:#667085}
 </style></head><body><header><h1>חלומות מזכוכית · ניהול לידים</h1>
 {% if logged %}<a href="{{ url_for('admin_logout') }}">התנתקות</a>{% endif %}</header><main>
@@ -2779,9 +2779,14 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <label>סוג העבודה<input name="product" value="{{ selected.product }}"></label>
 <label>סטטוס<select name="status">{% for status in statuses %}<option value="{{status}}" {% if selected.status==status %}selected{% endif %}>{{status}}</option>{% endfor %}</select></label>
 <label>מועד לחזרה<input name="callback_time" value="{{selected.callback_time}}"></label></div>
+{% if selected.manual_followup_due %}<p class="due" style="padding:12px;border-radius:8px">ממתין לפולואפ ידני · הודעה אחרונה: {{selected.last_inbound_local}} · יוסי לא יוזם הודעות</p>{% endif %}
 {% if selected.status == 'ממתין לחזרה' %}<p class="{{ 'overdue' if selected.overdue else 'due' }}" style="padding:12px;border-radius:8px">
 {% if selected.overdue %}המועד לחזרה עבר{% elif selected.callback_dt %}שיחה חוזרת מתוכננת{% else %}ממתין לקביעת שעה{% endif %} · {{selected.callback_time or 'ממתין לתיאום'}}</p>{% endif %}
 <label>הערות פנימיות<textarea name="notes">{{selected.notes}}</textarea></label><button>שמירת שינויים</button></form></div>
+{% if selected.manual_followup_due %}<div class="card manual-panel">
+<form method="post" action="{{url_for('admin_complete_manual_followup',phone=selected.phone)}}">
+<input type="hidden" name="csrf" value="{{csrf}}"><button type="submit">סימנתי שטיפלתי ידנית</button>
+<span class="muted">לא שולח הודעה; התזכורת תחזור רק אחרי הודעת לקוח חדשה.</span></form></div>{% endif %}
 {% if selected.status == 'ממתין לחזרה' %}<div class="card callback-panel">
 <form method="post" action="{{ url_for('admin_complete_callback', phone=selected.phone) }}">
 <input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">✓ סימון השיחה כטופלה</button>
@@ -2792,9 +2797,19 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 {% else %}<div class="card"><h2>מרכז הלידים</h2><div class="summary">
 <div class="stat"><strong>{{ leads|length }}</strong>לקוחות בתצוגה</div>
 <div class="stat"><strong>{{ callbacks|length }}</strong>ממתינים לשיחה חוזרת</div>
-<div class="stat"><strong>{{ overdue_count }}</strong>שיחות שמועדן עבר</div></div>
+<div class="stat"><strong>{{ overdue_count }}</strong>שיחות שמועדן עבר</div>
+<div class="stat"><strong>{{ manual_followups|length }}</strong>ממתינים לפולואפ ידני</div></div>
 <p class="note">הדף מתרענן אוטומטית כל 45 שניות. כל השעות מוצגות לפי שעון ישראל. הנתונים כוללים עד 300 לידים אחרונים.</p>
 <form method="get" action="{{ url_for('admin_leads') }}"><input name="q" placeholder="חיפוש שם או טלפון" value="{{ q }}"><button>חיפוש</button></form></div>
+{% if manual_followups %}<div class="card manual-panel"><h2>ממתינים לפולואפ ידני — עברו 24 שעות</h2>
+<p class="note">הטיפול ידני בלבד. יוסי לא שולח פולואפים.</p>
+<div class="tablewrap"><table><thead><tr><th>לקוח</th><th>הודעת לקוח אחרונה</th><th>פעולה</th></tr></thead><tbody>
+{% for lead in manual_followups %}<tr>
+<td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
+<td>{{lead.last_inbound_local}}</td>
+<td><form class="inlineform" method="post" action="{{url_for('admin_complete_manual_followup',phone=lead.phone)}}">
+<input type="hidden" name="csrf" value="{{csrf}}"><button class="small-button" type="submit">טופל ידנית</button></form></td>
+</tr>{% endfor %}</tbody></table></div></div>{% endif %}
 {% if callbacks %}<div class="card callback-panel"><h2>שיחות שצריך לחזור אליהן</h2>
 <div class="tablewrap"><table><thead><tr><th>לקוח</th><th>מועד</th><th>מצב</th><th>פעולה</th></tr></thead><tbody>
 {% for lead in callbacks %}<tr class="{{'overdue' if lead.overdue else ''}}">
@@ -2804,7 +2819,7 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 </tr>{% endfor %}</tbody></table></div></div>{% endif %}
 <div class="card tablewrap"><h2>כל הלידים</h2><table><thead><tr><th>לקוח</th><th>עבודה</th><th>סטטוס</th><th>חזרה ללקוח</th><th>עדכון אחרון</th></tr></thead>
 <tbody>{% for lead in leads %}<tr><td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
-<td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.status}}</span></td>
+<td>{{lead.product or 'טרם זוהה'}}</td><td><span class="pill">{{lead.manual_followup_display}}</span></td>
 <td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_local }}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">אין לידים עדיין. שיחות חדשות יופיעו כאן.</td></tr>{% endfor %}</tbody></table></div>{% endif %}</main></body></html>"""
 
