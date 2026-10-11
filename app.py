@@ -1374,22 +1374,33 @@ def ensure_outbound_attempts_table():
                 CREATE TABLE IF NOT EXISTS yossi_outbound_attempts (
                     attempt_key TEXT PRIMARY KEY,
                     phone TEXT NOT NULL,
+                    batch_fingerprint TEXT NOT NULL DEFAULT '',
                     state TEXT NOT NULL DEFAULT 'reserved',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
             """)
+            cur.execute("ALTER TABLE yossi_outbound_attempts ADD COLUMN IF NOT EXISTS batch_fingerprint TEXT NOT NULL DEFAULT ''")
+            cur.execute("CREATE INDEX IF NOT EXISTS yossi_outbound_attempts_batch_idx ON yossi_outbound_attempts(batch_fingerprint)")
 
 
-def reserve_outbound_attempt(attempt_key, phone):
+def batch_has_outbound_attempt(batch_fingerprint):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT EXISTS(SELECT 1 FROM yossi_outbound_attempts WHERE batch_fingerprint=%s)",
+                        (batch_fingerprint,))
+            return bool(cur.fetchone()[0])
+
+
+def reserve_outbound_attempt(attempt_key, phone, batch_fingerprint):
     """Commit a durable send intent BEFORE calling WhatsApp."""
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO yossi_outbound_attempts(attempt_key, phone)
-                VALUES (%s, %s) ON CONFLICT(attempt_key) DO NOTHING
+                INSERT INTO yossi_outbound_attempts(attempt_key, phone, batch_fingerprint)
+                VALUES (%s, %s, %s) ON CONFLICT(attempt_key) DO NOTHING
                 RETURNING attempt_key
-            """, (attempt_key, phone))
+            """, (attempt_key, phone, batch_fingerprint))
             return cur.fetchone() is not None
 
 
@@ -1412,11 +1423,17 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     scope = getattr(_delivery_scope, 'current', None)
     if not scope:
         raise PermissionError('Outbound blocked: missing worker batch context')
+    if scope.get('suppress_outbound'):
+        # A previous execution may have sent one or more messages.
+        # Suppress ALL replays, even if the model would now produce
+        # a different number/order of WhatsApp messages.
+        app.logger.warning('OUTBOUND_REPLAY_SUPPRESSED phone_suffix=%s', str(phone)[-4:])
+        return None
     scope['ordinal'] += 1
     attempt_key = hashlib.sha256(
         (scope['fingerprint'] + ':' + str(scope['ordinal'])).encode('utf-8')
     ).hexdigest()
-    if not reserve_outbound_attempt(attempt_key, phone):
+    if not reserve_outbound_attempt(attempt_key, phone, scope['fingerprint']):
         app.logger.warning('OUTBOUND_DUPLICATE_SUPPRESSED phone_suffix=%s', str(phone)[-4:])
         return None
     body = without_emojis(body)
@@ -2357,11 +2374,13 @@ def batch_worker():
                     continue
                 # Stable per-batch fingerprint survives process and service restarts.
                 # Each outbound send gets an ordinal so image+text replies are distinct.
+                fingerprint = hashlib.sha256(
+                    ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
+                ).hexdigest()
                 _delivery_scope.current = {
-                    'fingerprint': hashlib.sha256(
-                        ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
-                    ).hexdigest(),
+                    'fingerprint': fingerprint,
                     'ordinal': 0,
+                    'suppress_outbound': batch_has_outbound_attempt(fingerprint),
                 }
                 try:
                     combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
