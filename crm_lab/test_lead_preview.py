@@ -43,3 +43,9 @@ class LeadPreviewTests(unittest.TestCase):
         for node in ast.walk(tree):
             if isinstance(node,ast.ImportFrom):self.assertFalse((node.module or '').startswith('crm_lab'))
             if isinstance(node,ast.Import):self.assertFalse(any(a.name.startswith('crm_lab') for a in node.names))
+    def test_followup_times_preserve_source_generation_and_require_timezone(self):
+        c=preview_leads([fixture(last_inbound_at='2026-10-10T21:00:00+03:00',manual_followup_completed_at='2026-10-11T18:01:00Z')])['customers'][0]
+        self.assertEqual(c['last_inbound_at'],'2026-10-10T18:00:00+00:00')
+        self.assertEqual(c['manual_followup_completed_at'],'2026-10-11T18:01:00+00:00')
+        self.assertIsNone(preview_leads([fixture()])['customers'][0]['last_inbound_at'])
+        with self.assertRaises(LeadPreviewError):preview_leads([fixture(last_inbound_at='2026-10-10T18:00:00')])
