@@ -89,6 +89,10 @@ def validate_panel_plan(template: str, panels: list[NamedPanel], *,
     actual = Counter(p.role for p in panels)
     if expected != actual or len(panels) != PANEL_COUNT[template]:
         raise NeedsReview("Missing or inconsistent fixed/door panels")
+    selected = {p.decoration for p in panels if p.decoration != "none"}
+    if len(selected) > 1:
+        raise NeedsReview("Cannot mix frosted stripe and middle designs in one shower")
+    shower_decoration = next(iter(selected), "none")
     result = []
     for pane in panels:
         if pane.shape not in ("rectangle", "step_notch"):
@@ -96,7 +100,7 @@ def validate_panel_plan(template: str, panels: list[NamedPanel], *,
         result.append(Panel(width_cm=decimal_dimension(pane.width_cm),
                             height_cm=decimal_dimension(pane.height_cm),
                             glass=pane.glass, shape=pane.shape,
-                            decoration=pane.decoration))
+                            decoration=shower_decoration))
     # Even with an adequate quote draft, a real installation still requires site verification.
     if not layout_confirmed:
         raise NeedsReview("Proposed panel dimensions must be confirmed before calculating a draft price")
@@ -121,7 +125,7 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
             {"role": p.role, "width_cm": str(decimal_dimension(p.width_cm)),
              "height_cm": str(decimal_dimension(p.height_cm)), "glass": p.glass,
              "shape": p.shape, "decoration": p.decoration}
-            for p in panels],
+            for p in checked],
         "layout_confirmed_for_draft": True,
         "engineering_approval": False,
         "send_authorized": False,
