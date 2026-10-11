@@ -111,7 +111,7 @@ def quote(draft: Draft) -> dict:
         "glass_supplier_cost": str(money(glass_total)),
         "hardware_supplier_base_cost": str(money(hardware_cost)),
         "hardware_retail_charge": str(hardware_charged),
-        "core_price_before_vat": str(core),
+        "core_price_before_vat": str(money(core)),
         "removal_and_disposal_before_vat": str(add_on),
         "catalog_version": CONFIG_VERSION,
         "subject_to_final_measurement": True,
