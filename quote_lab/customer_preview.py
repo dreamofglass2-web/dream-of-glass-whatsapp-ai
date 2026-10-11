@@ -61,3 +61,23 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         "quote_id": draft_record["quote_id"],
         "version": draft_record["version"],
     }
+
+
+def render_current_preview(store, draft_record, *, template, panels, finish,
+                           demolition_and_disposal=False):
+    """Only preview the currently stored unsent version and exact fingerprint.
+
+    This is a local/offline preview guard, never a sending authorization.
+    """
+    current = store.latest(draft_record.get("quote_id"))
+    if current is None:
+        raise NeedsReview("Quote does not exist in the offline store")
+    if current["version"] != draft_record.get("version") or current["state"] != "draft":
+        raise NeedsReview("Outdated or already sent quote cannot be previewed")
+    if (current["specification"] != draft_record.get("specification_fingerprint")
+            or current["price_before_vat"] != draft_record.get("price_before_vat")
+            or current["catalog_version"] != draft_record.get("catalog_version")):
+        raise NeedsReview("Stored quote differs from the supplied preview data")
+    return render_customer_preview(
+        draft_record, template=template, panels=panels, finish=finish,
+        demolition_and_disposal=demolition_and_disposal)
