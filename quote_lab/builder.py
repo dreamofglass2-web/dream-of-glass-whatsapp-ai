@@ -7,7 +7,8 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from quote_lab.universal import Draft, NeedsReview, Panel, PANEL_COUNT, REVIEW_ONLY_LAYOUTS, quote
+from quote_lab.universal import Draft, NeedsReview, Panel, PANEL_COUNT, REVIEW_ONLY_LAYOUTS, BASE_TEMPLATES, quote
+from quote_lab.hinge_rules import door_hinge_bill
 
 PANEL_ROLES = {
     "פינתי 2 קבועים + 2 דלתות": ("fixed", "fixed", "door", "door"),
@@ -21,6 +22,42 @@ PANEL_ROLES = {
     "אמבטיון 2 קבועים + דלת": ("fixed", "fixed", "door"),
     "אמבטיון קבוע + 2 דלתות": ("fixed", "door", "door"),
 }
+
+
+# Approved defaults inherited from the existing price templates. This controls
+# item selection, not structural engineering, and needs no customer questionnaire.
+DEFAULT_DOOR_ATTACHMENTS = {
+    "פינתי 2 קבועים + 2 דלתות": ("fixed_glass", "fixed_glass"),
+    "פינתי 2 דלתות": ("wall", "wall"),
+    "פינתי קבוע + דלת": ("wall",),
+    "חזית קבוע + דלת": ("wall",),
+    "חזית 2 דלתות": ("wall", "wall"),
+    "פינתי 2 קבועים + דלת": ("fixed_glass",),
+    "קבוע בלבד": (),
+    "אמבטיון קבוע + דלת": ("fixed_glass",),
+    "אמבטיון 2 קבועים + דלת": ("fixed_glass",),
+    "אמבטיון קבוע + 2 דלתות": ("wall", "fixed_glass"),
+}
+
+
+def verify_default_door_hardware(template: str) -> list[dict]:
+    """Require the counted door hinges to exactly match the approved template."""
+    if template not in DEFAULT_DOOR_ATTACHMENTS:
+        raise NeedsReview("No approved hinge mapping for this layout")
+    mappings = DEFAULT_DOOR_ATTACHMENTS[template]
+    expected_doors = PANEL_ROLES[template].count("door")
+    if len(mappings) != expected_doors:
+        raise NeedsReview("Door attachment count does not match glass plan")
+    bills = [door_hinge_bill(mount) for mount in mappings]
+    from collections import Counter as HardwareCounter
+    aggregate = HardwareCounter()
+    for bill in bills:
+        aggregate[bill["hinge_type"]] += bill["quantity"]
+    bom = BASE_TEMPLATES[template]
+    for hinge in ("ציר קיר זכוכית", "ציר זכוכית זכוכית", "ציר פרימה"):
+        if aggregate[hinge] != bom.get(hinge, 0):
+            raise NeedsReview("Hinge attachments contradict approved hardware template")
+    return bills
 
 
 @dataclass(frozen=True)
@@ -71,11 +108,12 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
                           demolition_and_disposal: bool = False) -> dict:
     """Calculate an offline DRAFT after explicit layout confirmation only."""
     checked = validate_panel_plan(template, panels, layout_confirmed=layout_confirmed)
+    hinge_bills = verify_default_door_hardware(template)
     result = quote(Draft(template=template, panels=list(checked), finish=finish,
                          demolition_and_disposal=demolition_and_disposal,
                          measured_and_engineered=step_notch_measured))
     return {
-        **result, "panel_breakdown": [
+        **result, "door_hinge_breakdown": hinge_bills, "panel_breakdown": [
             {"role": p.role, "width_cm": str(decimal_dimension(p.width_cm)),
              "height_cm": str(decimal_dimension(p.height_cm)), "glass": p.glass,
              "shape": p.shape}
