@@ -56,6 +56,8 @@ def map_leads(rows,*,has_more=False,synthetic=True):
         customers.append({'id':('preview-' if synthetic else 'source-')+hashlib.sha256(identity.encode()).hexdigest(),
             'source':'synthetic_glass_leads_fixture' if synthetic else 'glass_leads','source_phone':phone,
             'source_updated_at':timestamp(row.get('updated_at')),
+            'last_inbound_at':timestamp(row['last_inbound_at']) if row.get('last_inbound_at') is not None else None,
+            'manual_followup_completed_at':timestamp(row['manual_followup_completed_at']) if row.get('manual_followup_completed_at') is not None else None,
             'name':name or 'לקוח ללא שם','product':product or 'סוג עבודה טרם זוהה',
             'notes':text(row.get('notes',''),3000),'legacy_status':status,'stage':stage,
             'archived':archived,'callback_text':callback,'review_reasons':reasons,

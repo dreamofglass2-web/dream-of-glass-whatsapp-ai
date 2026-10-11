@@ -16,6 +16,7 @@ class PostgresLeadPreviewTests(unittest.TestCase):
             cur.execute("""CREATE TABLE IF NOT EXISTS crm_preview_stage.leads (
                 phone TEXT PRIMARY KEY,name TEXT,product TEXT,status TEXT,
                 callback_time TEXT,notes TEXT,updated_at TIMESTAMPTZ,
+                last_inbound_at TIMESTAMPTZ,manual_followup_completed_at TIMESTAMPTZ,
                 conversation JSONB NOT NULL DEFAULT '[]'::jsonb,context JSONB NOT NULL DEFAULT '{}'::jsonb)""")
             cur.execute("""INSERT INTO crm_preview_stage.leads (phone,name,product,status,callback_time,notes,updated_at) VALUES
                 (%s,'לקוח בדיקה','מקלחון','נסגר','מחר','הערה',now())""",(self.phone,))
@@ -78,3 +79,13 @@ class PostgresLeadPreviewTests(unittest.TestCase):
         with self.store._transaction() as cur:
             cur.execute('SELECT conversation,context FROM crm_preview_stage.leads WHERE phone=%s',(self.phone,))
             row=cur.fetchone();self.assertEqual(row['conversation'],history);self.assertEqual(row['context'],context)
+
+    def test_followup_timestamps_are_exported_read_only_without_inventing_a_job(self):
+        from crm_lab.read_source import ReadOnlyLeadSource
+        with self.store._transaction() as cur:
+            cur.execute("UPDATE crm_preview_stage.leads SET last_inbound_at='2026-10-10T18:00:00Z',manual_followup_completed_at='2026-10-11T18:01:00Z' WHERE phone=%s",(self.phone,))
+        source=ReadOnlyLeadSource(test_database_url=URL)
+        customer=source.detail(phone=self.phone)['customer']
+        self.assertEqual(customer['last_inbound_at'],'2026-10-10T18:00:00+00:00')
+        self.assertEqual(customer['manual_followup_completed_at'],'2026-10-11T18:01:00+00:00')
+        self.assertEqual(customer['tasks_created'],0)
