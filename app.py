@@ -2292,6 +2292,37 @@ def resolve_incoming_body(body):
     return str(body)
 
 
+def claim_phone_processing(phone):
+    """Hold a PostgreSQL advisory lock during a whole customer batch.
+
+    All web workers use the same lock key, preventing concurrent responders.
+    The lock is released automatically when the connection closes on crash.
+    """
+    conn = db_connection()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (phone,))
+            if not cur.fetchone()[0]:
+                conn.close()
+                return None
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def pending_batch_message_ids(phone, rows):
+    ids = [row[0] for row in rows]
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT message_id FROM yossi_inbound_queue
+                WHERE phone=%s AND message_id = ANY(%s)
+            """, (phone, ids))
+            return {row[0] for row in cur.fetchall()}
+
+
 def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     while True:
@@ -2301,31 +2332,54 @@ def batch_worker():
                 time.sleep(0.25)
                 continue
             phone, rows = batch
-            if not verified_business_lead(phone):
-                # Older queue rows may predate the webhook admission gate.
-                # Do not interpret attachments or call the AI for those rows.
-                finish_batch(phone, rows, success=True)
+            claim = claim_phone_processing(phone)
+            if claim is None:
+                with lock:
+                    processing.discard(phone)
+                time.sleep(0.5)
                 continue
-            # Stable per-batch fingerprint survives process and service restarts.
-            # Each outbound send gets an ordinal so image+text replies are distinct.
-            _delivery_scope.current = {
-                'fingerprint': hashlib.sha256(
-                    ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
-                ).hexdigest(),
-                'ordinal': 0,
-            }
             try:
-                combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
-                success = process_message(phone, combined, rows)
-                # A correction received mid-composition is included on retry.
-                if not success and has_new_messages(phone, rows):
+                remaining = pending_batch_message_ids(phone, rows)
+                expected = {row[0] for row in rows}
+                if remaining != expected:
+                    # Another process already acknowledged some or all rows.
+                    # Drop stale memory entries without deleting fresh DB rows.
                     with lock:
+                        pending[phone] = [r for r in pending.get(phone, [])
+                                          if r[0] not in expected or r[0] in remaining]
+                        if not pending[phone]:
+                            pending.pop(phone, None)
                         processing.discard(phone)
                     continue
-                finish_batch(phone, rows, success=success)
+                if not verified_business_lead(phone):
+                    # Queue rows pre-dating admission gates must never send.
+                    finish_batch(phone, rows, success=True)
+                    continue
+                # Stable per-batch fingerprint survives process and service restarts.
+                # Each outbound send gets an ordinal so image+text replies are distinct.
+                _delivery_scope.current = {
+                    'fingerprint': hashlib.sha256(
+                        ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
+                    ).hexdigest(),
+                    'ordinal': 0,
+                }
+                try:
+                    combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
+                    success = process_message(phone, combined, rows)
+                    # A correction received mid-composition is included on retry.
+                    if not success and has_new_messages(phone, rows):
+                        with lock:
+                            processing.discard(phone)
+                        continue
+                    finish_batch(phone, rows, success=success)
+                finally:
+                    _delivery_scope.current = None
             finally:
-                _delivery_scope.current = None
+                claim.close()
         except Exception:
+            with lock:
+                if 'phone' in locals():
+                    processing.discard(phone)
             app.logger.exception('Batch worker failed')
             time.sleep(2)
 
