@@ -17,7 +17,8 @@ def configuration(env):
     replay=env.get('CRM_REPLAY_PATH','')
     if not replay.startswith('/var/data/') or '..' in replay.split('/'):raise ValueError('Persistent replay disk required')
     params={'host':url.hostname,'dbname':unquote(url.path[1:]),'user':url.username,
-        'password':unquote(url.password),'sslmode':'verify-full','connect_timeout':5}
+        'password':unquote(url.password),'sslmode':'verify-full','connect_timeout':5,
+        'sslrootcert':env.get('CRM_DB_CA_PATH','/etc/ssl/certs/ca-certificates.crt')}
     return params,bytes.fromhex(key),replay
 
 def create_application(env=None):

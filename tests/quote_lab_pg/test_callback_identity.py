@@ -4,7 +4,9 @@ from callback_store import save_callback_record
 class CallbackIdentityTests(unittest.TestCase):
     def setUp(self):
         self.store=PostgresQuoteStore(os.environ['QUOTE_LAB_TEST_DATABASE_URL'])
+        self.store._parameters['options']='-c search_path=callback_identity_stage,public'
         with self.store._transaction() as c:
+            c.execute('CREATE SCHEMA IF NOT EXISTS callback_identity_stage')
             c.execute('''CREATE TABLE IF NOT EXISTS glass_leads(phone TEXT PRIMARY KEY,status TEXT,callback_time TEXT,
               name TEXT DEFAULT '',product TEXT DEFAULT '',notes TEXT DEFAULT '',created_at TIMESTAMPTZ DEFAULT now(),
               conversation JSONB DEFAULT '[]',context JSONB DEFAULT '{}',manual_followup_completed_at TIMESTAMPTZ,
@@ -53,5 +55,5 @@ class CallbackIdentityTests(unittest.TestCase):
         try:
             with self.assertRaises(psycopg2.errors.InsufficientPrivilege):
                 with connection:
-                    with connection.cursor() as c:c.execute('SELECT * FROM public.glass_leads')
+                    with connection.cursor() as c:c.execute('SELECT * FROM callback_identity_stage.glass_leads')
         finally:connection.close()

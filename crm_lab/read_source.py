@@ -12,8 +12,9 @@ class ReadOnlyLeadSource:
         self.parameters=test_database_parameters(test_database_url) if self.fixture else live_parameters
         if not self.fixture and live_enabled:
             required={'host','dbname','user','password','sslmode','connect_timeout'}
-            if (not isinstance(live_parameters,dict) or set(live_parameters)!=required
+            if (not isinstance(live_parameters,dict) or not required<=set(live_parameters) or bool(set(live_parameters)-required-{'sslrootcert'})
                     or not all(isinstance(live_parameters[k],str) and live_parameters[k] for k in required-{'connect_timeout'})
+                    or ('sslrootcert' in live_parameters and (not isinstance(live_parameters['sslrootcert'],str) or not live_parameters['sslrootcert'].startswith('/')))
                     or live_parameters['sslmode']!='verify-full' or live_parameters['connect_timeout']!=5):
                 raise LeadPreviewError('Explicit TLS-verified source configuration required')
     def page(self,*,limit,after=''):
