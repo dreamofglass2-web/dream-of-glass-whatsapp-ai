@@ -114,3 +114,35 @@ message IDs, stale versions, duplicate events and JSON keys, malformed timestamp
 reconnect/replay and approval preservation. The same signed fixture flow is tested
 in disposable PostgreSQL. No real Meta secrets, messages or delivery receipts are
 used; persistent live message bindings and receipt ingestion remain rollout gates.
+# Persistent synthetic outbound bindings
+
+`PersistentReceiptStore` extends the local SQLite ledger; `PostgresReceiptStore`
+extends the guarded disposable loopback adapter. Neither is imported by app.py.
+Register an `OutboundBinding` with `register_fixture_binding`, using explicit
+fixture account/phone IDs, a fixture message ID, simulation quote ID and dummy
+recipient starting with `000`. The ledger saves the immutable recipient, exact
+revision, specification fingerprint and price. Registration leaves the draft
+unsent and gives no send authorization. One synthetic message is supported per
+quote version; real retries with multiple provider IDs need a separate design.
+
+`apply_persisted_fixture` accepts signed bytes and explicit fixture scope/secret.
+It reloads saved bindings, so callers do not recreate binding objects after a
+restart. Verified delivered/read transitions and their duplicate-event keys
+commit in one transaction, including multi-quote batches. All writers use the
+same quote locks; a stale version rejects the entire batch. Replay preserves
+approval. Unknown messages/scopes and non-delivery statuses have no effect.
+
+The contract suite runs on SQLite and disposable PostgreSQL. It covers reconnect,
+registration/message reassignment, duplicates, reordered delivery/read, rejected
+old revisions, integrity checks, interrupted inserts, rollback/retry, multi-quote
+rollback, concurrent registration and concurrent receipt application. SQLite also
+uses a fresh subprocess; PostgreSQL exercises a real disconnected transaction
+and a receipt waiting behind a revision writer. Run:
+
+```sh
+python -m unittest quote_lab.test_receipt_ledger -v
+```
+
+Only successful delivered/read events are stored here. There is no durable raw
+webhook inbox, retry worker, real send authorization, customer import or live
+endpoint. No production schema/configuration change is included.

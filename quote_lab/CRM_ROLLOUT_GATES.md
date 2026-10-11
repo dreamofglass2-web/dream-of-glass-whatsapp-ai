@@ -94,3 +94,30 @@ Provider references reviewed: Meta webhook endpoint payload validation
 https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/create-webhook-endpoint/
 and Meta's WhatsApp Business Platform payload reference
 https://www.postman.com/meta/whatsapp-business-platform/folder/tduohwq/webhook-payload-reference.
+# Persistent binding and transaction gate (synthetic only)
+
+The in-memory fixture-binding requirement now has a durable lab implementation:
+SQLite `quote_lab_bindings` / `quote_lab_receipt_events` and disposable PostgreSQL
+`quote_lab_stage.bindings` / `quote_lab_stage.receipt_events`. No production
+migration or app.py integration runs. Scope, recipient, provider-style synthetic
+message ID, quote version, fingerprint and exact-cent amount are persisted;
+foreign keys bind them to quote history. Message IDs and quote versions cannot
+be reassigned through the API. Identical registration retries are idempotent.
+Binding digests detect accidental corruption, not malicious database access.
+
+The persistent fixture path supersedes the old bridge's per-quote batch limit:
+it verifies signatures before DB access, reloads bindings and locks all affected
+quote IDs in sorted order before checking the latest revision and saved snapshot.
+Receipt evidence and quote state commit atomically in a single transaction.
+If any event is stale or a write fails, every transition in the batch rolls back.
+Concurrent duplicates commit one event. A crash before commit leaves a draft;
+a lost acknowledgment after commit can be retried without duplicate effects.
+
+This completes the isolated persistence/replay/recovery gate before work on the
+CRM interface. It does not finish live integration: real outbound bindings must
+come from an explicitly authorized sender; access control, durable raw-event
+ingestion and retry/quarantine handling, real recipient/account scoping, and
+owner go-live approval still apply. The lab intentionally allows one synthetic
+message per quote version and only dummy recipient IDs; it is not a production
+outbound-attempt or retry model. Rejected stale events roll back and are not
+recorded as successful deliveries; no retry worker is activated.
