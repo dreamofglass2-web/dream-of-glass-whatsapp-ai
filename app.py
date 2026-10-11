@@ -1101,8 +1101,7 @@ def refine_sales_reply(reply, customer_request, history):
     # A true validated quote contains a calculated figure with explicit breakdown;
     # do not touch those as they were approved via calculate_quote.
     if re.search(r'\b(?:מינימום|מתחיל\s+מ|הזמנת\s+מינימום)\b', reply):
-        cleaned = re.sub(r'\s+או\s+(?:דלתות?\s+)?הזזה', '', reply.strip())
-    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+        sentences = re.split(r'(?<=[.!?])\s+', reply.strip())
         reply = ' '.join(x for x in sentences if not re.search(r'מינימום|מתחיל\s+מ|2,000|2000',x))
     # In the first discovery turn, avoid questionnaire-like 'hinged or sliding?'
     # unless the customer explicitly chose or asked about door opening.
