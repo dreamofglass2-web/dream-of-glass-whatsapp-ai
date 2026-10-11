@@ -2436,11 +2436,14 @@ def webhook():
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return request.args.get('hub.challenge', ''), 200
         return 'Verification failed', 403
-    if APP_SECRET:
-        signature = request.headers.get('X-Hub-Signature-256', '')
-        expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return 'Invalid signature', 403
+    # Never accept unauthenticated Meta deliveries, including when a required
+    # deployment secret is accidentally missing.
+    if not APP_SECRET:
+        return 'Meta app secret not configured', 503
+    signature = request.headers.get('X-Hub-Signature-256', '')
+    expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return 'Invalid signature', 403
     ensure_worker_started()
     data = request.get_json(silent=True) or {}
     received = 0
