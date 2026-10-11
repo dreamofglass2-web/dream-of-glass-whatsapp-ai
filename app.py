@@ -5,6 +5,7 @@ import threading
 import time
 import re
 import hmac
+import hashlib
 import secrets
 import base64
 import io
@@ -52,6 +53,7 @@ callback_leads = {}  # Temporary in-memory leads until a persistent dashboard is
 worker_thread = None
 worker_pid = None
 worker_start_lock = threading.Lock()
+_delivery_scope = threading.local()  # Per-batch outbound idempotency journal
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
 APP_SECRET = os.getenv('META_APP_SECRET', '')
 MEDIA_VISION_MODEL = os.getenv('MEDIA_VISION_MODEL', 'gpt-4.1-mini')
@@ -1364,12 +1366,76 @@ def without_emojis(message):
     return re.sub(r' {2,}', ' ', EMOJI_PATTERN.sub('', str(message))).strip()
 
 
+def ensure_outbound_attempts_table():
+    """At-most-once send journal. Ambiguous API outcomes require manual review."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS yossi_outbound_attempts (
+                    attempt_key TEXT PRIMARY KEY,
+                    phone TEXT NOT NULL,
+                    batch_fingerprint TEXT NOT NULL DEFAULT '',
+                    state TEXT NOT NULL DEFAULT 'reserved',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute("ALTER TABLE yossi_outbound_attempts ADD COLUMN IF NOT EXISTS batch_fingerprint TEXT NOT NULL DEFAULT ''")
+            cur.execute("CREATE INDEX IF NOT EXISTS yossi_outbound_attempts_batch_idx ON yossi_outbound_attempts(batch_fingerprint)")
+
+
+def batch_has_outbound_attempt(batch_fingerprint):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT EXISTS(SELECT 1 FROM yossi_outbound_attempts WHERE batch_fingerprint=%s)",
+                        (batch_fingerprint,))
+            return bool(cur.fetchone()[0])
+
+
+def reserve_outbound_attempt(attempt_key, phone, batch_fingerprint):
+    """Commit a durable send intent BEFORE calling WhatsApp."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO yossi_outbound_attempts(attempt_key, phone, batch_fingerprint)
+                VALUES (%s, %s, %s) ON CONFLICT(attempt_key) DO NOTHING
+                RETURNING attempt_key
+            """, (attempt_key, phone, batch_fingerprint))
+            return cur.fetchone() is not None
+
+
+def mark_outbound_attempt(attempt_key, state):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE yossi_outbound_attempts
+                SET state=%s, updated_at=now()
+                WHERE attempt_key=%s
+            """, (state, attempt_key))
+
+
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
     if not verified_business_lead(phone):
         app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
         raise PermissionError('Outbound blocked: unverified business lead')
+    scope = getattr(_delivery_scope, 'current', None)
+    if not scope:
+        raise PermissionError('Outbound blocked: missing worker batch context')
+    if scope.get('suppress_outbound'):
+        # A previous execution may have sent one or more messages.
+        # Suppress ALL replays, even if the model would now produce
+        # a different number/order of WhatsApp messages.
+        app.logger.warning('OUTBOUND_REPLAY_SUPPRESSED phone_suffix=%s', str(phone)[-4:])
+        return None
+    scope['ordinal'] += 1
+    attempt_key = hashlib.sha256(
+        (scope['fingerprint'] + ':' + str(scope['ordinal'])).encode('utf-8')
+    ).hexdigest()
+    if not reserve_outbound_attempt(attempt_key, phone, scope['fingerprint']):
+        app.logger.warning('OUTBOUND_DUPLICATE_SUPPRESSED phone_suffix=%s', str(phone)[-4:])
+        return None
     body = without_emojis(body)
     caption = without_emojis(caption)
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
@@ -1378,9 +1444,24 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         payload.update({'type':'image','image':{'link':image_url,'caption':caption or ''}})
     else:
         payload.update({'type':'text','text':{'body':body}})
-    result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
-    app.logger.info('WhatsApp send status: %s', result.status_code)
-    result.raise_for_status()
+    try:
+        result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
+        app.logger.info('WhatsApp send status: %s', result.status_code)
+        result.raise_for_status()
+    except Exception:
+        # The remote API may have accepted the message before a timeout.
+        # Block all further sends in this worker batch until manual review.
+        scope['suppress_outbound'] = True
+        try:
+            mark_outbound_attempt(attempt_key, 'uncertain')
+        except Exception:
+            app.logger.exception('Outbound journal status update failed')
+        raise
+    try:
+        mark_outbound_attempt(attempt_key, 'sent')
+    except Exception:
+        # A successful send must NOT be retried because journal write failed.
+        app.logger.exception('Outbound sent; journal completion update failed')
     # Store a candidate followup time. No followup message is ever sent here.
     if not image_url:
         schedule_followup_dry_run(phone)
@@ -2229,6 +2310,37 @@ def resolve_incoming_body(body):
     return str(body)
 
 
+def claim_phone_processing(phone):
+    """Hold a PostgreSQL advisory lock during a whole customer batch.
+
+    All web workers use the same lock key, preventing concurrent responders.
+    The lock is released automatically when the connection closes on crash.
+    """
+    conn = db_connection()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (phone,))
+            if not cur.fetchone()[0]:
+                conn.close()
+                return None
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def pending_batch_message_ids(phone, rows):
+    ids = [row[0] for row in rows]
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT message_id FROM yossi_inbound_queue
+                WHERE phone=%s AND message_id = ANY(%s)
+            """, (phone, ids))
+            return {row[0] for row in cur.fetchall()}
+
+
 def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     while True:
@@ -2238,21 +2350,56 @@ def batch_worker():
                 time.sleep(0.25)
                 continue
             phone, rows = batch
-            if not verified_business_lead(phone):
-                # Older queue rows may predate the webhook admission gate.
-                # Do not interpret attachments or call the AI for those rows.
-                finish_batch(phone, rows, success=True)
-                continue
-            combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
-            success = process_message(phone, combined, rows)
-            # If a correction arrived during composition, keep the entire batch
-            # so it can be reinterpreted together with the correction.
-            if not success and has_new_messages(phone, rows):
+            claim = claim_phone_processing(phone)
+            if claim is None:
                 with lock:
                     processing.discard(phone)
+                time.sleep(0.5)
                 continue
-            finish_batch(phone, rows, success=success)
+            try:
+                remaining = pending_batch_message_ids(phone, rows)
+                expected = {row[0] for row in rows}
+                if remaining != expected:
+                    # Another process already acknowledged some or all rows.
+                    # Drop stale memory entries without deleting fresh DB rows.
+                    with lock:
+                        pending[phone] = [r for r in pending.get(phone, [])
+                                          if r[0] not in expected or r[0] in remaining]
+                        if not pending[phone]:
+                            pending.pop(phone, None)
+                        processing.discard(phone)
+                    continue
+                if not verified_business_lead(phone):
+                    # Queue rows pre-dating admission gates must never send.
+                    finish_batch(phone, rows, success=True)
+                    continue
+                # Stable per-batch fingerprint survives process and service restarts.
+                # Each outbound send gets an ordinal so image+text replies are distinct.
+                fingerprint = hashlib.sha256(
+                    ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
+                ).hexdigest()
+                _delivery_scope.current = {
+                    'fingerprint': fingerprint,
+                    'ordinal': 0,
+                    'suppress_outbound': batch_has_outbound_attempt(fingerprint),
+                }
+                try:
+                    combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
+                    success = process_message(phone, combined, rows)
+                    # A correction received mid-composition is included on retry.
+                    if not success and has_new_messages(phone, rows):
+                        with lock:
+                            processing.discard(phone)
+                        continue
+                    finish_batch(phone, rows, success=success)
+                finally:
+                    _delivery_scope.current = None
+            finally:
+                claim.close()
         except Exception:
+            with lock:
+                if 'phone' in locals():
+                    processing.discard(phone)
             app.logger.exception('Batch worker failed')
             time.sleep(2)
 
@@ -2267,6 +2414,7 @@ def ensure_worker_started():
                 ensure_db()
                 ensure_followup_table()
                 ensure_inbound_queue_table()
+                ensure_outbound_attempts_table()
                 restore_inbound_queue()
             except Exception:
                 app.logger.exception('Database schema initialization failed; worker will not start')
