@@ -646,3 +646,17 @@ class ManualFollowupDashboardTests(unittest.TestCase):
         self.assertIn('admin_complete_manual_followup', yossi.LEADS_HTML)
         self.assertIn('manual_followups', yossi.LEADS_HTML)
         self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
+
+class OwnerDashboardRegressionTests(unittest.TestCase):
+    def test_photo_requests_are_included_in_unfiltered_leads_query(self):
+        import inspect
+        source = inspect.getsource(yossi.admin_leads)
+        self.assertEqual(source.count('manual_followup_completed_at,context'), 2)
+        self.assertIn('outbound_review=outbound_review', source)
+
+    def test_outbound_review_is_read_only(self):
+        import inspect
+        source = inspect.getsource(yossi.admin_leads)
+        self.assertIn("WHERE state IN ('reserved','uncertain')", source)
+        self.assertNotIn('UPDATE yossi_outbound_attempts', source)
+        self.assertIn('שליחות לבדיקה ידנית', yossi.LEADS_HTML)
