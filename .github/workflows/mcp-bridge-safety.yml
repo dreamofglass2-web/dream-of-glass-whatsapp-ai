@@ -1,0 +1,17 @@
+name: Yossi MCP bridge safety
+on:
+  pull_request:
+    paths:
+      - "mcp_bridge/**"
+      - ".github/workflows/mcp-bridge-safety.yml"
+  workflow_dispatch:
+jobs:
+  bridge-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r mcp_bridge/requirements.txt
+      - run: python -m unittest discover -s mcp_bridge -p "test_*.py" -v
