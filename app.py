@@ -381,6 +381,38 @@ def remove_processed_inbound_messages(phone, rows):
             """, (phone, ids))
 
 
+
+def verified_business_lead(phone):
+    """Fail closed: only a verified Meta instant-form lead may receive AI replies.
+
+    A phone appearing in glass_leads is not sufficient: this table can also
+    contain dashboard entries and records created by inbound webhooks.
+    """
+    if not phone or not re.fullmatch(r'9725\\d{8}', str(phone)):
+        return False
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM glass_leads
+                        WHERE phone=%s
+                          AND jsonb_typeof(context->'meta_leads')='object'
+                          AND EXISTS (
+                              SELECT 1 FROM jsonb_each(context->'meta_leads') AS lead(id, details)
+                              WHERE details->>'source'='meta_instant_form'
+                          )
+                          AND COALESCE(context->>'no_followups','false') <> 'true'
+                    )
+                """, (phone,))
+                return bool(cur.fetchone()[0])
+    except Exception:
+        app.logger.exception('Unable to verify business lead; inbound is blocked')
+        return False
+
+
 def queue_message(phone, body, message_id):
     # Database persistence is mandatory before the webhook can acknowledge.
     inserted = persist_inbound_message(phone, body, message_id)
@@ -2408,6 +2440,12 @@ def webhook():
         for change in entry.get('changes', []):
             value = change.get('value') or {}
             statuses += len(value.get('statuses', []))
+            metadata = value.get('metadata') or {}
+            # A webhook can carry traffic for more than one business number.
+            # No outbound reply is allowed unless the recipient is ours.
+            if str(metadata.get('phone_number_id') or '') != str(PHONE_NUMBER_ID):
+                ignored += len(value.get('messages', []))
+                continue
             for message in value.get('messages', []):
                 message_type = message.get('type')
                 if message_type not in ('text', 'image', 'document', 'audio', 'video'):
@@ -2432,6 +2470,10 @@ def webhook():
                             body += ' ' + caption
                 message_id = message.get('id')
                 if not phone or not body:
+                    continue
+                if not verified_business_lead(phone):
+                    ignored += 1
+                    app.logger.info('INBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
                     continue
                 try:
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
