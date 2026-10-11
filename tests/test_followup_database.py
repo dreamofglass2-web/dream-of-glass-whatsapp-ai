@@ -166,6 +166,35 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 yossi._delivery_scope.current = None
             post.assert_not_called()
 
+    def test_missing_photo_task_keeps_original_lead_context_and_is_visible(self):
+        import json
+        phone = 'TEST_FOLLOWUP_MISSING_PHOTO'
+        with test_connection() as db:
+            with db.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, status, context)
+                    VALUES (%s, 'בטיפול', '{"existing": true}'::jsonb)
+                    ON CONFLICT(phone) DO UPDATE SET
+                        status='בטיפול', context=EXCLUDED.context
+                """, (phone,))
+        with patch.object(yossi, 'send_whatsapp') as send:
+            self.assertTrue(yossi.save_missing_photo_lead(phone, 'אפשר תמונה של מחיצה מיוחדת?'))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("SELECT status, context FROM glass_leads WHERE phone=%s", (phone,))
+                    status, context = cur.fetchone()
+            self.assertEqual(status, 'ממתין לתמונה')
+            self.assertTrue(context['existing'])
+            self.assertIn('מחיצה', context['missing_photo_request'])
+            self.assertTrue(yossi.save_missing_photo_lead(phone, 'יש תמונה אחרת?'))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("SELECT count(*), max(context->>'missing_photo_request') FROM glass_leads WHERE phone=%s", (phone,))
+                    count, latest = cur.fetchone()
+            self.assertEqual(count, 1)
+            self.assertIn('אחרת', latest)
+            send.assert_not_called()
+
     def test_inbound_timestamp_in_disposable_database(self):
         """Verified inbound time persists, advances and does not send WhatsApp."""
         from datetime import datetime, timedelta, timezone
