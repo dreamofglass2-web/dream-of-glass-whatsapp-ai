@@ -707,5 +707,5 @@ class VerifiedWebsiteBusinessFactsTests(unittest.TestCase):
     def test_website_is_not_pricing_or_sending_authority(self):
         facts = yossi.WEBSITE_VERIFIED_FACTS
         self.assertIn('אין לייבא תמונות אוטומטית', facts)
-        self.assertIn('אין להמציא', facts)
+        self.assertIn('להמציא מחיר', facts)
         self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
