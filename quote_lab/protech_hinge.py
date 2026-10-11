@@ -29,6 +29,17 @@ DEFAULT_WALL_GLASS_HINGE = Hinge(
 )
 
 
+OWNER_FIELD_CASE = {
+    "door_width_cm": 100,
+    "door_height_cm": 240,
+    "glass_thickness_mm": 10,
+    "hinge_count": 2,
+    "hinge_model": "PRO-B103",
+    "source": "owner_installation_experience",
+    "manufacturer_load_verified": False,
+}
+
+
 def inspect_wall_hinged_door(*, width_cm, height_cm, glass_thickness_mm=8):
     """Return conservative offline advisory, not an engineering approval."""
     hinge = DEFAULT_WALL_GLASS_HINGE
@@ -51,6 +62,8 @@ def inspect_wall_hinged_door(*, width_cm, height_cm, glass_thickness_mm=8):
         "glass_thickness_compatible": True,
         "preferred_two_hinge_count": 2,
         "width_note": width_note,
+        "owner_field_case_match": (width_cm == 100 and height_cm == 240 and glass_thickness_mm == 10),
+        "owner_field_case_hinge_count": OWNER_FIELD_CASE["hinge_count"],
         "rated_weight_known": False,
         "manufacturer_load_limit_verified": False,
         "requires_final_site_measurement": True,
