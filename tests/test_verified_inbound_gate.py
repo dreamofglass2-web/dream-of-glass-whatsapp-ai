@@ -25,7 +25,7 @@ class VerifiedInboundGateTests(unittest.TestCase):
                                     headers={"X-Hub-Signature-256": signature})
 
     def test_reject_missing_app_secret(self):
-        with patch.object(yossi, "ensure_worker_started") as worker:
+        with patch.object(yossi, "APP_SECRET", ""), patch.object(yossi, "ensure_worker_started") as worker:
             self.assertEqual(self.client.post("/webhook", json=self.payload).status_code, 503)
             worker.assert_not_called()
 
