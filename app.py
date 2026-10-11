@@ -88,6 +88,7 @@ def ensure_db():
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )""")
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ')
+                cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS manual_followup_completed_at TIMESTAMPTZ')
         _db_ready = True
 
 
@@ -2718,8 +2719,24 @@ def callback_datetime(value):
         return None
 
 
+def manual_followup_due(lead, now=None):
+    """Dashboard-only reminder; never triggers customer messages."""
+    inbound = lead.get('last_inbound_at')
+    if not isinstance(inbound, datetime) or inbound.tzinfo is None:
+        return False
+    if lead.get('status') not in ('חדש', 'בטיפול', 'הצעה ניתנה'):
+        return False
+    completed = lead.get('manual_followup_completed_at')
+    if isinstance(completed, datetime) and completed >= inbound:
+        return False
+    return (now or datetime.now(timezone.utc)) >= inbound + timedelta(hours=24)
+
+
 def decorate_lead(lead):
     lead = dict(lead)
+    lead['manual_followup_due'] = manual_followup_due(lead)
+    lead['manual_followup_display'] = 'ממתין לפולואפ ידני' if lead['manual_followup_due'] else lead['status']
+    lead['last_inbound_local'] = israel_datetime(lead.get('last_inbound_at'))
     lead['updated_local'] = israel_datetime(lead.get('updated_at'))
     lead['callback_dt'] = callback_datetime(lead.get('callback_time'))
     lead['overdue'] = bool(lead['status'] == 'ממתין לחזרה' and lead['callback_dt'] and
@@ -2848,21 +2865,22 @@ def admin_leads():
         with db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if q:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
                         FROM glass_leads WHERE phone ILIKE %s OR name ILIKE %s
                         ORDER BY updated_at DESC LIMIT 300""", (f'%{q}%',f'%{q}%'))
                 else:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
                         FROM glass_leads ORDER BY updated_at DESC LIMIT 300""")
                 leads = [decorate_lead(item) for item in cur.fetchall()]
     except Exception:
         app.logger.exception('Leads dashboard read failed')
         return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
+    manual_followups = sorted((lead for lead in leads if lead['manual_followup_due']), key=lambda lead: lead['last_inbound_at'])
     callbacks = [lead for lead in leads if lead['status'] == 'ממתין לחזרה']
     callbacks.sort(key=lambda item: (item['callback_dt'] is None,
                                     item['callback_dt'] or datetime.max.replace(tzinfo=ISRAEL_TZ)))
     return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads,
-                                  callbacks=callbacks, overdue_count=sum(lead['overdue'] for lead in callbacks),
+                                  callbacks=callbacks, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
                                   csrf=session['csrf'], q=q), 200
 
 
