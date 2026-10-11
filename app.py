@@ -381,6 +381,77 @@ def remove_processed_inbound_messages(phone, rows):
             """, (phone, ids))
 
 
+
+def verified_business_lead(phone):
+    """Fail closed: only a verified Meta instant-form lead may receive AI replies.
+
+    A phone appearing in glass_leads is not sufficient: this table can also
+    contain dashboard entries and records created by inbound webhooks.
+    """
+    if not phone or not re.fullmatch(r'9725\d{8}', str(phone)):
+        return False
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM glass_leads
+                        WHERE phone=%s
+                          AND (
+                              (jsonb_typeof(context->'meta_leads')='object'
+                               AND EXISTS (
+                                  SELECT 1 FROM jsonb_each(context->'meta_leads') AS lead(id, details)
+                                  WHERE details->>'source'='meta_instant_form'
+                               ))
+                              OR context->'whatsapp_referral'->>'source'='meta_click_to_whatsapp_ad'
+                          )
+                          AND COALESCE(context->>'no_followups','false') <> 'true'
+                    )
+                """, (phone,))
+                return bool(cur.fetchone()[0])
+    except Exception:
+        app.logger.exception('Unable to verify business lead; inbound is blocked')
+        return False
+
+
+
+def persist_verified_whatsapp_ad(phone, message):
+    """Allow click-to-WhatsApp ad replies only from a signed Meta webhook.
+
+    Caller must first validate the Meta HMAC and the business phone_number_id.
+    A regular/private WhatsApp message contains no qualifying referral.
+    """
+    referral = message.get('referral') or {}
+    if (not isinstance(referral, dict)
+            or referral.get('source_type') != 'ad'
+            or not isinstance(referral.get('source_id'), str)
+            or not referral['source_id'].strip()
+            or len(referral['source_id']) > 200
+            or not re.fullmatch(r'9725\d{8}', str(phone or ''))):
+        return False
+    try:
+        ensure_db()
+        provenance = json.dumps({'source': 'meta_click_to_whatsapp_ad',
+                                 'source_id': referral['source_id']},
+                                ensure_ascii=False)
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, context)
+                    VALUES (%s, jsonb_build_object('whatsapp_referral', %s::jsonb))
+                    ON CONFLICT(phone) DO UPDATE SET
+                      context=jsonb_set(COALESCE(glass_leads.context, '{}'::jsonb),
+                                        '{whatsapp_referral}', %s::jsonb, true),
+                      updated_at=now()
+                """, (phone, provenance, provenance))
+        return True
+    except Exception:
+        app.logger.exception('Cannot persist verified ad referral')
+        return False
+
+
 def queue_message(phone, body, message_id):
     # Database persistence is mandatory before the webhook can acknowledge.
     inserted = persist_inbound_message(phone, body, message_id)
@@ -1294,6 +1365,11 @@ def without_emojis(message):
 
 
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
+    # Defense in depth: neither recovered jobs nor alternate code paths may
+    # send a customer message without verified Meta business-lead provenance.
+    if not verified_business_lead(phone):
+        app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
+        raise PermissionError('Outbound blocked: unverified business lead')
     body = without_emojis(body)
     caption = without_emojis(caption)
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
@@ -1555,6 +1631,9 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.warning('Could not clear callback after opt-out')
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], safe_context)
+            if refuses_further_contact(body):
+                # Explicit no-contact request: persist suppression, no reply.
+                return True
             send_whatsapp(phone, body=reply)
             return True
 
@@ -2159,6 +2238,11 @@ def batch_worker():
                 time.sleep(0.25)
                 continue
             phone, rows = batch
+            if not verified_business_lead(phone):
+                # Older queue rows may predate the webhook admission gate.
+                # Do not interpret attachments or call the AI for those rows.
+                finish_batch(phone, rows, success=True)
+                continue
             combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
             success = process_message(phone, combined, rows)
             # If a correction arrived during composition, keep the entire batch
@@ -2394,11 +2478,14 @@ def webhook():
         if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == VERIFY_TOKEN:
             return request.args.get('hub.challenge', ''), 200
         return 'Verification failed', 403
-    if APP_SECRET:
-        signature = request.headers.get('X-Hub-Signature-256', '')
-        expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return 'Invalid signature', 403
+    # Never accept unauthenticated Meta deliveries, including when a required
+    # deployment secret is accidentally missing.
+    if not APP_SECRET:
+        return 'Meta app secret not configured', 503
+    signature = request.headers.get('X-Hub-Signature-256', '')
+    expected = 'sha256=' + hmac.new(APP_SECRET.encode('utf-8'), request.get_data(), 'sha256').hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return 'Invalid signature', 403
     ensure_worker_started()
     data = request.get_json(silent=True) or {}
     received = 0
@@ -2408,6 +2495,12 @@ def webhook():
         for change in entry.get('changes', []):
             value = change.get('value') or {}
             statuses += len(value.get('statuses', []))
+            metadata = value.get('metadata') or {}
+            # A webhook can carry traffic for more than one business number.
+            # No outbound reply is allowed unless the recipient is ours.
+            if str(metadata.get('phone_number_id') or '') != str(PHONE_NUMBER_ID):
+                ignored += len(value.get('messages', []))
+                continue
             for message in value.get('messages', []):
                 message_type = message.get('type')
                 if message_type not in ('text', 'image', 'document', 'audio', 'video'):
@@ -2432,6 +2525,15 @@ def webhook():
                             body += ' ' + caption
                 message_id = message.get('id')
                 if not phone or not body:
+                    continue
+                # Ad referral can establish business provenance for a new lead.
+                # This is reached only after HMAC and our recipient ID passed.
+                if (isinstance(message.get('referral'), dict)
+                        and message['referral'].get('source_type') == 'ad'):
+                    persist_verified_whatsapp_ad(phone, message)
+                if not verified_business_lead(phone):
+                    ignored += 1
+                    app.logger.info('INBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
                     continue
                 try:
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
