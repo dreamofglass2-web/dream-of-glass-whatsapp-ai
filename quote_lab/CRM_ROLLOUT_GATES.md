@@ -12,3 +12,12 @@ Before any production use:
 6. Keep business auto reply and follow-ups disabled. Do not connect the universal calculator to live WhatsApp until owner accepts the full test suite and explicitly approves go-live.
 
 This document is a release design, not proof of successful integration or production-ready migration.
+
+## Offline concurrency validation
+
+The SQLite lab explicitly begins `BEGIN IMMEDIATE` before reading the latest
+version for draft allocation and state transitions. Tests exercise simultaneous
+writers, a transition waiting behind a new revision, and rollback after rejected
+approval. This validates the local ledger only. A future PostgreSQL adapter must
+implement equivalent per-quote locking and pass these scenarios in a separate
+test database; no production migration has been run.
