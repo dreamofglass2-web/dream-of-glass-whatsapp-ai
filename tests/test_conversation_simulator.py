@@ -775,3 +775,29 @@ class LiveWhatsAppLoopRegression(unittest.TestCase):
         self.assertIn('תצורת הדלתות', answer)
         self.assertIn('התקנה', answer)
         self.assertNotIn('הזזה', answer)
+
+
+class SecondWhatsAppSimulationRegression(unittest.TestCase):
+    def test_customer_prefers_text_only(self):
+        for message in (
+            'היי יוסי, בינתיים מעדיף להתכתב כאן, אין צורך שיחזרו אליי.',
+            'לא צריך להתקשר, אני מעדיף כאן בוואטסאפ.',
+            'אין צורך להתקשר, בוא נמשיך בהודעות',
+        ):
+            self.assertTrue(yossi.refuses_phone_calls(message), message)
+            self.assertFalse(yossi.is_callback_request(message), message)
+
+    def test_recommendation_is_remembered_but_not_approved_quote(self):
+        history = [
+            {'role': 'user', 'content': 'מקלחון פינתי 90 על 90'},
+            {'role': 'assistant', 'content': 'חלופה היא לוח קבוע ודלת נפתחת פנימה אם יש מקום.'},
+            {'role': 'user', 'content': 'זה נשמע מתאים. כמה עולה כולל התקנה?'},
+        ]
+        advice = yossi.proposed_layout_guidance(history)
+        self.assertIn('לוח קבוע', advice)
+        self.assertIn('לאישור', advice)
+        self.assertIsNone(yossi.calculate_quote({'configuration': None}))
+
+    def test_no_previous_advice_is_not_assumed(self):
+        history = [{'role': 'user', 'content': 'שלום, מחיר?'}]
+        self.assertEqual(yossi.proposed_layout_guidance(history), '')
