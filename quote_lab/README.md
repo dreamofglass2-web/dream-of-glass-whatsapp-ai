@@ -100,3 +100,17 @@ synthetic events are supported. There is no natural-language consent parser.
 The same scenario and reconnect/replay tests run on the disposable PostgreSQL
 CI database. These are artificial events, not a WhatsApp transport, Meta webhook
 verification, CRM production integration, or customer/go-live permission.
+
+### Signed delivery-status fixtures
+
+`verify_status_webhook` takes raw bytes, signature, explicit secret and immutable
+outbound quote bindings and returns verified delivered/read statuses only. It
+never sends, listens for events or writes to a database. `apply_signed_fixture`
+connects that parser to the synthetic quote simulator only; it refuses live
+account/phone/message identifiers. The current production webhook is untouched.
+
+Tests cover raw-byte signature tampering, wrong recipient/account/phone, unknown
+message IDs, stale versions, duplicate events and JSON keys, malformed timestamps,
+reconnect/replay and approval preservation. The same signed fixture flow is tested
+in disposable PostgreSQL. No real Meta secrets, messages or delivery receipts are
+used; persistent live message bindings and receipt ingestion remain rollout gates.

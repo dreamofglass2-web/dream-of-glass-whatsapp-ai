@@ -14,6 +14,8 @@ from quote_lab.durable_store import QuoteStoreError
 from quote_lab.postgres_store import PostgresQuoteStore
 from quote_lab.workflow import create_offline_quote, restore_offline_quote
 from quote_lab.simulator import QuoteSimulation, SimulatedDelivery, SimulatedApproval, run_owner_simulation
+from quote_lab.receipt_verifier import OutboundBinding, ReceiptError, apply_signed_fixture
+from quote_lab.test_receipt_verifier import SECRET, ACCOUNT, PHONE, payload_for, sign
 
 URL = os.environ.get("QUOTE_LAB_TEST_DATABASE_URL")
 if not URL:
@@ -210,6 +212,50 @@ class PostgresQuoteIntegrationTests(unittest.TestCase):
         self.assertEqual(again.delivery(delivery), approved)
         self.assertEqual(again.approve(approval), approved)
         self.assertEqual(len(self.store.history(identity)), 1)
+
+    def signed_fixture_setup(self):
+        identity = "simulation-signed-pg-" + uuid4().hex
+        simulator = QuoteSimulation(self.store)
+        draft = simulator.create(identity, "פינתי 2 דלתות", self.panels, layout_confirmed=True)
+        binding = OutboundBinding("fixture-wamid-" + uuid4().hex, "0000000001", identity, 1,
+                                   draft["specification_fingerprint"], draft["price_before_vat"])
+        return simulator, draft, binding
+
+    def apply_fixture(self, simulator, binding, *, status="delivered", recipient="0000000001"):
+        raw, signature = sign(payload_for(binding.message_id, status, recipient))
+        return apply_signed_fixture(simulator, raw, signature, app_secret=SECRET,
+                                     account_id=ACCOUNT, phone_number_id=PHONE, bindings=[binding])
+
+    def test_signed_fixture_delivery_approval_and_old_revision_block(self):
+        simulator, draft, binding = self.signed_fixture_setup()
+        self.assertEqual(self.apply_fixture(simulator, binding, status="sent"), [])
+        self.assertEqual(self.store.latest(binding.quote_id)["state"], "draft")
+        self.assertEqual(self.apply_fixture(simulator, binding)[0]["state"], "sent")
+        simulator.approve(SimulatedApproval(binding.quote_id, 1, "sim-approval-" + uuid4().hex,
+                                            draft["specification_fingerprint"], "2828", True, True))
+        simulator.create(binding.quote_id, "פינתי 2 דלתות", self.panels,
+                          layout_confirmed=True, decoration="frosted_middle")
+        with self.assertRaises(QuoteStoreError):
+            self.apply_fixture(simulator, binding)
+        self.assertEqual(self.store.latest(binding.quote_id)["state"], "draft")
+        self.assertIsNone(self.store.latest(binding.quote_id)["delivery_ref"])
+
+    def test_signed_fixture_replay_after_database_reconnect(self):
+        simulator, draft, binding = self.signed_fixture_setup()
+        sent = self.apply_fixture(simulator, binding)[0]
+        again = QuoteSimulation(PostgresQuoteStore(URL))
+        self.assertEqual(self.apply_fixture(again, binding, status="read")[0], sent)
+        self.assertEqual(len(self.store.history(binding.quote_id)), 1)
+
+    def test_signed_fixture_wrong_recipient_and_signature_do_not_update_postgres(self):
+        simulator, draft, binding = self.signed_fixture_setup()
+        with self.assertRaises(ReceiptError):
+            self.apply_fixture(simulator, binding, recipient="wrong")
+        raw, signature = sign(payload_for(binding.message_id))
+        with self.assertRaises(ReceiptError):
+            apply_signed_fixture(simulator, raw + b" ", signature, app_secret=SECRET,
+                                  account_id=ACCOUNT, phone_number_id=PHONE, bindings=[binding])
+        self.assertEqual(self.store.latest(binding.quote_id)["state"], "draft")
 
     def test_public_schema_remains_untouched(self):
         with self.store._transaction() as cur:
