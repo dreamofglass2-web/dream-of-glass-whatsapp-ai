@@ -388,7 +388,7 @@ def verified_business_lead(phone):
     A phone appearing in glass_leads is not sufficient: this table can also
     contain dashboard entries and records created by inbound webhooks.
     """
-    if not phone or not re.fullmatch(r'9725\\d{8}', str(phone)):
+    if not phone or not re.fullmatch(r'9725\d{8}', str(phone)):
         return False
     try:
         ensure_db()
