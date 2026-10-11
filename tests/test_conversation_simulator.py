@@ -619,3 +619,30 @@ class MetaLeadgenReceiverTests(unittest.TestCase):
             self.assertEqual(self.app.post('/meta-leads/webhook', data=body,
                 headers={'X-Hub-Signature-256': signature}, content_type='application/json').status_code, 503)
 
+
+
+class ManualFollowupDashboardTests(unittest.TestCase):
+    def test_24h_boundary_and_manual_completion(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+        inbound = now - timedelta(hours=24)
+        lead = {'status': 'בטיפול', 'last_inbound_at': inbound,
+                'manual_followup_completed_at': None}
+        self.assertTrue(yossi.manual_followup_due(lead, now))
+        self.assertFalse(yossi.manual_followup_due(lead, inbound + timedelta(hours=23)))
+        lead['manual_followup_completed_at'] = now
+        self.assertFalse(yossi.manual_followup_due(lead, now + timedelta(days=1)))
+        lead['last_inbound_at'] = now + timedelta(hours=1)
+        self.assertTrue(yossi.manual_followup_due(lead, now + timedelta(hours=25)))
+
+    def test_closed_and_callback_leads_never_flagged(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        for status in ('נסגר', 'סגור', 'לא רלוונטי', 'ממתין לחזרה', 'ממתין לתמחור'):
+            lead = {'status': status, 'last_inbound_at': now-timedelta(days=3)}
+            self.assertFalse(yossi.manual_followup_due(lead, now))
+
+    def test_dashboard_contains_manual_only_controls(self):
+        self.assertIn('admin_complete_manual_followup', yossi.LEADS_HTML)
+        self.assertIn('manual_followups', yossi.LEADS_HTML)
+        self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
