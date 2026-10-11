@@ -237,6 +237,32 @@ def save_custom_quote_lead(phone):
         return False
 
 
+def save_missing_photo_lead(phone, request_text):
+    """Create an owner task only, preserving existing customer conversation and metadata."""
+    if not phone:
+        return False
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, status, context)
+                    VALUES (%s, 'ממתין לתמונה', jsonb_build_object(
+                        'missing_photo_request', %s::text, 'missing_photo_at', now()::text))
+                    ON CONFLICT(phone) DO UPDATE SET
+                        context=glass_leads.context || jsonb_build_object(
+                            'missing_photo_request', %s::text, 'missing_photo_at', now()::text),
+                        status=CASE WHEN glass_leads.status IN
+                            ('נסגר', 'סגור', 'לא רלוונטי', 'ממתין לחזרה', 'ממתין לתמחור')
+                            THEN glass_leads.status ELSE 'ממתין לתמונה' END,
+                        updated_at=now()
+                """, (phone, str(request_text or '')[:1000], str(request_text or '')[:1000]))
+        return True
+    except Exception:
+        app.logger.exception('Missing-photo owner task could not be saved')
+        return False
+
+
 def save_callback(phone, preferred_time=None):
     try:
         ensure_db()
@@ -2176,6 +2202,17 @@ def process_message(phone, body, batch_rows=None):
                 if re.search(r'מצרף|שלחתי|הנה\s+התמונ|הנה\s+הדוגמא', reply):
                     reply = ('ניסיתי למצוא תמונות מתאימות, אבל לא הצלחתי לצרף אותן כרגע. אוכל לנסות שוב בהמשך. '
                              'בינתיים אשמח לעזור לך להבין מה יתאים לחדר שלך.')
+            # A requested picture which cannot actually be provided becomes
+            # a visible owner task, not a promise to send it later.
+            asked_for_photo = (requests_catalog_samples(customer_request)
+                               or requests_portfolio_photos(customer_request))
+            if asked_for_photo and not photos:
+                if save_missing_photo_lead(phone, customer_request):
+                    reply = ('כרגע אין לי תמונה מתאימה וזמינה לבקשה שלך. '
+                             'שמרתי פנייה לאלירן דוד הכהן כדי שיטפל בבקשת התמונה באופן אישי.')
+                else:
+                    reply = ('כרגע אין לי תמונה מתאימה וזמינה, ולא הצלחתי לשמור פנייה לטיפול. '
+                             'אפשר לנסות שוב מאוחר יותר.')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             # Gallery captions follow only images successfully accepted by WhatsApp.
             # A send failure must never be described to the customer as a delivered image.
@@ -2826,6 +2863,13 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <td><form class="inlineform" method="post" action="{{url_for('admin_complete_manual_followup',phone=lead.phone)}}">
 <input type="hidden" name="csrf" value="{{csrf}}"><button class="small-button" type="submit">טופל ידנית</button></form></td>
 </tr>{% endfor %}</tbody></table></div></div>{% endif %}
+{% if photo_requests %}<div class="card manual-panel"><h2>בקשות תמונה לטיפול אלירן</h2>
+<div class="tablewrap"><table><thead><tr><th>לקוח</th><th>תמונה שהתבקשה</th><th>פעולה</th></tr></thead><tbody>
+{% for lead in photo_requests %}<tr>
+<td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">{{lead.name or lead.phone}}</a></td>
+<td>{{lead.context.get('missing_photo_request','') if lead.context else ''}}</td>
+<td><a href="{{url_for('admin_lead_detail',phone=lead.phone)}}">פתיחת פנייה</a></td>
+</tr>{% endfor %}</tbody></table></div></div>{% endif %}
 {% if callbacks %}<div class="card callback-panel"><h2>שיחות שצריך לחזור אליהן</h2>
 <div class="tablewrap"><table><thead><tr><th>לקוח</th><th>מועד</th><th>מצב</th><th>פעולה</th></tr></thead><tbody>
 {% for lead in callbacks %}<tr class="{{'overdue' if lead.overdue else ''}}">
@@ -2839,7 +2883,7 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <td>{{lead.callback_time or '—'}}</td><td>{{ lead.updated_local }}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">אין לידים עדיין. שיחות חדשות יופיעו כאן.</td></tr>{% endfor %}</tbody></table></div>{% endif %}</main></body></html>"""
 
-LEAD_STATUSES = ('חדש', 'בטיפול', 'ממתין לחזרה', 'הצעה ניתנה', 'נסגר', 'לא רלוונטי')
+LEAD_STATUSES = ('חדש', 'בטיפול', 'ממתין לחזרה', 'ממתין לתמונה', 'ממתין לתמחור', 'הצעה ניתנה', 'נסגר', 'לא רלוונטי')
 
 
 def admin_enabled():
@@ -2896,7 +2940,7 @@ def admin_leads():
         with db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if q:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at,context
                         FROM glass_leads WHERE phone ILIKE %s OR name ILIKE %s
                         ORDER BY updated_at DESC LIMIT 300""", (f'%{q}%',f'%{q}%'))
                 else:
@@ -2907,11 +2951,12 @@ def admin_leads():
         app.logger.exception('Leads dashboard read failed')
         return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
     manual_followups = sorted((lead for lead in leads if lead['manual_followup_due']), key=lambda lead: lead['last_inbound_at'])
+    photo_requests = [lead for lead in leads if lead['status'] == 'ממתין לתמונה']
     callbacks = [lead for lead in leads if lead['status'] == 'ממתין לחזרה']
     callbacks.sort(key=lambda item: (item['callback_dt'] is None,
                                     item['callback_dt'] or datetime.max.replace(tzinfo=ISRAEL_TZ)))
     return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads,
-                                  callbacks=callbacks, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
+                                  callbacks=callbacks, photo_requests=photo_requests, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
                                   csrf=session['csrf'], q=q), 200
 
 
