@@ -17,7 +17,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
     calculation = draft_record.get("calculation") or {}
     if calculation.get("status") != "draft_not_sent":
         raise NeedsReview("Unverified quotation")
-    amount = Decimal(str(draft_record.get("price_before_vat")))
+    if calculation.get("configuration") != template or draft_record.get("price_before_vat") != calculation.get("price_before_vat"):\n        raise NeedsReview("Preview must match the calculated draft")\n    expected = calculation.get("panel_breakdown") or []\n    if len(expected) != len(panels) or any(\n        entry.get("role") != p.role or entry.get("glass") != p.glass\n        or Decimal(entry.get("width_cm")) != Decimal(str(p.width_cm))\n        or Decimal(entry.get("height_cm")) != Decimal(str(p.height_cm))\n        for entry, p in zip(expected, panels)\n    ):\n        raise NeedsReview("Panel details differ from approved calculation")\n    if bool(Decimal(str(calculation.get("removal_and_disposal_before_vat", "0")))) != demolition_and_disposal:\n        raise NeedsReview("Removal scope differs from calculated draft")\n    amount = Decimal(str(draft_record.get("price_before_vat")))
     if not amount.is_finite() or amount <= 0:
         raise NeedsReview("Invalid quote amount")
     glasses = {p.glass for p in panels}
