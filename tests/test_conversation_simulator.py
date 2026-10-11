@@ -690,3 +690,22 @@ class SimulationHoursIsolationTests(unittest.TestCase):
     def test_simulation_inactive_without_explicit_configuration(self):
         with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', ''):
             self.assertFalse(yossi.simulation_channel_configured())
+
+class VerifiedWebsiteBusinessFactsTests(unittest.TestCase):
+    def test_grounded_company_facts_are_available(self):
+        facts = yossi.WEBSITE_VERIFIED_FACTS
+        for value in ('נתניה', 'אשקלון', 'ירושלים', 'מדידת לייזר',
+                      '10 עד 14 ימי עסקים', 'סיליקון ניטרלי',
+                      'שבע שנים', 'אקסטרה קליר', 'https://dreamofglass.com/'):
+            self.assertIn(value, facts)
+
+    def test_website_guidance_is_exposed_to_actual_model(self):
+        import inspect
+        source = inspect.getsource(yossi.process_message)
+        self.assertIn('WEBSITE_VERIFIED_FACTS', source)
+
+    def test_website_is_not_pricing_or_sending_authority(self):
+        facts = yossi.WEBSITE_VERIFIED_FACTS
+        self.assertIn('אין לייבא תמונות אוטומטית', facts)
+        self.assertIn('להמציא מחיר', facts)
+        self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
