@@ -1324,8 +1324,8 @@ def guard_corner_shower_advice(reply, customer_request, history):
     if re.search(r'₪|ש[״"]ח|שקלים', reply or ''):
         return reply  # Never tamper with verified calculated quotes.
     # Remove only unsolicited sliding; keep tailored advice and any other details.
-    cleaned = re.sub(r'\\s+או\\s+(?:דלתות?\\s+)?הזזה', '', reply.strip())
-    sentences = re.split(r'(?<=[.!?])\\s+', cleaned)
+    cleaned = re.sub(r'\s+או\s+(?:דלתות?\s+)?הזזה', '', reply.strip())
+    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
     kept = [part for part in sentences
             if not re.search(r'הזזה|דלת(?:ות)? נגרר', part)
             and 'מה אתה מעדיף' not in part]
