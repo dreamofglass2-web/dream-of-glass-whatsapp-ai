@@ -41,5 +41,6 @@ def create_offline_quote(store: DurableQuoteStore, quote_id: str, template: str,
         "catalog_version": calculation["catalog_version"],
         "can_send_whatsapp": False,
         "can_approve": False,
+        "preview_finish": finish,
         "calculation": calculation,
     }
