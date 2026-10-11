@@ -48,6 +48,8 @@ class DurableQuoteStore:
         if not value.is_finite() or value <= 0:
             raise QuoteStoreError("Amount must be positive and finite")
         with self._connect() as db:
+            # Lock before reading latest revision; sqlite begins implicitly only on writes.
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT COALESCE(MAX(version), 0) FROM quote_lab_versions WHERE quote_id = ?",
                              (quote_id,)).fetchone()
             revision = row[0] + 1
@@ -60,6 +62,8 @@ class DurableQuoteStore:
     def _transition(self, quote_id, version, target, *, delivery_ref=None,
                     approval_ref=None, specification=None, amount=None):
         with self._connect() as db:
+            # Lock before reading latest revision; sqlite begins implicitly only on writes.
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("""SELECT * FROM quote_lab_versions
                 WHERE quote_id=? ORDER BY version DESC LIMIT 1""", (quote_id,)).fetchone()
             if row is None or row["version"] != version:
