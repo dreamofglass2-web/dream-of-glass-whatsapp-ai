@@ -3,6 +3,8 @@
 No vendor prices, hardware costs or profitability in the customer text.
 """
 from decimal import Decimal
+import hashlib
+import json
 from quote_lab.universal import NeedsReview, FINISH, GLASS
 
 
@@ -28,11 +30,28 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         entry.get("role") != p.role or entry.get("glass") != p.glass
         or Decimal(entry.get("width_cm")) != Decimal(str(p.width_cm))
         or Decimal(entry.get("height_cm")) != Decimal(str(p.height_cm))
+        or entry.get("shape") != p.shape
         for entry, p in zip(expected, panels)
     ):
         raise NeedsReview("Panel details differ from approved calculation")
     if bool(Decimal(str(calculation.get("removal_and_disposal_before_vat", "0")))) != demolition_and_disposal:
         raise NeedsReview("Removal scope differs from calculated draft")
+    # Recompute exactly the fingerprint used when the draft was saved.
+    # A modified display-only panel or quoted scope must never masquerade as
+    # the previously verified specification.
+    canonical_spec = {
+        "template": template,
+        "finish": finish,
+        "handle_style": handle_style,
+        "panels": expected,
+        "removal_and_disposal": demolition_and_disposal,
+        "catalog_version": calculation.get("catalog_version"),
+    }
+    canonical = json.dumps(canonical_spec, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":"))
+    fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if fingerprint != draft_record.get("specification_fingerprint"):
+        raise NeedsReview("Displayed specification differs from saved fingerprint")
     amount = Decimal(str(draft_record.get("price_before_vat")))
     if not amount.is_finite() or amount <= 0:
         raise NeedsReview("Invalid quote amount")
