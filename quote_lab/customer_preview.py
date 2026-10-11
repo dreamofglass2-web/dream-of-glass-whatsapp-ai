@@ -12,7 +12,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         raise NeedsReview("Only offline draft previews are supported")
     if draft_record.get("can_send_whatsapp") is not False:
         raise NeedsReview("Preview requires an explicitly disabled send flag")
-    if finish not in FINISH or not panels:
+    if finish not in FINISH or finish != draft_record.get("preview_finish") or not panels:
         raise NeedsReview("Unpriced or incomplete specification")
     calculation = draft_record.get("calculation") or {}
     if calculation.get("status") != "draft_not_sent":
