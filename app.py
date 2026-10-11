@@ -1450,7 +1450,8 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         result.raise_for_status()
     except Exception:
         # The remote API may have accepted the message before a timeout.
-        # Never automatically repeat this attempt. Review the journal instead.
+        # Block all further sends in this worker batch until manual review.
+        scope['suppress_outbound'] = True
         try:
             mark_outbound_attempt(attempt_key, 'uncertain')
         except Exception:
