@@ -1326,6 +1326,11 @@ def without_emojis(message):
 
 
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
+    # Defense in depth: neither recovered jobs nor alternate code paths may
+    # send a customer message without verified Meta business-lead provenance.
+    if not verified_business_lead(phone):
+        app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
+        raise PermissionError('Outbound blocked: unverified business lead')
     body = without_emojis(body)
     caption = without_emojis(caption)
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
@@ -2191,6 +2196,11 @@ def batch_worker():
                 time.sleep(0.25)
                 continue
             phone, rows = batch
+            if not verified_business_lead(phone):
+                # Older queue rows may predate the webhook admission gate.
+                # Do not interpret attachments or call the AI for those rows.
+                finish_batch(phone, rows, success=True)
+                continue
             combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
             success = process_message(phone, combined, rows)
             # If a correction arrived during composition, keep the entire batch
