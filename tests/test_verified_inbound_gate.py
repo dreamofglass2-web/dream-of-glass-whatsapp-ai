@@ -100,7 +100,7 @@ class VerifiedInboundGateTests(unittest.TestCase):
         with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
              patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})), \
              patch.object(yossi, 'ensure_worker_started'), \
-             patch.object(yossi, 'register_simulation_inbound', return_value=True) as register, \
+             patch.object(yossi, 'register_simulation_inbound', side_effect=lambda p: p == '972501234567') as register, \
              patch.object(yossi, 'verified_business_lead', return_value=True), \
              patch.object(yossi, 'queue_message') as queue:
             self.assertEqual(self.signed_post().status_code, 200)
@@ -108,6 +108,7 @@ class VerifiedInboundGateTests(unittest.TestCase):
             queue.assert_called_once()
             self.payload['entry'][0]['changes'][0]['value']['messages'][0]['from'] = '972509999999'
             self.assertEqual(self.signed_post().status_code, 200)
+            queue.assert_called_once()
 
     def test_business_number_does_not_register_simulation(self):
         with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
