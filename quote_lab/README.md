@@ -19,3 +19,22 @@ This is a **test-only** price calculator and is intentionally NOT imported by th
 Physical pane-to-door mapping, hinge loads and bracing criteria, magnet/seal length and package pricing, structural/custom installations, production-grade fitting validator, durable versioned quote persistence, API integration with the agent, and guaranteed quote-delivery state are not implemented. Unsupported configurations are rejected instead of guessed.
 
 Run offline tests with `python -m unittest discover -s quote_lab -p 'test_*.py' -v`.
+
+### Whole-shower decoration API (offline v2)
+
+Pass `decoration="frosted_stripes"` or `"frosted_middle"` to `Draft`,
+`price_proposed_layout`, `create_offline_quote` and the matching preview call.
+The design applies to every glass panel at 75 ILS/m² once. Legacy pane tags
+are normalized to the same design; conflicting designs are rejected.
+`none` adds no design unless a legacy pane tag selects one. To remove a design,
+clear both the shower selection and all legacy pane tags.
+
+The customer preview names the design once for the whole shower. Its canonical
+fingerprint includes the shower design. The offline catalog version was bumped:
+older saved drafts must be recalculated into a new version before previewing.
+Existing delivery/approval evidence must never be inherited by that new draft.
+No production database migration or WhatsApp integration is performed.
+
+Verified examples before VAT: 80/80 with four clear panels = 2644 ILS,
+with either design = 2884 ILS; 90/90 bronze with two doors = 2828 ILS,
+with either design = 3098 ILS. Panel splits in tests are illustrative.

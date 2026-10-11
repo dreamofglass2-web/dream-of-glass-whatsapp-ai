@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from quote_lab.universal import Draft, NeedsReview, Panel, PANEL_COUNT, REVIEW_ONLY_LAYOUTS, BASE_TEMPLATES, quote
+from quote_lab.universal import Draft, NeedsReview, Panel, PANEL_COUNT, REVIEW_ONLY_LAYOUTS, BASE_TEMPLATES, quote, resolve_shower_decoration
 from quote_lab.hinge_rules import door_hinge_bill
 
 PANEL_ROLES = {
@@ -81,7 +81,8 @@ def decimal_dimension(value) -> Decimal:
 
 
 def validate_panel_plan(template: str, panels: list[NamedPanel], *,
-                        layout_confirmed: bool = False) -> tuple[Panel, ...]:
+                        layout_confirmed: bool = False,
+                        decoration: str = "none") -> tuple[Panel, ...]:
     """Validate explicit pane roles and quantities; never infer a split."""
     if template in REVIEW_ONLY_LAYOUTS or template not in PANEL_ROLES:
         raise NeedsReview("Layout requires owner-approved panel-role mapping")
@@ -89,10 +90,7 @@ def validate_panel_plan(template: str, panels: list[NamedPanel], *,
     actual = Counter(p.role for p in panels)
     if expected != actual or len(panels) != PANEL_COUNT[template]:
         raise NeedsReview("Missing or inconsistent fixed/door panels")
-    selected = {p.decoration for p in panels if p.decoration != "none"}
-    if len(selected) > 1:
-        raise NeedsReview("Cannot mix frosted stripe and middle designs in one shower")
-    shower_decoration = next(iter(selected), "none")
+    shower_decoration = resolve_shower_decoration(panels, decoration)
     result = []
     for pane in panels:
         if pane.shape not in ("rectangle", "step_notch"):
@@ -112,12 +110,14 @@ def price_proposed_layout(template: str, panels: list[NamedPanel], *,
                           step_notch_measured: bool = False,
                           finish: str = "ניקל",
                           handle_style: str = "ידית כפתור",
-                          demolition_and_disposal: bool = False) -> dict:
+                          demolition_and_disposal: bool = False,
+                          decoration: str = "none") -> dict:
     """Calculate an offline DRAFT after explicit layout confirmation only."""
-    checked = validate_panel_plan(template, panels, layout_confirmed=layout_confirmed)
+    checked = validate_panel_plan(template, panels, layout_confirmed=layout_confirmed,
+                                  decoration=decoration)
     hinge_bills = verify_default_door_hardware(template)
     result = quote(Draft(template=template, panels=list(checked), finish=finish,
-                         handle_style=handle_style,
+                         handle_style=handle_style, decoration=decoration,
                          demolition_and_disposal=demolition_and_disposal,
                          measured_and_engineered=step_notch_measured))
     return {

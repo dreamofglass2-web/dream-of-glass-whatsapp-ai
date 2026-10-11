@@ -5,12 +5,12 @@ No vendor prices, hardware costs or profitability in the customer text.
 from decimal import Decimal
 import hashlib
 import json
-from quote_lab.universal import NeedsReview, FINISH, GLASS
+from quote_lab.universal import NeedsReview, FINISH, GLASS, resolve_shower_decoration
 
 
 def render_customer_preview(draft_record, *, template, panels, finish,
                             handle_style="ידית כפתור",
-                            demolition_and_disposal=False):
+                            demolition_and_disposal=False, decoration="none"):
     if draft_record.get("state") != "draft":
         raise NeedsReview("Only offline draft previews are supported")
     if draft_record.get("can_send_whatsapp") is not False:
@@ -26,8 +26,8 @@ def render_customer_preview(draft_record, *, template, panels, finish,
     if calculation.get("configuration") != template or draft_record.get("price_before_vat") != calculation.get("price_before_vat"):
         raise NeedsReview("Preview must match the calculated draft")
     expected = calculation.get("panel_breakdown") or []
-    selected = {p.decoration for p in panels if p.decoration != "none"}
-    if len(selected) > 1 or next(iter(selected), "none") != calculation.get("shower_decoration", "none"):
+    selected = resolve_shower_decoration(panels, decoration)
+    if selected != calculation.get("shower_decoration", "none"):
         raise NeedsReview("Frosted design must match the whole shower quote")
     whole_shower_decoration = calculation.get("shower_decoration", "none")
     if len(expected) != len(panels) or any(
@@ -49,6 +49,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         "finish": finish,
         "handle_style": handle_style,
         "panels": expected,
+        "decoration": whole_shower_decoration,
         "removal_and_disposal": demolition_and_disposal,
         "catalog_version": calculation.get("catalog_version"),
     }
@@ -76,11 +77,11 @@ def render_customer_preview(draft_record, *, template, panels, finish,
         role = {"fixed": "קבוע", "door": "דלת"}.get(panel.role)
         if role is None:
             raise NeedsReview("Unknown panel role")
-        decoration = {"none": "", "frosted_stripes": " · פסים חלבי",
-                      "frosted_middle": " · חלבי באמצע"}.get(whole_shower_decoration)
-        if decoration is None:
-            raise NeedsReview("Unknown frosted decoration")
-        lines.append(f"{index}. {role} — {panel.width_cm}×{panel.height_cm} ס״מ{decoration}")
+        lines.append(f"{index}. {role} — {panel.width_cm}×{panel.height_cm} ס״מ")
+    design_label = {"none": "", "frosted_stripes": "פסים חלבי",
+                    "frosted_middle": "חלבי באמצע"}[whole_shower_decoration]
+    if design_label:
+        lines.append("עיצוב על כל זכוכיות המקלחון: " + design_label)
     if demolition_and_disposal:
         lines.append("כולל פירוק ופינוי מקלחון ישן, לבקשת הלקוח.")
     lines += [
@@ -98,7 +99,7 @@ def render_customer_preview(draft_record, *, template, panels, finish,
 
 def render_current_preview(store, draft_record, *, template, panels, finish,
                            handle_style="ידית כפתור",
-                           demolition_and_disposal=False):
+                           demolition_and_disposal=False, decoration="none"):
     """Only preview the currently stored unsent version and exact fingerprint.
 
     This is a local/offline preview guard, never a sending authorization.
@@ -115,4 +116,4 @@ def render_current_preview(store, draft_record, *, template, panels, finish,
     return render_customer_preview(
         draft_record, template=template, panels=panels, finish=finish,
         handle_style=handle_style,
-        demolition_and_disposal=demolition_and_disposal)
+        demolition_and_disposal=demolition_and_disposal, decoration=decoration)
