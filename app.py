@@ -2306,15 +2306,25 @@ def batch_worker():
                 # Do not interpret attachments or call the AI for those rows.
                 finish_batch(phone, rows, success=True)
                 continue
-            combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
-            success = process_message(phone, combined, rows)
-            # If a correction arrived during composition, keep the entire batch
-            # so it can be reinterpreted together with the correction.
-            if not success and has_new_messages(phone, rows):
-                with lock:
-                    processing.discard(phone)
-                continue
-            finish_batch(phone, rows, success=success)
+            # Stable per-batch fingerprint survives process and service restarts.
+            # Each outbound send gets an ordinal so image+text replies are distinct.
+            _delivery_scope.current = {
+                'fingerprint': hashlib.sha256(
+                    ('|'.join(sorted(str(row[0]) for row in rows))).encode('utf-8')
+                ).hexdigest(),
+                'ordinal': 0,
+            }
+            try:
+                combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
+                success = process_message(phone, combined, rows)
+                # A correction received mid-composition is included on retry.
+                if not success and has_new_messages(phone, rows):
+                    with lock:
+                        processing.discard(phone)
+                    continue
+                finish_batch(phone, rows, success=success)
+            finally:
+                _delivery_scope.current = None
         except Exception:
             app.logger.exception('Batch worker failed')
             time.sleep(2)
