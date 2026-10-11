@@ -4,7 +4,6 @@ No CRM, WhatsApp, production Postgres or network connection. Test-only.
 A production adapter would require explicit rollout and delivery receipt verification.
 """
 import sqlite3
-import re
 from decimal import Decimal, InvalidOperation
 
 
@@ -38,7 +37,7 @@ class DurableQuoteStore:
         return db
 
     def create_draft(self, quote_id, specification, amount, catalog_version):
-        if not isinstance(quote_id, str) or not quote_id.strip() or not isinstance(specification, str) or not re.fullmatch(r"[0-9a-f]{64}", specification) or not isinstance(catalog_version, str) or not catalog_version.strip():
+        if not isinstance(quote_id, str) or not quote_id.strip() or not isinstance(specification, str) or not specification.strip() or not isinstance(catalog_version, str) or not catalog_version.strip():
             raise QuoteStoreError("Missing quote identity, specification or catalog version")
         try:
             value = Decimal(str(amount))
