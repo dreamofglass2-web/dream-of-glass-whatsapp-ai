@@ -709,3 +709,38 @@ class VerifiedWebsiteBusinessFactsTests(unittest.TestCase):
         self.assertIn('אין לייבא תמונות אוטומטית', facts)
         self.assertIn('להמציא מחיר', facts)
         self.assertFalse(yossi.AUTO_FOLLOWUPS_ENABLED)
+
+
+class ConsultativeCornerAndSocialRegression(unittest.TestCase):
+    def test_what_is_up_returns_reciprocal_question(self):
+        for question in ('מה קורה?', 'מה נשמע', 'איך אתה?'):
+            reply = yossi.simple_social_reply(question, [
+                {'role': 'user', 'content': 'שלום'},
+                {'role': 'assistant', 'content': 'היי'},
+                {'role': 'user', 'content': question},
+            ])
+            self.assertIn('מה איתך?', reply)
+
+    def test_corner_shower_does_not_offer_sliding_unasked(self):
+        history = [
+            {'role': 'user', 'content': 'מחפש מקלחון פינתי'},
+            {'role': 'user', 'content': '90 על 90, גובה 200'},
+            {'role': 'user', 'content': 'לא יודע מה אתה ממליץ?'},
+        ]
+        original = 'אפשר שתי דלתות ציר או דלתות הזזה. מה אתה מעדיף?'
+        answer = yossi.guard_corner_shower_advice(original, 'לא יודע מה אתה ממליץ?', history)
+        self.assertIn('דלתות ציר', answer)
+        self.assertNotIn('הזזה', answer)
+        self.assertNotIn('מדידה סופית לפני', answer)
+
+    def test_customer_explicit_corner_sliding_stays_custom_request(self):
+        history = [
+            {'role': 'user', 'content': 'אני רוצה מקלחון פינתי דלתות הזזה'},
+        ]
+        reply = 'הזזה פינתית דורשת תמחור ידני, לא אנחש מחיר.'
+        self.assertEqual(yossi.guard_corner_shower_advice(reply, history[0]['content'], history), reply)
+
+    def test_non_corner_shower_not_changed(self):
+        history = [{'role': 'user', 'content': 'מקלחון חזיתי'}]
+        reply = 'אפשר לשקול הזזה כשהמעבר צר.'
+        self.assertEqual(yossi.guard_corner_shower_advice(reply, history[0]['content'], history), reply)
