@@ -23,6 +23,15 @@ class ProtechHingeTests(unittest.TestCase):
         r = inspect_wall_hinged_door(width_cm=85, height_cm=200)
         self.assertEqual(r["width_note"], "review_alternative_split_or_engineering")
 
+    def test_owner_field_case_is_not_manufacturer_certification(self):
+        r = inspect_wall_hinged_door(width_cm=100, height_cm=240, glass_thickness_mm=10)
+        self.assertTrue(r["owner_field_case_match"])
+        self.assertEqual(r["owner_field_case_hinge_count"], 2)
+        self.assertFalse(r["manufacturer_load_limit_verified"])
+        self.assertFalse(r["engineering_approval"])
+        self.assertFalse(r["send_authorized"])
+        self.assertEqual(r["width_note"], "review_alternative_split_or_engineering")
+
     def test_nonstandard_thickness_is_rejected(self):
         with self.assertRaises(NeedsReview):
             inspect_wall_hinged_door(width_cm=70, height_cm=200, glass_thickness_mm=12)
