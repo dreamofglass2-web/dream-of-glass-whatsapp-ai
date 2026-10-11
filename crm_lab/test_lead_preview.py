@@ -49,3 +49,9 @@ class LeadPreviewTests(unittest.TestCase):
         self.assertEqual(c['manual_followup_completed_at'],'2026-10-11T18:01:00+00:00')
         self.assertIsNone(preview_leads([fixture()])['customers'][0]['last_inbound_at'])
         with self.assertRaises(LeadPreviewError):preview_leads([fixture(last_inbound_at='2026-10-10T18:00:00')])
+
+    def test_creation_time_is_not_inferred_from_updated_or_inbound(self):
+        self.assertIsNone(preview_leads([fixture()])['customers'][0]['source_created_at'])
+        c=preview_leads([fixture(created_at='2026-10-10T20:00:00+03:00')])['customers'][0]
+        self.assertEqual(c['source_created_at'],'2026-10-10T17:00:00+00:00')
+        with self.assertRaises(LeadPreviewError):preview_leads([fixture(created_at='2026-10-10T17:00:00')])
