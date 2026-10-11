@@ -660,3 +660,33 @@ class OwnerDashboardRegressionTests(unittest.TestCase):
         self.assertIn("WHERE state IN ('reserved','uncertain')", source)
         self.assertNotIn('UPDATE yossi_outbound_attempts', source)
         self.assertIn('שליחות לבדיקה ידנית', yossi.LEADS_HTML)
+
+
+class SimulationHoursIsolationTests(unittest.TestCase):
+    def test_test_contact_allowed_outside_business_hours_only(self):
+        from unittest.mock import patch
+        import time
+        test_phone = 'TEST_SIMULATION_PHONE'
+        business_phone = 'TEST_BUSINESS_PHONE'
+        with yossi.lock:
+            original_pending = yossi.pending
+            original_processing = yossi.processing
+            yossi.pending = {
+                business_phone: [('business-mid', 'לקוח', time.monotonic()-30)],
+                test_phone: [('test-mid', 'בדיקה', time.monotonic()-30)],
+            }
+            yossi.processing = set()
+        try:
+            with patch.object(yossi, 'is_yossi_business_hours', return_value=False), \
+                 patch.object(yossi, 'is_simulation_contact', side_effect=lambda p: p == test_phone):
+                batch = yossi.next_batch()
+                self.assertEqual(batch[0], test_phone)
+                self.assertNotIn(business_phone, yossi.processing)
+        finally:
+            with yossi.lock:
+                yossi.pending = original_pending
+                yossi.processing = original_processing
+
+    def test_simulation_inactive_without_explicit_configuration(self):
+        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', ''):
+            self.assertFalse(yossi.simulation_channel_configured())
