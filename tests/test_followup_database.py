@@ -96,6 +96,7 @@ class FollowupPostgresIntegration(unittest.TestCase):
         response = Mock(status_code=200)
         response.raise_for_status.return_value = None
         with patch.object(yossi, "verified_business_lead", return_value=True), \
+             patch.object(yossi, "customer_freeform_send_allowed", return_value=True), \
              patch.object(yossi.requests, "post", return_value=response) as send, \
              patch.object(yossi, "schedule_followup_dry_run"):
             try:
@@ -114,6 +115,7 @@ class FollowupPostgresIntegration(unittest.TestCase):
     def test_network_uncertainty_never_retries_outbound(self):
         phone = "TEST_FOLLOWUP_OUTBOUND_UNCERTAIN"
         with patch.object(yossi, "verified_business_lead", return_value=True), \
+             patch.object(yossi, "customer_freeform_send_allowed", return_value=True), \
              patch.object(yossi.requests, "post", side_effect=OSError("simulated network")) as send, \
              patch.object(yossi, "schedule_followup_dry_run"):
             try:
@@ -131,6 +133,38 @@ class FollowupPostgresIntegration(unittest.TestCase):
                         self.assertEqual(cur.fetchone()[0], "uncertain")
             finally:
                 yossi._delivery_scope.current = None
+
+    def test_send_boundary_checks_inbound_window_against_disposable_db(self):
+        from datetime import timedelta, timezone
+        phone = "TEST_FOLLOWUP_WINDOW"
+        now = datetime.now(timezone.utc)
+        with test_connection() as db:
+            with db.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone,last_inbound_at)
+                    VALUES (%s,%s)
+                    ON CONFLICT(phone) DO UPDATE SET last_inbound_at=EXCLUDED.last_inbound_at
+                """, (phone, now - timedelta(hours=25)))
+        self.assertFalse(yossi.customer_freeform_send_allowed(phone))
+        with test_connection() as db:
+            with db.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET last_inbound_at=%s WHERE phone=%s",
+                            (now - timedelta(minutes=15), phone))
+        self.assertTrue(yossi.customer_freeform_send_allowed(phone))
+
+    def test_expired_window_never_calls_whatsapp_api(self):
+        phone = "TEST_FOLLOWUP_SEND_EXPIRED"
+        with patch.object(yossi, "verified_business_lead", return_value=True), \
+             patch.object(yossi, "customer_freeform_send_allowed", return_value=False), \
+             patch.object(yossi.requests, "post") as post:
+            yossi._delivery_scope.current = {"fingerprint": "TEST_FOLLOWUP_EXPIRED_BATCH",
+                                             "ordinal": 0}
+            try:
+                with self.assertRaises(PermissionError):
+                    yossi.send_whatsapp(phone, body="synthetic test")
+            finally:
+                yossi._delivery_scope.current = None
+            post.assert_not_called()
 
     def test_inbound_timestamp_in_disposable_database(self):
         """Verified inbound time persists, advances and does not send WhatsApp."""
