@@ -55,7 +55,7 @@ PANEL_COUNT = {
 }
 REVIEW_ONLY_LAYOUTS = {"פינתי הרמוניקה", "חצי הרמוניקה + חצי קבוע + דלת"}
 
-CONFIG_VERSION = "offline-v1-2026-10-11"
+CONFIG_VERSION = "offline-v2-whole-shower-2026-10-11"
 MINIMUM = Decimal("2000")
 FIXED = Decimal("1500")
 CONTINGENCY = Decimal("150")
@@ -84,6 +84,7 @@ class Draft:
     demolition_and_disposal: bool = False
     measured_and_engineered: bool = False
     special_hardware_approved: bool = False
+    decoration: str = "none"
 
 
 class NeedsReview(ValueError):
@@ -92,6 +93,17 @@ class NeedsReview(ValueError):
 
 def money(value):
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def resolve_shower_decoration(panels, decoration="none"):
+    """Normalize legacy pane tags into one whole-shower design, or reject conflict."""
+    choices = [decoration, *(p.decoration for p in panels)]
+    if any(choice not in FROSTED_DECORATIONS for choice in choices):
+        raise NeedsReview("Unapproved glass decoration")
+    active = {choice for choice in choices if choice != "none"}
+    if len(active) > 1:
+        raise NeedsReview("Different frosted designs in one shower require clarification")
+    return next(iter(active), "none")
 
 
 def quote(draft: Draft) -> dict:
@@ -108,10 +120,7 @@ def quote(draft: Draft) -> dict:
         raise NeedsReview("Unpriced hardware finish")
     if not draft.panels:
         raise NeedsReview("Missing glass panel dimensions")
-    active_decorations = {p.decoration for p in draft.panels if p.decoration != "none"}
-    if len(active_decorations) > 1:
-        raise NeedsReview("Different frosted designs in one shower require clarification")
-    selected_decoration = next(iter(active_decorations), "none")
+    selected_decoration = resolve_shower_decoration(draft.panels, draft.decoration)
     glass_total = Decimal("0")
     decoration_total = Decimal("0")
     for p in draft.panels:

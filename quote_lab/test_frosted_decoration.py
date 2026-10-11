@@ -33,7 +33,7 @@ class FrostedDecorationTests(unittest.TestCase):
                          Decimal(plain["price_before_vat"]), Decimal("270.00"))
         text = render_current_preview(self.store, stripes, template="פינתי 2 דלתות",
                                       panels=panels, finish="ניקל")["text"]
-        self.assertEqual(text.count("פסים חלבי"), 2)
+        self.assertEqual(text.count("פסים חלבי"), 1)
         self.assertIn("2,774.00", text)
 
     def test_middle_frosted_selection_on_one_panel_prices_entire_shower(self):
@@ -44,7 +44,7 @@ class FrostedDecorationTests(unittest.TestCase):
                          Decimal(plain["price_before_vat"]), Decimal("270.00"))
         text = render_current_preview(self.store, modified, template="פינתי 2 דלתות",
                                       panels=panels, finish="ניקל")["text"]
-        self.assertEqual(text.count("חלבי באמצע"), 2)
+        self.assertEqual(text.count("חלבי באמצע"), 1)
 
     def test_single_selection_prices_all_four_panes(self):
         panels = [
@@ -63,7 +63,7 @@ class FrostedDecorationTests(unittest.TestCase):
         preview = render_current_preview(
             self.store, draft, template="פינתי 2 קבועים + 2 דלתות",
             panels=panels, finish="ניקל")
-        self.assertEqual(preview["text"].count("פסים חלבי"), 4)
+        self.assertEqual(preview["text"].count("פסים חלבי"), 1)
 
     def test_decoration_change_creates_new_fingerprint_and_version(self):
         old, _ = self.quote()

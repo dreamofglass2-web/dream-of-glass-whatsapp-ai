@@ -15,17 +15,19 @@ def create_offline_quote(store: DurableQuoteStore, quote_id: str, template: str,
                          panels: list, *, layout_confirmed: bool = False,
                          finish: str = "ניקל", handle_style: str = "ידית כפתור",
                          demolition_and_disposal: bool = False,
-                         step_notch_measured: bool = False) -> dict:
+                         step_notch_measured: bool = False,
+                         decoration: str = "none") -> dict:
     calculation = price_proposed_layout(
         template, panels, layout_confirmed=layout_confirmed, finish=finish,
         handle_style=handle_style,
         demolition_and_disposal=demolition_and_disposal,
-        step_notch_measured=step_notch_measured)
+        step_notch_measured=step_notch_measured, decoration=decoration)
     specification = {
         "template": template,
         "finish": finish,
         "handle_style": handle_style,
         "panels": calculation["panel_breakdown"],
+        "decoration": calculation["shower_decoration"],
         "removal_and_disposal": demolition_and_disposal,
         "catalog_version": calculation["catalog_version"],
     }
