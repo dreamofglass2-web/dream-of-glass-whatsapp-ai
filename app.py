@@ -399,10 +399,13 @@ def verified_business_lead(phone):
                         SELECT 1
                         FROM glass_leads
                         WHERE phone=%s
-                          AND jsonb_typeof(context->'meta_leads')='object'
-                          AND EXISTS (
-                              SELECT 1 FROM jsonb_each(context->'meta_leads') AS lead(id, details)
-                              WHERE details->>'source'='meta_instant_form'
+                          AND (
+                              (jsonb_typeof(context->'meta_leads')='object'
+                               AND EXISTS (
+                                  SELECT 1 FROM jsonb_each(context->'meta_leads') AS lead(id, details)
+                                  WHERE details->>'source'='meta_instant_form'
+                               ))
+                              OR context->'whatsapp_referral'->>'source'='meta_click_to_whatsapp_ad'
                           )
                           AND COALESCE(context->>'no_followups','false') <> 'true'
                     )
@@ -410,6 +413,42 @@ def verified_business_lead(phone):
                 return bool(cur.fetchone()[0])
     except Exception:
         app.logger.exception('Unable to verify business lead; inbound is blocked')
+        return False
+
+
+
+def persist_verified_whatsapp_ad(phone, message):
+    """Allow click-to-WhatsApp ad replies only from a signed Meta webhook.
+
+    Caller must first validate the Meta HMAC and the business phone_number_id.
+    A regular/private WhatsApp message contains no qualifying referral.
+    """
+    referral = message.get('referral') or {}
+    if (not isinstance(referral, dict)
+            or referral.get('source_type') != 'ad'
+            or not isinstance(referral.get('source_id'), str)
+            or not referral['source_id'].strip()
+            or len(referral['source_id']) > 200
+            or not re.fullmatch(r'9725\d{8}', str(phone or ''))):
+        return False
+    try:
+        ensure_db()
+        provenance = json.dumps({'source': 'meta_click_to_whatsapp_ad',
+                                 'source_id': referral['source_id']},
+                                ensure_ascii=False)
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO glass_leads(phone, context)
+                    VALUES (%s, jsonb_build_object('whatsapp_referral', %s::jsonb))
+                    ON CONFLICT(phone) DO UPDATE SET
+                      context=jsonb_set(COALESCE(glass_leads.context, '{}'::jsonb),
+                                        '{whatsapp_referral}', %s::jsonb, true),
+                      updated_at=now()
+                """, (phone, provenance, provenance))
+        return True
+    except Exception:
+        app.logger.exception('Cannot persist verified ad referral')
         return False
 
 
@@ -2484,6 +2523,11 @@ def webhook():
                 message_id = message.get('id')
                 if not phone or not body:
                     continue
+                # Ad referral can establish business provenance for a new lead.
+                # This is reached only after HMAC and our recipient ID passed.
+                if (isinstance(message.get('referral'), dict)
+                        and message['referral'].get('source_type') == 'ad'):
+                    persist_verified_whatsapp_ad(phone, message)
                 if not verified_business_lead(phone):
                     ignored += 1
                     app.logger.info('INBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
