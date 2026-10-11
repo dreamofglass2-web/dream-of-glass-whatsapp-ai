@@ -2863,6 +2863,13 @@ textarea{width:100%;min-height:90px}.alert{color:#b42318}.success{color:#027a48}
 <td><form class="inlineform" method="post" action="{{url_for('admin_complete_manual_followup',phone=lead.phone)}}">
 <input type="hidden" name="csrf" value="{{csrf}}"><button class="small-button" type="submit">טופל ידנית</button></form></td>
 </tr>{% endfor %}</tbody></table></div></div>{% endif %}
+{% if outbound_review is none %}<div class="card"><p class="alert">לא ניתן לבדוק כרגע את יומן השליחות. יש לבדוק ידנית.</p></div>{% endif %}
+{% if outbound_review %}<div class="card manual-panel"><h2>שליחות לבדיקה ידנית</h2>
+<p class="note">אין ניסיון שליחה חוזר אוטומטי. יש לבדוק ב־WhatsApp אם ההודעה הגיעה.</p>
+<div class="tablewrap"><table><thead><tr><th>מספר לקוח</th><th>מצב</th><th>תאריך רישום</th></tr></thead><tbody>
+{% for attempt in outbound_review %}<tr><td><a href="{{url_for('admin_lead_detail',phone=attempt.phone)}}">{{attempt.phone}}</a></td>
+<td>{{'תוצאה לא ודאית' if attempt.state=='uncertain' else 'לא אומתה שליחה'}}</td>
+<td>{{attempt.created_at}}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
 {% if photo_requests %}<div class="card manual-panel"><h2>בקשות תמונה לטיפול אלירן</h2>
 <div class="tablewrap"><table><thead><tr><th>לקוח</th><th>תמונה שהתבקשה</th><th>פעולה</th></tr></thead><tbody>
 {% for lead in photo_requests %}<tr>
@@ -2944,7 +2951,7 @@ def admin_leads():
                         FROM glass_leads WHERE phone ILIKE %s OR name ILIKE %s
                         ORDER BY updated_at DESC LIMIT 300""", (f'%{q}%',f'%{q}%'))
                 else:
-                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at
+                    cur.execute("""SELECT phone,name,product,status,callback_time,updated_at,last_inbound_at,manual_followup_completed_at,context
                         FROM glass_leads ORDER BY updated_at DESC LIMIT 300""")
                 leads = [decorate_lead(item) for item in cur.fetchall()]
     except Exception:
@@ -2952,11 +2959,25 @@ def admin_leads():
         return 'בעיה זמנית בחיבור למסד הנתונים. נסה שוב בעוד רגע.', 503
     manual_followups = sorted((lead for lead in leads if lead['manual_followup_due']), key=lambda lead: lead['last_inbound_at'])
     photo_requests = [lead for lead in leads if lead['status'] == 'ממתין לתמונה']
+    # Read-only exception list: never automatically retry ambiguous outbound.
+    try:
+        with db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (phone) phone, state, created_at
+                    FROM yossi_outbound_attempts
+                    WHERE state IN ('reserved','uncertain')
+                    ORDER BY phone, created_at DESC LIMIT 100
+                """)
+                outbound_review = [dict(row) for row in cur.fetchall()]
+    except Exception:
+        app.logger.exception('Outbound journal review read failed')
+        outbound_review = None
     callbacks = [lead for lead in leads if lead['status'] == 'ממתין לחזרה']
     callbacks.sort(key=lambda item: (item['callback_dt'] is None,
                                     item['callback_dt'] or datetime.max.replace(tzinfo=ISRAEL_TZ)))
     return render_template_string(LEADS_HTML, logged=True, selected=None, leads=leads,
-                                  callbacks=callbacks, photo_requests=photo_requests, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
+                                  callbacks=callbacks, photo_requests=photo_requests, outbound_review=outbound_review, manual_followups=manual_followups, overdue_count=sum(lead['overdue'] for lead in callbacks),
                                   csrf=session['csrf'], q=q), 200
 
 
