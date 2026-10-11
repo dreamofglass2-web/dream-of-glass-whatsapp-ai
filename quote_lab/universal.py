@@ -33,6 +33,28 @@ BASE_TEMPLATES = {
     "חזית קבוע + דלת": {"ציר קיר זכוכית": 2, "זווית קיר זכוכית": 2, "מגנט חזית": 1, "אטם בלון": 1, "מגב רצפה": 1, "ידית כפתור": 1},
     "פינתי הרמוניקה": {"ציר הרמוניקה": 4, "ציר קיר זכוכית": 4, "ידית כפתור": 4, "מגנט פינתי": 1, "אטם בלון": 2, "אטם כיסא": 2, "מגב רצפה": 1},
 }
+# Additional starter templates copied from the existing business BOM. All quotes
+# remain offline drafts, subject to actual fitting and owner review.
+BASE_TEMPLATES.update({
+    "חזית 2 דלתות": {"ציר קיר זכוכית": 4, "ידית כפתור": 2, "מגנט חזית": 1, "אטם בלון": 2, "מגב רצפה": 1},
+    "פינתי 2 קבועים + דלת": {"זווית קיר זכוכית": 4, "ציר זכוכית זכוכית": 2, "ידית כפתור": 1, "אטם בלון": 1, "מגנט פינתי": 1, "מגב רצפה": 1},
+    "חצי הרמוניקה + חצי קבוע + דלת": {"ציר קיר זכוכית": 2, "ציר זכוכית זכוכית": 2, "ציר הרמוניקה": 2, "ידית כפתור": 2, "ידית מגבת": 1, "מגנט פינתי": 1, "אטם בלון": 2, "אטם כיסא": 1, "מגב רצפה": 1},
+    "קבוע בלבד": {"זווית קיר זכוכית": 2, "מוט חיזוק": 1},
+    "אמבטיון קבוע + דלת": {"ציר זכוכית זכוכית": 2, "זווית קיר זכוכית": 2, "ידית כפתור": 1, "אטם בלון": 1, "מגב רצפה": 1},
+    "אמבטיון 2 קבועים + דלת": {"ציר זכוכית זכוכית": 2, "זווית קיר זכוכית": 4, "מגנט חזית": 1, "מגב רצפה": 1, "אטם בלון": 1, "ידית כפתור": 1},
+    "אמבטיון קבוע + 2 דלתות": {"ציר קיר זכוכית": 2, "ציר זכוכית זכוכית": 2, "זווית קיר זכוכית": 2, "מגנט חזית": 1, "מגב רצפה": 1, "אטם בלון": 2, "ידית כפתור": 2},
+})
+# Only layouts with an unambiguous number of physical glass panes have an
+# automatic count check. Others require an explicitly reviewed panel layout.
+PANEL_COUNT = {
+    "פינתי 2 קבועים + 2 דלתות": 4, "פינתי 2 דלתות": 2,
+    "פינתי קבוע + דלת": 2, "פינתי 2 קבועים + דלת": 3,
+    "חזית קבוע + דלת": 2, "חזית 2 דלתות": 2,
+    "קבוע בלבד": 1, "אמבטיון קבוע + דלת": 2,
+    "אמבטיון 2 קבועים + דלת": 3, "אמבטיון קבוע + 2 דלתות": 3,
+}
+REVIEW_ONLY_LAYOUTS = {"פינתי הרמוניקה", "חצי הרמוניקה + חצי קבוע + דלת"}
+
 CONFIG_VERSION = "offline-v1-2026-10-11"
 MINIMUM = Decimal("2000")
 FIXED = Decimal("1500")
@@ -71,6 +93,11 @@ def money(value):
 def quote(draft: Draft) -> dict:
     if draft.template not in BASE_TEMPLATES and draft.template not in SLIDING_KITS:
         raise NeedsReview("Unknown shower layout; needs approved hardware specification")
+    if draft.template in REVIEW_ONLY_LAYOUTS:
+        raise NeedsReview("Folding configuration requires panel-layout and fitting review")
+    expected_panels = PANEL_COUNT.get(draft.template)
+    if expected_panels is not None and len(draft.panels) != expected_panels:
+        raise NeedsReview("Number of panels does not match the chosen layout")
     if draft.finish not in FINISH:
         raise NeedsReview("Unpriced hardware finish")
     if not draft.panels:
