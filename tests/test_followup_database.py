@@ -95,7 +95,8 @@ class FollowupPostgresIntegration(unittest.TestCase):
         phone = "TEST_FOLLOWUP_OUTBOUND_OK"
         response = Mock(status_code=200)
         response.raise_for_status.return_value = None
-        with patch.object(yossi, "verified_business_lead", return_value=True), \
+        with patch.object(yossi, "BUSINESS_AUTO_REPLY_ENABLED", True), \
+             patch.object(yossi, "verified_business_lead", return_value=True), \
              patch.object(yossi, "customer_freeform_send_allowed", return_value=True), \
              patch.object(yossi.requests, "post", return_value=response) as send, \
              patch.object(yossi, "schedule_followup_dry_run"):
@@ -114,7 +115,8 @@ class FollowupPostgresIntegration(unittest.TestCase):
 
     def test_network_uncertainty_never_retries_outbound(self):
         phone = "TEST_FOLLOWUP_OUTBOUND_UNCERTAIN"
-        with patch.object(yossi, "verified_business_lead", return_value=True), \
+        with patch.object(yossi, "BUSINESS_AUTO_REPLY_ENABLED", True), \
+             patch.object(yossi, "verified_business_lead", return_value=True), \
              patch.object(yossi, "customer_freeform_send_allowed", return_value=True), \
              patch.object(yossi.requests, "post", side_effect=OSError("simulated network")) as send, \
              patch.object(yossi, "schedule_followup_dry_run"):
