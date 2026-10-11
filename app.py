@@ -2943,6 +2943,31 @@ def admin_update_lead(phone):
         return 'שמירה נכשלה', 503
     return redirect(url_for('admin_lead_detail', phone=phone))
 
+@app.route('/admin/leads/<phone>/complete-manual-followup', methods=['POST'])
+def admin_complete_manual_followup(phone):
+    gate = admin_required()
+    if gate:
+        return gate
+    if not hmac.compare_digest(request.form.get('csrf', ''), session.get('csrf', 'none')):
+        abort(403)
+    try:
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE glass_leads SET manual_followup_completed_at=now()
+                    WHERE phone=%s AND last_inbound_at IS NOT NULL
+                      AND status IN ('חדש', 'בטיפול', 'הצעה ניתנה')
+                      AND (manual_followup_completed_at IS NULL
+                           OR manual_followup_completed_at < last_inbound_at)
+                      AND last_inbound_at <= now() - interval '24 hours'
+                """, (phone,))
+    except Exception:
+        app.logger.exception('Could not complete manual followup')
+        return 'שמירת טיפול ידני נכשלה', 503
+    return redirect(url_for('admin_leads'))
+
+
 @app.route('/admin/leads/<phone>/complete-callback', methods=['POST'])
 def admin_complete_callback(phone):
     gate = admin_required()
