@@ -13,6 +13,7 @@ from quote_lab.builder import NamedPanel
 from quote_lab.durable_store import QuoteStoreError
 from quote_lab.postgres_store import PostgresQuoteStore
 from quote_lab.workflow import create_offline_quote, restore_offline_quote
+from quote_lab.simulator import QuoteSimulation, SimulatedDelivery, SimulatedApproval, run_owner_simulation
 
 URL = os.environ.get("QUOTE_LAB_TEST_DATABASE_URL")
 if not URL:
@@ -186,6 +187,29 @@ class PostgresQuoteIntegrationTests(unittest.TestCase):
     def test_superuser_connection_is_refused(self):
         with self.assertRaises(QuoteStoreError):
             PostgresQuoteStore("postgresql://tester:disposable-test-only@127.0.0.1:5432/quote_lab_test")
+
+    def test_full_owner_simulation_runs_on_real_postgres(self):
+        result = run_owner_simulation(self.store, quote_id="simulation-pg-" + uuid4().hex)
+        self.assertEqual(result["real_messages_sent"], 0)
+        self.assertEqual([r["price_before_vat"] for r in result["versions"]],
+                         ["2828.00", "3098.00", "3198.00", "3448.00"])
+        self.assertEqual([r["state"] for r in result["versions"]], ["approved","draft","draft","draft"])
+        self.assertEqual(len(result["checks"]), 7)
+
+    def test_simulated_receipt_and_approval_replay_after_reconnect(self):
+        identity = "simulation-pg-replay-" + uuid4().hex
+        simulator = QuoteSimulation(self.store)
+        draft = simulator.create(identity, "פינתי 2 דלתות", self.panels, layout_confirmed=True)
+        queued = simulator.queue_preview(identity, 1)
+        delivery = SimulatedDelivery(identity, 1, queued["message_id"], "delivered")
+        simulator.delivery(delivery)
+        approval = SimulatedApproval(identity, 1, "sim-approval-" + uuid4().hex,
+                                      draft["specification_fingerprint"], "2828", True, True)
+        approved = simulator.approve(approval)
+        again = QuoteSimulation(PostgresQuoteStore(URL))
+        self.assertEqual(again.delivery(delivery), approved)
+        self.assertEqual(again.approve(approval), approved)
+        self.assertEqual(len(self.store.history(identity)), 1)
 
     def test_public_schema_remains_untouched(self):
         with self.store._transaction() as cur:
