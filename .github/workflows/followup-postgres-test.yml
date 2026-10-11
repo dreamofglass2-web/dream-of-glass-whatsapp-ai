@@ -4,6 +4,7 @@ on:
     paths:
       - 'app.py'
       - 'tests/test_followup_database.py'
+      - 'tests/test_verified_inbound_gate.py'
       - '.github/workflows/followup-postgres-test.yml'
   workflow_dispatch:
 jobs:
@@ -33,4 +34,6 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - name: Run disposable database tests; never send WhatsApp
-        run: python -m unittest discover -s tests -p test_followup_database.py -v
+        run: |
+          python -m unittest discover -s tests -p test_followup_database.py -v
+          python -m unittest discover -s tests -p test_verified_inbound_gate.py -v
