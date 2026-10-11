@@ -35,6 +35,12 @@ logging.basicConfig(level=logging.INFO)
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN', 'dream_of_glass_verify')
 WHATSAPP_TOKEN = os.getenv('whatsapp_token') or os.getenv('WHATSAPP_TOKEN', '')
 PHONE_NUMBER_ID = os.getenv('PHONE_NUMBER_ID', '1280310741842089')
+# Disabled by default. Configure a DISTINCT Meta test number ID AND exact testers.
+SIMULATION_PHONE_NUMBER_ID = os.getenv('SIMULATION_PHONE_NUMBER_ID', '').strip()
+SIMULATION_ALLOWED_SENDERS = frozenset(
+    v.strip() for v in os.getenv('SIMULATION_ALLOWED_SENDERS', '').split(',')
+    if re.fullmatch(r'9725\d{8}', v.strip())
+)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
 SEND_QUOTES = os.getenv('SEND_QUOTES', 'true').lower() == 'true'  # Only validated prices; set false to disable
@@ -411,6 +417,48 @@ def remove_processed_inbound_messages(phone, rows):
 
 
 
+def simulation_channel_configured():
+    """Never confuse the public business number with the test number."""
+    return bool(SIMULATION_PHONE_NUMBER_ID
+                and SIMULATION_PHONE_NUMBER_ID != str(PHONE_NUMBER_ID)
+                and SIMULATION_ALLOWED_SENDERS)
+
+
+def is_simulation_contact(phone):
+    """Verify a previously signed test inbound plus an exact allowlisted sender."""
+    if not simulation_channel_configured() or phone not in SIMULATION_ALLOWED_SENDERS:
+        return False
+    try:
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COALESCE(context->>'simulation_recipient_id','')=%s
+                    FROM glass_leads WHERE phone=%s
+                """, (SIMULATION_PHONE_NUMBER_ID, phone))
+                row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception:
+        app.logger.exception('Simulation verification unavailable')
+        return False
+
+
+def register_simulation_inbound(phone):
+    """Called only after a signed Meta webhook from our configured test number."""
+    if not simulation_channel_configured() or phone not in SIMULATION_ALLOWED_SENDERS:
+        return False
+    ensure_db()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO glass_leads(phone,context)
+                VALUES (%s,jsonb_build_object('simulation_recipient_id',%s::text))
+                ON CONFLICT(phone) DO UPDATE SET
+                    context=jsonb_set(COALESCE(glass_leads.context,'{}'::jsonb),
+                                      '{simulation_recipient_id}',to_jsonb(%s::text),true)
+            """, (phone, SIMULATION_PHONE_NUMBER_ID, SIMULATION_PHONE_NUMBER_ID))
+    return True
+
+
 def verified_business_lead(phone):
     """Fail closed: only a verified Meta instant-form lead may receive AI replies.
 
@@ -419,6 +467,8 @@ def verified_business_lead(phone):
     """
     if not phone or not re.fullmatch(r'9725\d{8}', str(phone)):
         return False
+    if is_simulation_contact(phone):
+        return True
     try:
         ensure_db()
         with db_connection() as conn:
@@ -534,11 +584,11 @@ def earliest_followup_at(last_outbound_at):
 def next_batch():
     # Do not process or answer WhatsApp customer messages outside operating hours.
     # Queued messages currently live in memory; durable recovery is separate work.
-    if not is_yossi_business_hours():
-        return None
     with lock:
         now = time.monotonic()
         for phone, messages in list(pending.items()):
+            if not is_yossi_business_hours() and not is_simulation_contact(phone):
+                continue
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
                 continue
             # Old messages remain stored rather than causing an unauthorized
@@ -1481,7 +1531,8 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         return None
     body = without_emojis(body)
     caption = without_emojis(caption)
-    url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
+    recipient_id = SIMULATION_PHONE_NUMBER_ID if is_simulation_contact(phone) else PHONE_NUMBER_ID
+    url = f'https://graph.facebook.com/v26.0/{recipient_id}/messages'
     payload = {'messaging_product':'whatsapp','to':phone}
     if image_url:
         payload.update({'type':'image','image':{'link':image_url,'caption':caption or ''}})
@@ -2699,8 +2750,11 @@ def webhook():
             statuses += len(value.get('statuses', []))
             metadata = value.get('metadata') or {}
             # A webhook can carry traffic for more than one business number.
-            # No outbound reply is allowed unless the recipient is ours.
-            if str(metadata.get('phone_number_id') or '') != str(PHONE_NUMBER_ID):
+            # Business and simulation are different Meta phone-number IDs.
+            recipient_id = str(metadata.get('phone_number_id') or '')
+            simulation_inbound = (simulation_channel_configured()
+                                  and recipient_id == SIMULATION_PHONE_NUMBER_ID)
+            if recipient_id != str(PHONE_NUMBER_ID) and not simulation_inbound:
                 ignored += len(value.get('messages', []))
                 continue
             for message in value.get('messages', []):
@@ -2733,6 +2787,14 @@ def webhook():
                 if (isinstance(message.get('referral'), dict)
                         and message['referral'].get('source_type') == 'ad'):
                     persist_verified_whatsapp_ad(phone, message)
+                if simulation_inbound:
+                    try:
+                        if not register_simulation_inbound(phone):
+                            ignored += 1
+                            continue
+                    except Exception:
+                        app.logger.exception('Failed to register test inbound')
+                        return 'Simulation storage unavailable', 503
                 if not verified_business_lead(phone):
                     ignored += 1
                     app.logger.info('INBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
