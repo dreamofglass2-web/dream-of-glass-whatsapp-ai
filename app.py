@@ -1302,6 +1302,33 @@ def avoid_repeated_dimensions(reply, facts, body):
     return (base + ' ' if base else '') + 'אם נוח לך, אפשר לשלוח תמונה של אזור המקלחת כדי שאוכל לכוון אותך גם בלי מידות.'
 
 
+def guard_corner_shower_advice(reply, customer_request, history):
+    """For corner showers, do not introduce sliding as a suggested option.
+
+    Explicit requests for corner sliding are a different workflow: they must
+    not be priced automatically and can be handled as a custom quote.
+    """
+    customer_turns = [customer_written_text(m.get('content', ''))
+                      for m in history if m.get('role') == 'user']
+    all_customer = ' '.join(customer_turns)
+    if not ('מקלחון' in all_customer and 'פינתי' in all_customer):
+        return reply
+    # The customer may explicitly request a sliding model: don't overrule
+    # their choice; existing manual custom-quote logic handles this case.
+    if re.search(r'(?:רוצה|מבקש|צריך|מעוניין|מעדיף|מחפש).{0,55}הזזה|'
+                 r'דלתות? הזזה|מקלחון פינתי הזזה', all_customer):
+        return reply
+    if not re.search(r'הזזה|דלת נגררת|דלתות נגררות', reply or ''):
+        return reply
+    # Only revise advice, never a validated calculator quote.
+    if re.search(r'₪|ש[״"]ח|שקלים', reply or ''):
+        return reply
+    return ('למקלחון פינתי הייתי ממליץ להתחיל משתי דלתות ציר שנפתחות בצורה נוחה, '
+            'ולבדוק בשטח את כיוון הפתיחה והמרווחים. כך אפשר לתכנן כניסה נוחה '
+            'בלי להעמיס על החלל. אם תרצה מחיר, נוכל להשלים את פרטי המפרט '
+            'להצעה מאומתת לפני מדידה סופית.')
+
+
 def calculate_quote(data):
     configuration = data.get('configuration')
     glass_type = data.get('glass_type')
@@ -1754,7 +1781,7 @@ def simple_social_reply(body, history=None):
         return 'היי 😊 מה שלומך?' if prior_user_count == 0 else 'היי 😊'
     if well_being or both or status:
         if any(phrase in normalized for phrase in ('איך אתה', 'מה שלומך', 'מה איתך', 'מה נשמע', 'מה קורה')):
-            return 'הכול טוב אצלי, תודה ששאלת 😊' if prior_user_count else 'הכול טוב אצלי, תודה ששאלת 😊 איך אפשר לעזור?'
+            return 'הכול טוב, תודה ששאלת. מה איתך?'
         return 'כיף לשמוע 😊'
     return None
 
@@ -1989,6 +2016,7 @@ def process_message(phone, body, batch_rows=None):
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
+            reply = guard_corner_shower_advice(reply, customer_request, history)
             # Keep the hardware finish question open-ended unless the customer asks for available finishes.
             finish_options_requested = bool(re.search(
                 r'איזה\s+(?:גוונים|צבעים)\s+(?:יש|קיימים)|מה\s+(?:הגוונים|הצבעים)|'
@@ -2318,6 +2346,7 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'סליחה, ניסיתי לשלוח תמונות אבל השליחה לא הצליחה כרגע. לא אטען שהן נשלחו. אפשר לנסות שוב מעט מאוחר יותר.'
                 elif failed_photos:
                     reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
+            reply = guard_corner_shower_advice(reply, customer_request, history)
             # Guarantee a warm introduction for the first substantive customer turn.
             # Model-generated replies may bypass the quote fallback, so apply at send time.
             if len(history) == 1 and re.search(r'מקלחון|אמבטיון|זכוכית', customer_request):
