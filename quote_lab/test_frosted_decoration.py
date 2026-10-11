@@ -33,18 +33,37 @@ class FrostedDecorationTests(unittest.TestCase):
                          Decimal(plain["price_before_vat"]), Decimal("270.00"))
         text = render_current_preview(self.store, stripes, template="פינתי 2 דלתות",
                                       panels=panels, finish="ניקל")["text"]
-        self.assertIn("פסים חלבי", text)
+        self.assertEqual(text.count("פסים חלבי"), 2)
         self.assertIn("2,774.00", text)
 
-    def test_middle_frosted_on_one_panel_uses_only_that_panel_area(self):
+    def test_middle_frosted_selection_on_one_panel_prices_entire_shower(self):
         plain, _ = self.quote()
         modified, panels = self.quote("frosted_middle")
-        self.assertEqual(modified["calculation"]["frosted_decoration_charge"], "135.00")
+        self.assertEqual(modified["calculation"]["frosted_decoration_charge"], "270.00")
         self.assertEqual(Decimal(modified["price_before_vat"]) -
-                         Decimal(plain["price_before_vat"]), Decimal("135.00"))
+                         Decimal(plain["price_before_vat"]), Decimal("270.00"))
         text = render_current_preview(self.store, modified, template="פינתי 2 דלתות",
                                       panels=panels, finish="ניקל")["text"]
-        self.assertIn("חלבי באמצע", text)
+        self.assertEqual(text.count("חלבי באמצע"), 2)
+
+    def test_single_selection_prices_all_four_panes(self):
+        panels = [
+            NamedPanel("fixed", 40, 200, "שקופה", decoration="frosted_stripes"),
+            NamedPanel("fixed", 40, 200, "שקופה"),
+            NamedPanel("door", 40, 200, "שקופה"),
+            NamedPanel("door", 40, 200, "שקופה"),
+        ]
+        draft = create_offline_quote(
+            self.store, "all-four", "פינתי 2 קבועים + 2 דלתות",
+            panels, layout_confirmed=True)
+        self.assertEqual(draft["calculation"]["frosted_decoration_charge"], "240.00")
+        self.assertEqual(draft["price_before_vat"], "2884.00")
+        self.assertTrue(all(p["decoration"] == "frosted_stripes"
+                            for p in draft["calculation"]["panel_breakdown"]))
+        preview = render_current_preview(
+            self.store, draft, template="פינתי 2 קבועים + 2 דלתות",
+            panels=panels, finish="ניקל")
+        self.assertEqual(preview["text"].count("פסים חלבי"), 4)
 
     def test_decoration_change_creates_new_fingerprint_and_version(self):
         old, _ = self.quote()
@@ -53,11 +72,9 @@ class FrostedDecorationTests(unittest.TestCase):
         self.assertNotEqual(old["specification_fingerprint"],
                             new["specification_fingerprint"])
 
-    def test_both_types_not_charged_twice_for_one_panel(self):
-        normal, _ = self.quote()
-        other, _ = self.quote("frosted_stripes", "frosted_middle")
-        self.assertEqual(Decimal(other["price_before_vat"]) -
-                         Decimal(normal["price_before_vat"]), Decimal("270.00"))
+    def test_mixed_frosted_designs_are_rejected(self):
+        with self.assertRaises(NeedsReview):
+            self.quote("frosted_stripes", "frosted_middle")
 
     def test_unapproved_decoration_is_rejected(self):
         with self.assertRaises(NeedsReview):
