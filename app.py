@@ -5,6 +5,7 @@ import threading
 import time
 import re
 import hmac
+import hashlib
 import secrets
 import base64
 import io
@@ -52,6 +53,7 @@ callback_leads = {}  # Temporary in-memory leads until a persistent dashboard is
 worker_thread = None
 worker_pid = None
 worker_start_lock = threading.Lock()
+_delivery_scope = threading.local()  # Per-batch outbound idempotency journal
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
 APP_SECRET = os.getenv('META_APP_SECRET', '')
 MEDIA_VISION_MODEL = os.getenv('MEDIA_VISION_MODEL', 'gpt-4.1-mini')
@@ -1364,12 +1366,59 @@ def without_emojis(message):
     return re.sub(r' {2,}', ' ', EMOJI_PATTERN.sub('', str(message))).strip()
 
 
+def ensure_outbound_attempts_table():
+    """At-most-once send journal. Ambiguous API outcomes require manual review."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS yossi_outbound_attempts (
+                    attempt_key TEXT PRIMARY KEY,
+                    phone TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'reserved',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+
+
+def reserve_outbound_attempt(attempt_key, phone):
+    """Commit a durable send intent BEFORE calling WhatsApp."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO yossi_outbound_attempts(attempt_key, phone)
+                VALUES (%s, %s) ON CONFLICT(attempt_key) DO NOTHING
+                RETURNING attempt_key
+            """, (attempt_key, phone))
+            return cur.fetchone() is not None
+
+
+def mark_outbound_attempt(attempt_key, state):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE yossi_outbound_attempts
+                SET state=%s, updated_at=now()
+                WHERE attempt_key=%s
+            """, (state, attempt_key))
+
+
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
     if not verified_business_lead(phone):
         app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
         raise PermissionError('Outbound blocked: unverified business lead')
+    scope = getattr(_delivery_scope, 'current', None)
+    if not scope:
+        raise PermissionError('Outbound blocked: missing worker batch context')
+    scope['ordinal'] += 1
+    attempt_key = hashlib.sha256(
+        (scope['fingerprint'] + ':' + str(scope['ordinal'])).encode('utf-8')
+    ).hexdigest()
+    if not reserve_outbound_attempt(attempt_key, phone):
+        app.logger.warning('OUTBOUND_DUPLICATE_SUPPRESSED phone_suffix=%s', str(phone)[-4:])
+        return None
     body = without_emojis(body)
     caption = without_emojis(caption)
     url = f'https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages'
@@ -1378,9 +1427,23 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         payload.update({'type':'image','image':{'link':image_url,'caption':caption or ''}})
     else:
         payload.update({'type':'text','text':{'body':body}})
-    result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
-    app.logger.info('WhatsApp send status: %s', result.status_code)
-    result.raise_for_status()
+    try:
+        result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
+        app.logger.info('WhatsApp send status: %s', result.status_code)
+        result.raise_for_status()
+    except Exception:
+        # The remote API may have accepted the message before a timeout.
+        # Never automatically repeat this attempt. Review the journal instead.
+        try:
+            mark_outbound_attempt(attempt_key, 'uncertain')
+        except Exception:
+            app.logger.exception('Outbound journal status update failed')
+        raise
+    try:
+        mark_outbound_attempt(attempt_key, 'sent')
+    except Exception:
+        # A successful send must NOT be retried because journal write failed.
+        app.logger.exception('Outbound sent; journal completion update failed')
     # Store a candidate followup time. No followup message is ever sent here.
     if not image_url:
         schedule_followup_dry_run(phone)
@@ -2267,6 +2330,7 @@ def ensure_worker_started():
                 ensure_db()
                 ensure_followup_table()
                 ensure_inbound_queue_table()
+                ensure_outbound_attempts_table()
                 restore_inbound_queue()
             except Exception:
                 app.logger.exception('Database schema initialization failed; worker will not start')
