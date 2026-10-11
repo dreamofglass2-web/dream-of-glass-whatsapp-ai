@@ -1411,6 +1411,18 @@ def calculate_quote(data):
     return round(max(2000, amount), 2)
 
 
+OLD_SHOWER_REMOVAL_DISPOSAL_PRICE_PRE_VAT = 250
+
+
+def removal_requested(text):
+    text = str(text or '')
+    if 'לא צריך פירוק' in text or 'בלי פירוק' in text or 'ללא פירוק' in text:
+        return False
+    if 'פירוק' in text and ('פינוי' in text or 'מקלחון' in text):
+        return True
+    return None
+
+
 def quote_intent(text):
     return bool(re.search(r'מחיר|כמה\s+(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות', str(text or '')))
 
