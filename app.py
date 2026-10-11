@@ -1631,6 +1631,9 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.warning('Could not clear callback after opt-out')
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], safe_context)
+            if refuses_further_contact(body):
+                # Explicit no-contact request: persist suppression, no reply.
+                return True
             send_whatsapp(phone, body=reply)
             return True
 
