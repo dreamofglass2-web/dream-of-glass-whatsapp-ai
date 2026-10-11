@@ -38,3 +38,28 @@ No production database migration or WhatsApp integration is performed.
 Verified examples before VAT: 80/80 with four clear panels = 2644 ILS,
 with either design = 2884 ILS; 90/90 bronze with two doors = 2828 ILS,
 with either design = 3098 ILS. Panel splits in tests are illustrative.
+
+### Restart-safe isolated CRM drafts
+
+`create_offline_quote` now returns `customer_preview_text` and persists all
+quote content atomically. `restore_offline_quote(store, quote_id)` reconstructs
+the current draft after restart without losing specification or customer text.
+`store.snapshot(quote_id, version)` reads historical content for local review;
+it does not authorize sending. Internal calculation costs stay out of the
+customer preview. No live CRM connection is made.
+
+Offline arithmetic comparison with the current `app.py` calculator source
+(`test_live_calculator_comparison.py`, without importing or executing the app):
+
+| Case | Current calculator source | Offline calculator | Difference |
+| --- | ---: | ---: | ---: |
+| 80/80 clear, two fixed + two doors | 2644 | 2644 | 0 |
+| 90/90 bronze, two doors | 2828 | 2828 | 0 |
+| 90/90 bronze + whole-shower frosted design | 2828 | 3098 | +270 |
+| 90/90 bronze + explicitly requested removal | 2828 | 3078 | +250 |
+| 90/90 bronze + towel handles | 2928 | 2928 | 0 |
+
+All amounts are ILS before VAT. The current calculator function does not apply
+the new design/removal input fields; these differences are expected additions
+in the lab, not live price changes. This is a source-level calculation comparison,
+not proof that a customer received a price or a measurement was approved.
