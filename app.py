@@ -1415,12 +1415,28 @@ def mark_outbound_attempt(attempt_key, state):
             """, (state, attempt_key))
 
 
+def customer_freeform_send_allowed(phone):
+    """Fail closed at the actual send boundary, not only at batch admission."""
+    try:
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT last_inbound_at FROM glass_leads WHERE phone=%s", (phone,))
+                row = cur.fetchone()
+        return bool(row and freeform_whatsapp_window_valid(row[0]))
+    except Exception:
+        app.logger.exception('Could not verify WhatsApp conversation window')
+        return False
+
+
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
     if not verified_business_lead(phone):
         app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
         raise PermissionError('Outbound blocked: unverified business lead')
+    if not customer_freeform_send_allowed(phone):
+        app.logger.warning('OUTBOUND_BLOCKED_EXPIRED_WINDOW phone_suffix=%s', str(phone)[-4:])
+        raise PermissionError('Outside WhatsApp 24h customer service window')
     scope = getattr(_delivery_scope, 'current', None)
     if not scope:
         raise PermissionError('Outbound blocked: missing worker batch context')
