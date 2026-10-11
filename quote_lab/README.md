@@ -82,3 +82,21 @@ creation and restart workflow can use it unchanged. No application import or liv
 connection is added. Real integration tests cover exact owner prices, changes,
 parallel snapshots, a stale transition waiting behind a new version, duplicate
 receipt/approval references, partial-write disconnect, restore and corruption.
+
+### Full synthetic delivery/approval simulation
+
+Run `python -m quote_lab.simulator` for the complete owner review scenario in a
+temporary SQLite database. See `OWNER_SIMULATION_REVIEW.md` for Hebrew customer
+previews and `owner_simulation_example.json` for the reproducible results.
+
+`QuoteSimulation` binds synthetic message IDs to the exact quote ID, revision,
+fingerprint and amount. Queued/accepted/sent/failed transport events never mark a
+quote delivered. Synthetic delivered/read receipts can transition a current draft;
+approval requires both explicit price and specification acceptance. Receipt and
+approval replay is idempotent, including after reconnect. New versions reject old
+events and never inherit evidence. Only simulation-prefixed identities and typed
+synthetic events are supported. There is no natural-language consent parser.
+
+The same scenario and reconnect/replay tests run on the disposable PostgreSQL
+CI database. These are artificial events, not a WhatsApp transport, Meta webhook
+verification, CRM production integration, or customer/go-live permission.

@@ -95,7 +95,7 @@ class IsolationAcceptanceTests(unittest.TestCase):
     def test_offline_lab_has_no_meta_or_crm_network_imports(self):
         root = Path(__file__).resolve().parent
         for name in ("universal.py", "builder.py", "workflow.py",
-                     "customer_preview.py", "durable_store.py",
+                     "customer_preview.py", "durable_store.py", "simulator.py",
                      "hinge_rules.py", "side_dimensions.py"):
             source = (root / name).read_text(encoding="utf-8")
             tree = ast.parse(source)

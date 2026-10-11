@@ -1,0 +1,66 @@
+{
+  "mode": "simulation_only",
+  "real_messages_sent": 0,
+  "delivery_and_approval_evidence": "synthetic_only",
+  "price_basis": "ILS before VAT",
+  "checks": [
+    {
+      "check": "approval_before_delivery",
+      "result": "blocked_as_expected"
+    },
+    {
+      "check": "api_acceptance_is_not_delivery",
+      "result": "passed"
+    },
+    {
+      "check": "price_only_approval",
+      "result": "blocked_as_expected"
+    },
+    {
+      "check": "duplicate_receipts_and_approval_are_idempotent",
+      "result": "passed"
+    },
+    {
+      "check": "old_version_approval_after_change",
+      "result": "blocked_as_expected"
+    },
+    {
+      "check": "old_delivery_after_change",
+      "result": "blocked_as_expected"
+    },
+    {
+      "check": "latest_draft_restores_exactly",
+      "result": "passed"
+    }
+  ],
+  "versions": [
+    {
+      "version": 1,
+      "price_before_vat": "2828.00",
+      "state": "approved",
+      "customer_text": "הצעת מחיר למקלחון — טיוטה לעיון\nתצורה: פינתי 2 דלתות\nזכוכית: אנטיסן ברונזה 8 מ״מ\nפרזול: ניקל\nידיות: ידית כפתור\nמידות לוחות לפי המפרט:\n1. דלת — 90×200 ס״מ\n2. דלת — 90×200 ס״מ\nמחיר כולל לפני מע״מ: 2,828.00 ₪\nהמחיר כפוף למדידה סופית ולאישור המפרט."
+    },
+    {
+      "version": 2,
+      "price_before_vat": "3098.00",
+      "state": "draft",
+      "customer_text": "הצעת מחיר למקלחון — טיוטה לעיון\nתצורה: פינתי 2 דלתות\nזכוכית: אנטיסן ברונזה 8 מ״מ\nפרזול: ניקל\nידיות: ידית כפתור\nמידות לוחות לפי המפרט:\n1. דלת — 90×200 ס״מ\n2. דלת — 90×200 ס״מ\nעיצוב על כל זכוכיות המקלחון: חלבי באמצע\nמחיר כולל לפני מע״מ: 3,098.00 ₪\nהמחיר כפוף למדידה סופית ולאישור המפרט."
+    },
+    {
+      "version": 3,
+      "price_before_vat": "3198.00",
+      "state": "draft",
+      "customer_text": "הצעת מחיר למקלחון — טיוטה לעיון\nתצורה: פינתי 2 דלתות\nזכוכית: אנטיסן ברונזה 8 מ״מ\nפרזול: ניקל\nידיות: ידית מגבת\nמידות לוחות לפי המפרט:\n1. דלת — 90×200 ס״מ\n2. דלת — 90×200 ס״מ\nעיצוב על כל זכוכיות המקלחון: חלבי באמצע\nמחיר כולל לפני מע״מ: 3,198.00 ₪\nהמחיר כפוף למדידה סופית ולאישור המפרט."
+    },
+    {
+      "version": 4,
+      "price_before_vat": "3448.00",
+      "state": "draft",
+      "customer_text": "הצעת מחיר למקלחון — טיוטה לעיון\nתצורה: פינתי 2 דלתות\nזכוכית: אנטיסן ברונזה 8 מ״מ\nפרזול: ניקל\nידיות: ידית מגבת\nמידות לוחות לפי המפרט:\n1. דלת — 90×200 ס״מ\n2. דלת — 90×200 ס״מ\nעיצוב על כל זכוכיות המקלחון: חלבי באמצע\nכולל פירוק ופינוי מקלחון ישן, לבקשת הלקוח.\nמחיר כולל לפני מע״מ: 3,448.00 ₪\nהמחיר כפוף למדידה סופית ולאישור המפרט."
+    }
+  ],
+  "four_panel_reference": {
+    "price_before_vat": "2644.00",
+    "customer_text": "הצעת מחיר למקלחון — טיוטה לעיון\nתצורה: פינתי 2 קבועים + 2 דלתות\nזכוכית: שקופה 8 מ״מ\nפרזול: ניקל\nידיות: ידית כפתור\nמידות לוחות לפי המפרט:\n1. קבוע — 40×200 ס״מ\n2. קבוע — 40×200 ס״מ\n3. דלת — 40×200 ס״מ\n4. דלת — 40×200 ס״מ\nמחיר כולל לפני מע״מ: 2,644.00 ₪\nהמחיר כפוף למדידה סופית ולאישור המפרט."
+  }
+}
