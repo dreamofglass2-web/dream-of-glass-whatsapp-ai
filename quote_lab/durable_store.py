@@ -30,6 +30,8 @@ class DurableQuoteStore:
             )""")
             db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_lab_delivery_ref
                 ON quote_lab_versions(delivery_ref) WHERE delivery_ref IS NOT NULL""")
+            db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_lab_approval_ref
+                ON quote_lab_versions(approval_ref) WHERE approval_ref IS NOT NULL""")
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=5, isolation_level="IMMEDIATE")
@@ -63,7 +65,7 @@ class DurableQuoteStore:
             if row is None or row["version"] != version:
                 raise QuoteStoreError("Cannot modify a previous or missing quote version")
             if target == "sent":
-                if row["state"] != "draft" or not delivery_ref:
+                if row["state"] != "draft" or not isinstance(delivery_ref, str) or not delivery_ref.strip():
                     raise QuoteStoreError("Verified delivery reference required")
                 try:
                     db.execute("""UPDATE quote_lab_versions SET state='sent', delivery_ref=?
@@ -71,7 +73,7 @@ class DurableQuoteStore:
                 except sqlite3.IntegrityError as error:
                     raise QuoteStoreError("Delivery evidence already used for another quote") from error
             elif target == "approved":
-                if row["state"] != "sent" or not approval_ref:
+                if row["state"] != "sent" or not isinstance(approval_ref, str) or not approval_ref.strip():
                     raise QuoteStoreError("Explicit approval of delivered quote required")
                 try:
                     approved_amount = Decimal(str(amount))
@@ -79,8 +81,11 @@ class DurableQuoteStore:
                     raise QuoteStoreError("Invalid approved amount") from None
                 if not approved_amount.is_finite() or row["specification"] != specification or Decimal(row["price_before_vat"]) != approved_amount:
                     raise QuoteStoreError("Approval must match exact sent price and specification")
-                db.execute("""UPDATE quote_lab_versions SET state='approved', approval_ref=?
-                    WHERE quote_id=? AND version=?""", (approval_ref, quote_id, version))
+                try:
+                    db.execute("""UPDATE quote_lab_versions SET state='approved', approval_ref=?
+                        WHERE quote_id=? AND version=?""", (approval_ref, quote_id, version))
+                except sqlite3.IntegrityError as error:
+                    raise QuoteStoreError("Approval evidence already used for another quote") from error
             else:
                 raise QuoteStoreError("Unsupported transition")
         return self.latest(quote_id)
