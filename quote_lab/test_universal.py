@@ -16,6 +16,25 @@ class UniversalCalculatorTests(unittest.TestCase):
         self.assertEqual(result["hardware_supplier_base_cost"], "314.00")
         self.assertEqual(result["status"], "draft_not_sent")
 
+    def test_owner_verified_corner_two_fixed_two_doors_80(self):
+        # Owner quote: 80x80, 200 cm, clear glass, nickel, button handles.
+        result = quote(Draft("פינתי 2 קבועים + 2 דלתות",
+                             [panel(80, 200), panel(80, 200)],
+                             finish="ניקל"))
+        self.assertEqual(result["glass_supplier_cost"], "480.00")
+        self.assertEqual(result["hardware_supplier_base_cost"], "514.00")
+        self.assertEqual(result["price_before_vat"], "2644.00")
+
+    def test_owner_verified_corner_two_doors_90_bronze(self):
+        # Owner confirmed that 'bronze' means Antisun bronze.
+        result = quote(Draft("פינתי 2 דלתות",
+                             [panel(90, 200, glass="אנטיסן ברונזה"),
+                              panel(90, 200, glass="אנטיסן ברונזה")],
+                             finish="ניקל"))
+        self.assertEqual(result["glass_supplier_cost"], "864.00")
+        self.assertEqual(result["hardware_supplier_base_cost"], "314.00")
+        self.assertEqual(result["price_before_vat"], "2828.00")
+
     def test_step_cut_uses_full_blank_no_surcharge(self):
         ordinary = quote(Draft("פינתי 2 דלתות", [panel()]))
         notched = quote(Draft("פינתי 2 דלתות", [panel(shape="step_notch")], measured_and_engineered=True))
