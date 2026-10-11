@@ -696,7 +696,7 @@ class VerifiedWebsiteBusinessFactsTests(unittest.TestCase):
         facts = yossi.WEBSITE_VERIFIED_FACTS
         for value in ('נתניה', 'אשקלון', 'ירושלים', 'מדידת לייזר',
                       '10 עד 14 ימי עסקים', 'סיליקון ניטרלי',
-                      '7', 'אקסטרה קליר', 'https://dreamofglass.com/'):
+                      'שבע שנים', 'אקסטרה קליר', 'https://dreamofglass.com/'):
             self.assertIn(value, facts)
 
     def test_website_guidance_is_exposed_to_actual_model(self):
