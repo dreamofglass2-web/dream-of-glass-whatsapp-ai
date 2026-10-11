@@ -122,6 +122,23 @@ class VerifiedInboundGateTests(unittest.TestCase):
             register.assert_not_called()
             clear.assert_called_once_with('972501234567')
 
+    def test_business_webhook_stays_off_before_owner_launch(self):
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'ensure_worker_started'), \
+             patch.object(yossi, 'queue_message') as queue, \
+             patch.object(yossi, 'verified_business_lead') as authorize:
+            self.assertEqual(self.signed_post().status_code, 200)
+            queue.assert_not_called()
+            authorize.assert_not_called()
+
+    def test_business_outbound_is_blocked_before_launch(self):
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'is_simulation_contact', return_value=False), \
+             patch.object(yossi.requests, 'post') as send:
+            with self.assertRaises(PermissionError):
+                yossi.send_whatsapp('972501234567', body='בדיקה')
+            send.assert_not_called()
+
     def test_database_failure_is_fail_closed(self):
         with patch.object(yossi, "ensure_db", side_effect=RuntimeError("unavailable")):
             self.assertFalse(yossi.verified_business_lead("972501234567"))
