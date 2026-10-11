@@ -62,6 +62,15 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 with db.cursor() as cur:
                     cur.execute("UPDATE glass_leads SET context=jsonb_set(context, '{no_followups}', 'true'::jsonb) WHERE phone=%s", (real_phone,))
             self.assertFalse(yossi.verified_business_lead(real_phone))
+            # Opt-out also overrides a signed click-to-WhatsApp ad referral.
+            self.assertTrue(yossi.persist_verified_whatsapp_ad(
+                real_phone, {"referral": {"source_type": "ad", "source_id": "test-ad-id"}}))
+            self.assertFalse(yossi.verified_business_lead(real_phone))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("UPDATE glass_leads SET context=context-'no_followups' "
+                                "WHERE phone=%s", (real_phone,))
+            self.assertTrue(yossi.verified_business_lead(real_phone))
         finally:
             with test_connection() as db:
                 with db.cursor() as cur:
