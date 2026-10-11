@@ -53,7 +53,8 @@ class VerifiedInboundGateTests(unittest.TestCase):
             queued.assert_not_called()
 
     def test_verified_meta_sender_is_queued_but_never_sent_from_webhook(self):
-        with patch.object(yossi, "ensure_worker_started"), \
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', True), \
+             patch.object(yossi, "ensure_worker_started"), \
              patch.object(yossi, "verified_business_lead", return_value=True), \
              patch.object(yossi, "queue_message") as queued, \
              patch.object(yossi, "send_whatsapp") as sent:
@@ -64,7 +65,8 @@ class VerifiedInboundGateTests(unittest.TestCase):
     def test_signed_click_to_whatsapp_ad_referral_is_recorded(self):
         self.payload["entry"][0]["changes"][0]["value"]["messages"][0]["referral"] = {
             "source_type": "ad", "source_id": "meta-ad-123"}
-        with patch.object(yossi, "ensure_worker_started"), \
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', True), \
+             patch.object(yossi, "ensure_worker_started"), \
              patch.object(yossi, "persist_verified_whatsapp_ad", return_value=True) as persist, \
              patch.object(yossi, "verified_business_lead", return_value=True), \
              patch.object(yossi, "queue_message") as queued:
@@ -111,7 +113,8 @@ class VerifiedInboundGateTests(unittest.TestCase):
             queue.assert_called_once()
 
     def test_business_number_does_not_register_simulation(self):
-        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', True), \
+             patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
              patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})), \
              patch.object(yossi, 'ensure_worker_started'), \
              patch.object(yossi, 'register_simulation_inbound') as register, \
