@@ -87,6 +87,38 @@ class VerifiedInboundGateTests(unittest.TestCase):
                 "972501234567", {"referral": {"source_type": "ad", "source_id": ""}}))
             connect.assert_not_called()
 
+    def test_simulation_number_needs_explicit_distinct_id_and_allowlist(self):
+        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', ''), \
+             patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})):
+            self.assertFalse(yossi.simulation_channel_configured())
+        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', str(yossi.PHONE_NUMBER_ID)), \
+             patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})):
+            self.assertFalse(yossi.simulation_channel_configured())
+
+    def test_only_explicit_test_sender_enters_simulation(self):
+        self.payload['entry'][0]['changes'][0]['value']['metadata']['phone_number_id'] = 'test-meta-number-id'
+        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
+             patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'ensure_worker_started'), \
+             patch.object(yossi, 'register_simulation_inbound', return_value=True) as register, \
+             patch.object(yossi, 'verified_business_lead', return_value=True), \
+             patch.object(yossi, 'queue_message') as queue:
+            self.assertEqual(self.signed_post().status_code, 200)
+            register.assert_called_once_with('972501234567')
+            queue.assert_called_once()
+            self.payload['entry'][0]['changes'][0]['value']['messages'][0]['from'] = '972509999999'
+            self.assertEqual(self.signed_post().status_code, 200)
+
+    def test_business_number_does_not_register_simulation(self):
+        with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'test-meta-number-id'), \
+             patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'ensure_worker_started'), \
+             patch.object(yossi, 'register_simulation_inbound') as register, \
+             patch.object(yossi, 'verified_business_lead', return_value=True), \
+             patch.object(yossi, 'queue_message'):
+            self.assertEqual(self.signed_post().status_code, 200)
+            register.assert_not_called()
+
     def test_database_failure_is_fail_closed(self):
         with patch.object(yossi, "ensure_db", side_effect=RuntimeError("unavailable")):
             self.assertFalse(yossi.verified_business_lead("972501234567"))
