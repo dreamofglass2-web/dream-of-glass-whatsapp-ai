@@ -108,6 +108,10 @@ def quote(draft: Draft) -> dict:
         raise NeedsReview("Unpriced hardware finish")
     if not draft.panels:
         raise NeedsReview("Missing glass panel dimensions")
+    active_decorations = {p.decoration for p in draft.panels if p.decoration != "none"}
+    if len(active_decorations) > 1:
+        raise NeedsReview("Different frosted designs in one shower require clarification")
+    selected_decoration = next(iter(active_decorations), "none")
     glass_total = Decimal("0")
     decoration_total = Decimal("0")
     for p in draft.panels:
@@ -125,7 +129,7 @@ def quote(draft: Draft) -> dict:
         # Supplier bills the full rectangular blank for a step notch, at no cutting surcharge.
         area = w * h / Decimal("10000")
         glass_total += area * Decimal(GLASS[p.glass])
-        if p.decoration != "none":
+        if selected_decoration != "none":
             decoration_total += area * FROSTED_DECORATION_RATE
     if draft.template in SLIDING_KITS:
         if draft.handle_style != "ידית כפתור":
@@ -164,6 +168,7 @@ def quote(draft: Draft) -> dict:
         "price_before_vat": str(money(core + add_on)),
         "glass_supplier_cost": str(money(glass_total)),
         "frosted_decoration_charge": str(money(decoration_total)),
+        "shower_decoration": selected_decoration,
         "hardware_supplier_base_cost": str(money(hardware_cost)),
         "hardware_retail_charge": str(hardware_charged),
         "core_price_before_vat": str(money(core)),
