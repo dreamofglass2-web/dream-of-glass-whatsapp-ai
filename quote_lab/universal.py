@@ -80,6 +80,8 @@ def quote(draft: Draft) -> dict:
             raise NeedsReview("Glass grade or thickness not approved")
         if p.shape not in ("rectangle", "step_notch"):
             raise NeedsReview("Special cut/angled glass requires professional measurement")
+        if p.shape == "step_notch" and not draft.measured_and_engineered:
+            raise NeedsReview("Step notch requires verified dimensions before quotation")
         w, h = money(p.width_cm), money(p.height_cm)
         if not (Decimal("0") < w <= 200 and Decimal("0") < h <= 220):
             raise NeedsReview("Panel dimensions outside provisional bounds")
