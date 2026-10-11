@@ -36,6 +36,7 @@ VERIFY_TOKEN = os.getenv('VERIFY_TOKEN', 'dream_of_glass_verify')
 WHATSAPP_TOKEN = os.getenv('whatsapp_token') or os.getenv('WHATSAPP_TOKEN', '')
 PHONE_NUMBER_ID = os.getenv('PHONE_NUMBER_ID', '1280310741842089')
 # Disabled by default. Configure a DISTINCT Meta test number ID AND exact testers.
+BUSINESS_AUTO_REPLY_ENABLED = os.getenv('BUSINESS_AUTO_REPLY_ENABLED', 'false').lower() == 'true'
 SIMULATION_PHONE_NUMBER_ID = os.getenv('SIMULATION_PHONE_NUMBER_ID', '').strip()
 SIMULATION_ALLOWED_SENDERS = frozenset(
     v.strip() for v in os.getenv('SIMULATION_ALLOWED_SENDERS', '').split(',')
@@ -601,6 +602,8 @@ def next_batch():
     with lock:
         now = time.monotonic()
         for phone, messages in list(pending.items()):
+            if not BUSINESS_AUTO_REPLY_ENABLED and not is_simulation_contact(phone):
+                continue
             if not is_yossi_business_hours() and not is_simulation_contact(phone):
                 continue
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
@@ -1521,6 +1524,8 @@ def customer_freeform_send_allowed(phone):
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
+    if not is_simulation_contact(phone) and not BUSINESS_AUTO_REPLY_ENABLED:
+        raise PermissionError('Business auto-replies disabled until owner launch approval')
     if not verified_business_lead(phone):
         app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
         raise PermissionError('Outbound blocked: unverified business lead')
@@ -2769,6 +2774,9 @@ def webhook():
             simulation_inbound = (simulation_channel_configured()
                                   and recipient_id == SIMULATION_PHONE_NUMBER_ID)
             if recipient_id != str(PHONE_NUMBER_ID) and not simulation_inbound:
+                ignored += len(value.get('messages', []))
+                continue
+            if recipient_id == str(PHONE_NUMBER_ID) and not BUSINESS_AUTO_REPLY_ENABLED:
                 ignored += len(value.get('messages', []))
                 continue
             for message in value.get('messages', []):
