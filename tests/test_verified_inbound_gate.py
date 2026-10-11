@@ -115,10 +115,12 @@ class VerifiedInboundGateTests(unittest.TestCase):
              patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({'972501234567'})), \
              patch.object(yossi, 'ensure_worker_started'), \
              patch.object(yossi, 'register_simulation_inbound') as register, \
+             patch.object(yossi, 'clear_simulation_for_business_inbound') as clear, \
              patch.object(yossi, 'verified_business_lead', return_value=True), \
              patch.object(yossi, 'queue_message'):
             self.assertEqual(self.signed_post().status_code, 200)
             register.assert_not_called()
+            clear.assert_called_once_with('972501234567')
 
     def test_database_failure_is_fail_closed(self):
         with patch.object(yossi, "ensure_db", side_effect=RuntimeError("unavailable")):
