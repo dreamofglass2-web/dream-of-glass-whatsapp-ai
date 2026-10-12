@@ -1,4 +1,7 @@
 import unittest
+import os
+import json
+import types
 from unittest.mock import MagicMock, patch, Mock
 from handoff_state import new_state, transition, automatic_reply_allowed
 from handoff_store import escalate_to_owner
@@ -7,6 +10,23 @@ from owner_notifications import alert_configuration
 
 
 class EscalationTests(unittest.TestCase):
+    def test_sales_model_uncertainty_never_sends_its_reply(self):
+        os.environ.setdefault('OPENAI_API_KEY','sk-offline-test-only')
+        import app as yossi
+        result = types.SimpleNamespace(output_text=json.dumps({'reply':'תשובה לא בטוחה','needs_human':True,'product':'מראה'}))
+        with patch.object(yossi,'HANDOFF_ENABLED',True), patch.object(yossi,'ensure_db'), patch.object(yossi,'db_connection',return_value=MagicMock()), patch.object(yossi,'read_handoff_state',return_value=new_state()), patch.object(yossi,'load_conversation',return_value=([],{})), patch.object(yossi,'has_new_messages',return_value=False), patch.object(yossi.client.responses,'create',return_value=result), patch.object(yossi,'pause_for_owner',return_value=True) as pause, patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message('TEST_ONLY','אני רוצה מראה עגולה לסלון'))
+            pause.assert_called_once()
+            send.assert_not_called()
+
+    def test_model_exception_pauses_instead_of_generic_customer_retry(self):
+        os.environ.setdefault('OPENAI_API_KEY','sk-offline-test-only')
+        import app as yossi
+        with patch.object(yossi,'HANDOFF_ENABLED',True), patch.object(yossi,'ensure_db'), patch.object(yossi,'db_connection',return_value=MagicMock()), patch.object(yossi,'read_handoff_state',return_value=new_state()), patch.object(yossi,'load_conversation',return_value=([],{})), patch.object(yossi,'has_new_messages',return_value=False), patch.object(yossi.client.responses,'create',side_effect=TimeoutError()), patch.object(yossi,'pause_for_owner',return_value=True) as pause, patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message('TEST_ONLY','אני רוצה מראה עגולה לסלון'))
+            pause.assert_called_once()
+            send.assert_not_called()
+
     def test_uncertain_model_and_empty_output_pause(self):
         self.assertIsNotNone(escalation_reason('שאלה', {'needs_human':True}, 'תשובה'))
         self.assertIsNotNone(escalation_reason('שאלה', {}, ''))
