@@ -6,10 +6,40 @@ from unittest.mock import MagicMock, patch, Mock
 from handoff_state import new_state, transition, automatic_reply_allowed
 from handoff_store import escalate_to_owner
 from owner_escalation import escalation_reason
-from owner_notifications import alert_configuration
+from owner_notifications import alert_configuration, dispatch_owner_alerts
 
 
 class EscalationTests(unittest.TestCase):
+    def test_telegram_requires_private_chat_and_explicit_activation(self):
+        config={'OWNER_ALERT_ENABLED':'true','OWNER_ALERT_CHANNEL':'telegram',
+                'OWNER_TELEGRAM_BOT_TOKEN':'123456789:'+'a'*35,'OWNER_TELEGRAM_CHAT_ID':'123456'}
+        with patch.dict('os.environ',config,clear=True):
+            self.assertEqual(alert_configuration()[0],'telegram')
+            for chat in ['-100123456','@someone','', '0']:
+                os.environ['OWNER_TELEGRAM_CHAT_ID']=chat
+                self.assertIsNone(alert_configuration())
+
+    def test_telegram_alert_has_links_uses_exact_chat_and_never_whatsapp_token(self):
+        state=new_state()
+        state['escalation']={'id':'a'*32,'active':True,'reason':'נדרשת בדיקה','customerText':'הבקשה','notificationStatus':'not_configured'}
+        db=MagicMock()
+        db.__enter__.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value=[('972501234567',)]
+        http=Mock()
+        http.post.return_value.ok=True
+        http.post.return_value.json.return_value={'ok':True,'result':{'message_id':44,'chat':{'id':123456}}}
+        config={'OWNER_ALERT_ENABLED':'true','OWNER_ALERT_CHANNEL':'telegram',
+                'OWNER_TELEGRAM_BOT_TOKEN':'123456789:'+'a'*35,'OWNER_TELEGRAM_CHAT_ID':'123456'}
+        with patch.dict('os.environ',config,clear=True),patch('owner_notifications.read_state',return_value=state),patch('owner_notifications.write_state'):
+            dispatch_owner_alerts(lambda:db,http,'','unused',Mock())
+            self.assertEqual(state['escalation']['notificationStatus'],'accepted')
+            call=http.post.call_args
+            self.assertTrue(call.args[0].endswith('/sendMessage'))
+            self.assertEqual(call.kwargs['json']['chat_id'],'123456')
+            self.assertNotIn('headers',call.kwargs)
+            self.assertEqual(len(call.kwargs['json']['reply_markup']['inline_keyboard']),2)
+            dispatch_owner_alerts(lambda:db,http,'','unused',Mock())
+            http.post.assert_called_once()
+
     def test_sales_model_uncertainty_never_sends_its_reply(self):
         os.environ.setdefault('OPENAI_API_KEY','sk-offline-test-only')
         import app as yossi
