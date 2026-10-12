@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
+from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
@@ -84,6 +85,7 @@ worker_start_lock = threading.Lock()
 _delivery_scope = threading.local()  # Per-batch outbound idempotency journal
 BATCH_SECONDS = float(os.getenv('MESSAGE_BATCH_SECONDS', '7'))
 APP_SECRET = os.getenv('META_APP_SECRET', '')
+AUDIO_TRANSCRIPTION_MODEL = os.getenv('AUDIO_TRANSCRIPTION_MODEL', 'gpt-4o-mini-transcribe')
 MEDIA_VISION_MODEL = os.getenv('MEDIA_VISION_MODEL', 'gpt-4.1-mini')
 MAX_MEDIA_BYTES = 12 * 1024 * 1024
 
@@ -2054,6 +2056,14 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, clean_history, safe_context)
             return True
+        # Never invent audio content or route a failed transcript through sales AI.
+        if AUDIO_FAILURE in body or '[נשלחה הודעה קולית שלא נותחה]' in body:
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'קיבלתי את ההודעה הקולית, אבל לא הצלחתי לתמלל אותה. תוכל לכתוב לי בקצרה מה אמרת או לשלוח הקלטה ברורה יותר?'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior or {}))
+            return True
         # Acknowledge customer attachments truthfully until a real media/vision pipeline exists.
         if '[נשלחה ' in body and ' שלא נותחה]' in body:
             if has_new_messages(phone, batch_rows):
@@ -2615,6 +2625,9 @@ def analyze_customer_media(payload):
     """Private vision analysis; user never sees these internal technical instructions."""
     media_type = payload.get('type')
     caption = str(payload.get('caption') or '')[:1000]
+    if media_type == 'audio':
+        return transcribe_audio(payload, client, _authorized_meta_media,
+                                AUDIO_TRANSCRIPTION_MODEL, app.logger)
     if media_type not in ('image', 'document'):
         return '[נשלחה הודעת מדיה שלא נותחה] ' + caption
     media_id = payload.get('media_id')
@@ -2663,6 +2676,28 @@ def resolve_incoming_body(body):
         except (ValueError, TypeError):
             return '[נשלחה תמונה או תוכנית שלא נותחה]'
     return str(body)
+
+
+def resolve_queued_body(phone, row):
+    """Cache resolved audio by message ID before sales processing/retries."""
+    message_id, original, arrived = row
+    audio = False
+    if isinstance(original, str) and original.startswith('__MEDIA_DATA__:'):
+        try:
+            audio = json.loads(original[len('__MEDIA_DATA__:'):]).get('type') == 'audio'
+        except (ValueError, TypeError, AttributeError):
+            pass
+    resolved = resolve_incoming_body(original)
+    if audio:
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE yossi_inbound_queue SET body=%s
+                               WHERE phone=%s AND message_id=%s AND body=%s""",
+                            (resolved, phone, message_id, original))
+        with lock:
+            pending[phone] = [(mid, resolved if mid == message_id else body, at)
+                              for mid, body, at in pending.get(phone, [])]
+    return resolved
 
 
 def claim_phone_processing(phone):
@@ -2739,7 +2774,7 @@ def batch_worker():
                     'suppress_outbound': batch_has_outbound_attempt(fingerprint),
                 }
                 try:
-                    combined = '\n'.join(resolve_incoming_body(r[1]) for r in rows)
+                    combined = '\n'.join(resolve_queued_body(phone, r) for r in rows)
                     success = process_message(phone, combined, rows)
                     # A correction received mid-composition is included on retry.
                     if not success and has_new_messages(phone, rows):
@@ -3063,7 +3098,7 @@ def webhook():
                 else:
                     caption = ((message.get(message_type) or {}).get('caption') or '').strip()
                     media = message.get(message_type) or {}
-                    if message_type in ('image', 'document') and media.get('id'):
+                    if message_type in ('image', 'document', 'audio') and media.get('id'):
                         body = '__MEDIA_DATA__:' + json.dumps({
                             'type':message_type, 'media_id':media.get('id'),
                             'mime_type':media.get('mime_type', ''),
