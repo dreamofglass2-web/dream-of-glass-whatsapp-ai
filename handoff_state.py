@@ -93,6 +93,8 @@ def transition(state, expected_revision, action, now):
                 raise HandoffError('Resume time must not be in the past')
         next_state['resume_at'] = action.get('resume_at')
         next_state['owner'] = 'yossi'
+        if next_state.get('escalation'):
+            next_state['escalation']['active'] = False
     else:
         raise HandoffError('Unsupported owner action')
     next_state['updated_at'] = now
@@ -132,3 +134,4 @@ def resume_context(state):
             'older_manual_messages_omitted': max(0, len(state['messages'])-36),
             'app_messages_verified': state['echo_verified'],
             'generation': state['handoff_generation']}
+
