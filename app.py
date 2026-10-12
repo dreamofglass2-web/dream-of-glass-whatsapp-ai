@@ -251,7 +251,7 @@ def save_conversation(phone, history, context):
                                      ELSE glass_leads.product END,
                         updated_at=now()""",
                     (phone, extract_customer_name(history),
-                     json.dumps(history[-36:], ensure_ascii=False),
+                     json.dumps(history, ensure_ascii=False),
                      json.dumps(context, ensure_ascii=False), str(context.get('product') or '')))
     except Exception:
         app.logger.exception('Database save failed; message was still handled')
