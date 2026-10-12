@@ -1,13 +1,21 @@
 name: Yossi real AI conversation tests
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test/yossi-real-sales-audit-20261012
 jobs:
   real-model-sales-conversations:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       OPENAI_API_KEY: ${{ secrets.YOSSI_TEST_OPENAI_API_KEY }}
       RUN_LIVE_YOSSI_TESTS: "1"
+      OPENAI_MODEL: gpt-6-astra
+      HANDOFF_ENABLED: "false"
+      YOSSI_TEST_MAX_CALLS: "90"
+      YOSSI_TEST_MAX_USD: "5"
+      YOSSI_TEST_SCENARIOS: hello,price_only,full_quote,objection,closing,renovation,confused,competitor_exit,warranty,mirror,partition,plain_advice,joint_decision,trust_after_service,no_pressure,identity,correction
       DATABASE_URL: ""
       WHATSAPP_TOKEN: ""
       SEND_QUOTES: "true"
