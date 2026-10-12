@@ -1977,6 +1977,9 @@ def process_message(phone, body, batch_rows=None):
                         previous = next((m for m in handoff['messages'] if m['id'] == identity), None)
                         record_message(cur, phone, {'id':identity,'role':'customer','text':body,
                             'at':previous['at'] if previous else datetime.now(timezone.utc).isoformat()})
+                        held_reason = escalation_reason(body)
+                        if held_reason:
+                            escalate_to_owner(cur, phone, held_reason, body, datetime.now(timezone.utc).isoformat())
                         return True
         if starts_new_customer_conversation(body):
             if has_new_messages(phone, batch_rows):
