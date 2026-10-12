@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace as NS
-from sales_dialogue import dialogue_context, api_usage_metrics, compact_instructions
+from sales_dialogue import dialogue_context, sales_turn_context, api_usage_metrics, compact_instructions
 
 
 class ConsultationStateTests(unittest.TestCase):
@@ -41,6 +41,52 @@ class UsageAccountingTests(unittest.TestCase):
     def test_unknown_cache_accounting_does_not_claim_exact_cost(self):
         response = NS(model='gpt-6-astra', usage=NS(input_tokens=100, output_tokens=20))
         self.assertIsNone(api_usage_metrics(response)['estimated_usd'])
+
+
+class SalesMethodTests(unittest.TestCase):
+    def test_joint_decision_is_respected_without_approval(self):
+        state = sales_turn_context('אני צריך להתייעץ עם אשתי', [], {})
+        self.assertEqual(state['focus_hint'], 'joint_decision')
+        self.assertNotEqual(state['phase_hint'], 'closing')
+
+    def test_thinking_is_not_treated_as_approval(self):
+        state = sales_turn_context('אני צריך לחשוב על זה', [], {'validated_quote': {'issued': True}})
+        self.assertEqual(state['focus_hint'], 'respect_deliberation')
+        self.assertEqual(state['phase_hint'], 'decision')
+
+    def test_close_requires_an_issued_quote(self):
+        state = sales_turn_context('איך מתקדמים', [], {})
+        self.assertEqual(state['phase_hint'], 'quote_preparation')
+
+    def test_explicit_refusal_takes_priority_over_sales(self):
+        state = sales_turn_context('לא רוצה, יקר לי, תפסיק', [], {})
+        self.assertEqual(state['focus_hint'], 'respect_boundary')
+
+    def test_product_preference_is_not_a_refusal_to_continue(self):
+        state = sales_turn_context('לא רוצה שקוף, מעדיף חלבי', [], {})
+        self.assertNotEqual(state['focus_hint'], 'respect_boundary')
+
+    def test_partner_mentioned_in_approval_does_not_restart_discovery(self):
+        state = sales_turn_context('דיברתי עם אשתי, אני מאשר', [], {'validated_quote': {'issued': True}})
+        self.assertEqual(state['phase_hint'], 'closing')
+
+    def test_preserve_old_customer_goal_without_sending_old_ai_speeches(self):
+        history = [
+            {'role': 'user', 'content': 'חשוב לי שיהיה קל לנקות ויש לי ילדים'},
+            {'role': 'assistant', 'content': 'הלקוח רוצה פרזול יקר'},
+        ] + [{'role': 'user', 'content': 'תודה'}] * 36
+        state = sales_turn_context('אז מה מתאים', history, {})
+        self.assertEqual(state['older_customer_evidence'], ['חשוב לי שיהיה קל לנקות ויש לי ילדים'])
+
+    def test_recent_customer_messages_are_not_duplicated(self):
+        history = [{'role': 'user', 'content': 'חשוב לי ניקיון'}]
+        self.assertEqual(sales_turn_context('מה מתאים', history, {})['older_customer_evidence'], [])
+
+    def test_memory_budget_does_not_grow_with_long_transcript(self):
+        history = [{'role': 'user', 'content': 'חשוב לי ' + str(i) + ' א' * 500} for i in range(100)]
+        evidence = sales_turn_context('מה מתאים', history, {})['older_customer_evidence']
+        self.assertLessEqual(sum(map(len, evidence)), 1080)
+        self.assertLessEqual(len(evidence), 6)
 
     def test_invalid_cache_counts_do_not_produce_negative_bill(self):
         response = NS(model='gpt-6-astra', usage=NS(

@@ -311,8 +311,30 @@ FORM_CONTEXT = {
   }
 }
 
+SCENARIOS += [
+  ["plain_advice", ["היי", "אני מתעניין במקלחון 100/100", "סיימנו שיפוץ",
+    "כן פינתי. מימין כיור ומשמאל אסלה", "יש רווח של 30 סמ",
+    "לא יודע, צריך לראות, אני לא מבין בדברים האלה", "הם כבר מורכבים"]],
+  ["joint_decision", ["מחפש מראה לחדר רחצה", "עגולה, 90 סנטימטר בלי תאורה",
+    "חשוב לי שתהיה יפה וקלה לניקוי", "אני צריך להתייעץ עם אשתי"]],
+  ["trust_after_service", ["רוצה מקלחון", "פינתי מטר על מטר",
+    "בפעם הקודמת התקינו לי משהו לא טוב", "חשוב לי שיהיה למי לפנות אחרי ההתקנה",
+    "אני עוד רוצה לחשוב"]],
+]
+selected_names = {s.strip() for s in os.getenv("YOSSI_TEST_SCENARIOS", "").split(",") if s.strip()}
+if selected_names:
+    unknown = selected_names - {name for name, _ in SCENARIOS}
+    if unknown:
+        raise SystemExit("Unknown synthetic scenarios: " + ", ".join(sorted(unknown)))
+    SCENARIOS = [(name, turns) for name, turns in SCENARIOS if name in selected_names]
+
 def main():
     memory, reports = {}, []
+    real_create = yossi.client.responses.create
+    def measured_create(**kwargs):
+        response = real_create(**kwargs)
+        reports[-1].setdefault('api_calls', []).append(yossi.api_usage_metrics(response))
+        return response
     callbacks = {}
     def record_callback(phone, when=None):
         callbacks[phone] = when or 'ממתין לתיאום'
@@ -333,7 +355,8 @@ def main():
         reports[-1]["reply"] = body
 
     # Crucial: do not mock the real model. Only external customer I/O and persistence.
-    with patch.object(yossi, "load_conversation", side_effect=load), \
+    with patch.object(yossi.client.responses, "create", side_effect=measured_create), \
+         patch.object(yossi, "load_conversation", side_effect=load), \
          patch.object(yossi, "save_conversation", side_effect=save), \
          patch.object(yossi, "reset_conversation_for_phone", side_effect=reset), \
          patch.object(yossi, "send_whatsapp", side_effect=send), \
@@ -358,8 +381,10 @@ def main():
                 if any(term in answer for term in ("הצעת המחיר נשלחה", "החשבונית נשלחה")):
                     raise AssertionError("Claimed to send an unsent document")
 
+    costs = [call.get("estimated_usd") for row in reports for call in row.get("api_calls", [])]
+    total_cost = round(sum(costs), 8) if costs and all(c is not None for c in costs) else None
     out = Path("yossi_ai_test_report.json")
-    out.write_text(json.dumps({"model": yossi.MODEL, "scenarios": reports}, ensure_ascii=False, indent=2), encoding="utf-8")
+    out.write_text(json.dumps({"model": yossi.MODEL, "estimated_usd": total_cost, "scenarios": reports}, ensure_ascii=False, indent=2), encoding="utf-8")
     print('Callbacks:', len(callbacks))
     print("Completed", len(reports), "real-model turns across", len(SCENARIOS), "scenarios.")
     print("Report:", out)
