@@ -5,6 +5,11 @@ on:
       - 'app.py'
       - 'tests/test_followup_database.py'
       - 'tests/test_verified_inbound_gate.py'
+      - 'handoff_state.py'
+      - 'handoff_store.py'
+      - 'handoff_api.py'
+      - 'tests/test_handoff_api.py'
+      - 'tests/test_operator_echo_webhook.py'
       - '.github/workflows/followup-postgres-test.yml'
   workflow_dispatch:
 jobs:
@@ -37,3 +42,6 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_followup_database.py -v
           python -m unittest discover -s tests -p test_verified_inbound_gate.py -v
+
+          python -m unittest discover -s tests -p test_operator_echo_webhook.py -v
+          python -m unittest discover -s tests -p test_handoff_api.py -v
