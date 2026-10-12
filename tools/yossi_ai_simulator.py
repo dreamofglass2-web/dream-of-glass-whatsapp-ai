@@ -330,10 +330,34 @@ if selected_names:
 
 def main():
     memory, reports = {}, []
+    out = Path('yossi_ai_test_report.json')
+    def write_report(status='running'):
+        calls = [c for row in reports for c in row.get('api_calls', [])]
+        costs = [c.get('estimated_usd') for c in calls]
+        estimate = round(sum(costs), 8) if costs and all(c is not None for c in costs) else None
+        out.write_text(json.dumps({'model': yossi.MODEL, 'status': status,
+            'estimated_usd': estimate, 'api_call_count': len(calls),
+            'scenarios': reports}, ensure_ascii=False, indent=2), encoding='utf-8')
+    max_calls = int(os.getenv('YOSSI_TEST_MAX_CALLS', '90'))
+    max_budget = float(os.getenv('YOSSI_TEST_MAX_USD', '5'))
+    spent_upper = 0.0
+    call_count = 0
     real_create = yossi.client.responses.create
     def measured_create(**kwargs):
+        nonlocal spent_upper, call_count
+        if call_count >= max_calls or spent_upper >= max_budget:
+            write_report('budget_stopped')
+            raise RuntimeError('Synthetic AI test budget reached')
+        call_count += 1
         response = real_create(**kwargs)
-        reports[-1].setdefault('api_calls', []).append(yossi.api_usage_metrics(response))
+        metrics = yossi.api_usage_metrics(response)
+        reports[-1].setdefault('api_calls', []).append(metrics)
+        input_tokens, output_tokens = metrics['input_tokens'], metrics['output_tokens']
+        if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+            spent_upper += (input_tokens * 12.5 + output_tokens * 50) / 1_000_000
+        else:
+            spent_upper = max_budget
+        write_report()
         return response
     callbacks = {}
     def record_callback(phone, when=None):
@@ -375,16 +399,22 @@ def main():
                 if not success or not reports[-1]["reply"]:
                     raise AssertionError("No reply for %s turn %s" % (scenario, turn))
                 answer = reports[-1]["reply"]
+                print(json.dumps(reports[-1], ensure_ascii=False), flush=True)
+                write_report()
+                if "הייתה תקלה רגעית" in answer:
+                    write_report("failed")
+                    raise AssertionError("AI request failed or budget reached; inspect synthetic transcript")
                 if turn == 1 and scenario in ("full_quote", "closing"):
                     if not answer.startswith(("היי", "אהלן", "שלום")):
                         raise AssertionError("Missing warm greeting")
                 if any(term in answer for term in ("הצעת המחיר נשלחה", "החשבונית נשלחה")):
                     raise AssertionError("Claimed to send an unsent document")
 
+    write_report("completed")
     costs = [call.get("estimated_usd") for row in reports for call in row.get("api_calls", [])]
     total_cost = round(sum(costs), 8) if costs and all(c is not None for c in costs) else None
     out = Path("yossi_ai_test_report.json")
-    out.write_text(json.dumps({"model": yossi.MODEL, "estimated_usd": total_cost, "scenarios": reports}, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_report("completed")
     print('Callbacks:', len(callbacks))
     print("Completed", len(reports), "real-model turns across", len(SCENARIOS), "scenarios.")
     print("Report:", out)
