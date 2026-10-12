@@ -75,6 +75,37 @@ class ConversationSimulation(unittest.TestCase):
             "quote_requested": False, "solution_agreed": False,
         }, **fields)
 
+
+    def test_compact_cache_prefix_excludes_private_customer_context(self):
+        captured = []
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses, 'create', side_effect=capture):
+            self.step('מימין כיור ומשמאל אסלה', self.model('אפשר להתאים את הכניסה לחדר.'))
+            self.step('אני לא מבין צריך לראות, הם כבר מורכבים',
+                      self.model('אסביר בפשטות: הכניסה תהיה באמצע.'))
+        request = captured[-1]
+        self.assertLess(len(request['instructions']), 12000)
+        self.assertNotIn('הם כבר מורכבים', request['instructions'])
+        self.assertEqual(request['prompt_cache_options'], {'mode': 'explicit', 'ttl': '30m'})
+        prefix = request['input'][0]['content'][0]
+        self.assertEqual(prefix['prompt_cache_breakpoint']['mode'], 'explicit')
+        state = json.loads('{' + request['input'][1]['content'].split('{', 1)[1])
+        self.assertTrue(state['dialogue']['sanitary_fixtures_installed'])
+        self.assertTrue(state['dialogue']['customer_needs_plain_visual_explanation'])
+
+    def test_general_price_question_keeps_known_customer_dimensions(self):
+        captured = []
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses, 'create', side_effect=capture):
+            self.step('מקלחון 100/100', self.model('אפשר להתאים לך מקלחון פינתי.'))
+            self.step('כמה עולה?', self.model('צריך להשלים את המפרט לפני מחיר מאומת.'))
+        customer_messages = [m['content'] for m in captured[-1]['input'] if m['role'] == 'user']
+        self.assertTrue(any('100/100' in t for t in customer_messages))
+
     def test_astra_request_preserves_json_contract_and_consultant_context(self):
         captured = []
         def capture(**kwargs):

@@ -26,3 +26,6 @@ jobs:
         run: python -m unittest discover -s tests -p "test_conversation_simulator.py" -v
       - name: Focused regression checks
         run: python -m unittest discover -s tests -p "test_quote_flow.py" -v
+
+      - name: Compact consultation and usage regressions
+        run: python -m unittest discover -s tests -p "test_sales_dialogue.py" -v
