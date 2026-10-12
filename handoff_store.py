@@ -130,10 +130,17 @@ def escalate_to_owner(cursor, phone, reason, customer_text, now):
     import hashlib
     phone_lock(cursor, phone)
     state = read_state(cursor, phone)
-    if state['owner'] == 'operator':
+    if state['owner'] == 'operator' and (state.get('escalation') or {}).get('active'):
         return state
-    result = transition(state, state['revision'], {'type':'takeover'}, now)
-    capture_suppression(cursor, phone, result)
+    if state['owner'] == 'operator':
+        # Preserve manual ownership, notes and generation; only create the request.
+        from copy import deepcopy
+        result = deepcopy(state)
+        result['revision'] += 1
+        result['updated_at'] = now
+    else:
+        result = transition(state, state['revision'], {'type':'takeover'}, now)
+        capture_suppression(cursor, phone, result)
     identity = hashlib.sha256((phone + ':' + str(result['handoff_generation'])).encode()).hexdigest()[:32]
     result['escalation'] = {'id':identity, 'active':True, 'reason':reason[:300],
         'customerText':str(customer_text)[:1800], 'requestedAt':now,
