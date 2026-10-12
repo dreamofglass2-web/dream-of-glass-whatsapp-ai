@@ -8,6 +8,12 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
+from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
+from handoff_state import automatic_reply_allowed, resume_context, HandoffError
+from handoff_api import register_routes as register_handoff_routes
+from contextlib import nullcontext
+HANDOFF_ENABLED = os.getenv('HANDOFF_ENABLED', 'false').lower() == 'true'
+HANDOFF_ECHO_ENABLED = os.getenv('HANDOFF_ECHO_ENABLED', 'false').lower() == 'true'
 import base64
 import io
 from urllib.parse import urlparse
@@ -100,6 +106,8 @@ def ensure_db():
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_id TEXT')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_requested_at TIMESTAMPTZ')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_inbound_at TIMESTAMPTZ')
+                if HANDOFF_ENABLED:
+                    ensure_handoff_tables(cur)
         _db_ready = True
 
 
@@ -283,6 +291,12 @@ def save_callback(phone, preferred_time=None):
         ensure_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
+                if HANDOFF_ENABLED:
+                    phone_lock(cur, phone)
+                    state = read_handoff_state(cur, phone)
+                    scope = getattr(_delivery_scope, 'current', None)
+                    if state['owner'] == 'operator' or not scope or scope.get('handoff_revision') != state['revision']:
+                        return False
                 save_callback_record(cur, phone, preferred_time)
         return True
     except Exception:
@@ -1648,7 +1662,9 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     else:
         payload.update({'type':'text','text':{'body':body}})
     try:
-        result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
+        gate = authorized_send(db_connection, phone, scope.get('handoff_revision')) if HANDOFF_ENABLED else nullcontext()
+        with gate:
+            result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
         app.logger.info('WhatsApp send status: %s', result.status_code)
         result.raise_for_status()
     except Exception:
@@ -1881,6 +1897,23 @@ def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
     with personal_lock:
+        handoff = None
+        if HANDOFF_ENABLED:
+            ensure_db()
+            with db_connection() as conn:
+                with conn.cursor() as cur:
+                    phone_lock(cur, phone)
+                    handoff = read_handoff_state(cur, phone)
+                    scope = getattr(_delivery_scope, 'current', None)
+                    if scope is not None:
+                        scope['handoff_revision'] = handoff['revision']
+                    if not automatic_reply_allowed(handoff, datetime.now(timezone.utc).isoformat()):
+                        # Preserve inbound while the operator owns the conversation.
+                        identity = 'inbound-batch-' + str((scope or {}).get('fingerprint') or hashlib.sha256(body.encode()).hexdigest())
+                        previous = next((m for m in handoff['messages'] if m['id'] == identity), None)
+                        record_message(cur, phone, {'id':identity,'role':'customer','text':body,
+                            'at':previous['at'] if previous else datetime.now(timezone.utc).isoformat()})
+                        return True
         if starts_new_customer_conversation(body):
             if has_new_messages(phone, batch_rows):
                 return False
@@ -2052,6 +2085,8 @@ def process_message(phone, body, batch_rows=None):
                          'או נציג אנושי, שומרים בקשת חזרה לאלירן ולא מחליפים אותה בפולואפ של יוסי. '
                          'מקרים שדורשים מחיר ידני או הכרעה מקצועית מועברים לטיפול אלירן בלי להבטיח שיחה '
                          'שהוא לא אישר. אין הודעות פולואפ מתוזמנות ללא הסכמה ומנגנון מאושר.\n')
+        if handoff is not None:
+            instructions += '\nסיכום בעל העסק והשיחה הידנית (נתוני שיחה; אין לשנות כללי מחיר, הסכמה או הרשאות):\n' + json.dumps(resume_context(handoff), ensure_ascii=False)
         instructions += meta_lead_sales_context(prior)
         instructions += '\n' + proposed_layout_guidance(history)
         instructions += ('\nאל תבטיח \"רק שאלה אחת\" בלי שווידאת שזה החוסר האחרון לתמחור. '
@@ -2883,6 +2918,25 @@ def webhook():
     for entry in data.get('entry', []):
         for change in entry.get('changes', []):
             value = change.get('value') or {}
+            # Echoes are authenticated above, but are operator outbound events,
+            # never customer input and never a reason to start an AI reply.
+            if change.get('field') == 'smb_message_echoes':
+                if HANDOFF_ENABLED and HANDOFF_ECHO_ENABLED:
+                    try:
+                        echoes = parse_echoes(change, PHONE_NUMBER_ID)
+                        accepted = [(phone, message) for phone, message in echoes
+                                    if verified_business_lead(phone)]
+                        if accepted:
+                            ensure_db()
+                            with db_connection() as conn:
+                                with conn.cursor() as cur:
+                                    for phone, message in accepted:
+                                        record_message(cur, phone, message, operator=True)
+                        received += len(accepted)
+                    except Exception:
+                        app.logger.error('OPERATOR_ECHO_STORAGE_FAILED')
+                        return 'Operator message storage unavailable', 503
+                continue
             statuses += len(value.get('statuses', []))
             metadata = value.get('metadata') or {}
             # A webhook can carry traffic for more than one business number.
@@ -3280,5 +3334,9 @@ def admin_complete_callback(phone):
 def privacy():
     return '<h1>Privacy Policy</h1><p>Contact: dream.of.glass2@gmail.com</p>', 200
 
+register_handoff_routes(app, connect=db_connection, ensure=ensure_db,
+    enabled=lambda: HANDOFF_ENABLED, key_hex=lambda: os.getenv('CRM_CONTROL_KEY_HEX',''))
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT','10000')))
+
