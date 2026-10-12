@@ -806,20 +806,36 @@ def starts_new_customer_conversation(text):
 
 
 def reset_conversation_for_phone(phone):
-    """Reset dialog only; never delete lead details/callback requests."""
-    with lock:
-        histories[phone] = []
-        customer_context[phone] = {}
+    """Reset sales dialog, preserving channel identity, provenance and opt-outs."""
+    protected = ('simulation_recipient_id', 'meta_leads', 'whatsapp_referral',
+                 'no_followups', 'no_phone_calls')
+    retained = {key: value for key, value in customer_context.get(phone, {}).items()
+                if key in protected}
     if DATABASE_URL:
         try:
             ensure_db()
             with db_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute('UPDATE glass_leads SET conversation=%s::jsonb, context=%s::jsonb WHERE phone=%s',
-                                ('[]', '{}', phone))
+                    cur.execute("""
+                        UPDATE glass_leads SET conversation='[]'::jsonb,
+                          context=jsonb_strip_nulls(jsonb_build_object(
+                            'simulation_recipient_id',context->'simulation_recipient_id',
+                            'meta_leads',context->'meta_leads',
+                            'whatsapp_referral',context->'whatsapp_referral',
+                            'no_followups',context->'no_followups',
+                            'no_phone_calls',context->'no_phone_calls'))
+                        WHERE phone=%s RETURNING context
+                    """, (phone,))
+                    row = cur.fetchone()
+                    if row is None:
+                        return False
+                    retained = row[0]
         except Exception:
             app.logger.exception('Could not persist conversation reset')
             return False
+    with lock:
+        histories[phone] = []
+        customer_context[phone] = retained
     return True
 
 
