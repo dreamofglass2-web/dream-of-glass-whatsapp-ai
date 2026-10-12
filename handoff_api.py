@@ -68,8 +68,14 @@ def register_routes(app, *, connect, ensure, enabled, key_hex):
             body = json.dumps(result,ensure_ascii=False,separators=(',',':')).encode()
             sig = 'sha256='+hmac.new(key,b'response\n'+nonce.encode()+b'\n'+body,hashlib.sha256).hexdigest()
             return Response(body,headers={'Content-Type':'application/json','Cache-Control':'no-store','X-CRM-Response-Signature':sig})
-        except (HandoffError, ValueError, TypeError, KeyError):
-            return Response('Invalid or stale control action; reload',status=409)
+        except HandoffError as error:
+            if str(error).startswith('Owner summary required'):
+                return Response('Owner summary required',status=400,headers={
+                    'X-CRM-Error-Code':'summary_required','Cache-Control':'no-store'})
+            status = 409 if str(error).startswith('Conversation changed') else 400
+            return Response('Invalid control action; reload if state changed',status=status)
+        except (ValueError, TypeError, KeyError):
+            return Response('Invalid control action',status=400)
         except Exception:
             app.logger.error('OPERATOR_CONTROL_STORAGE_FAILED')
             return Response('Control storage unavailable',status=503)

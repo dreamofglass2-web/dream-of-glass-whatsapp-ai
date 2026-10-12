@@ -77,6 +77,8 @@ def transition(state, expected_revision, action, now):
         next_state['resume_at'] = None
         next_state['handoff_generation'] += 1
     elif kind == 'notes':
+        if not isinstance(action.get('summary'), str) or not action['summary'].strip():
+            raise HandoffError('Owner summary required before saving notes')
         next_state['summary'] = action.get('summary')
         next_state['instructions'] = action.get('instructions')
     elif kind == 'returnToYossi':

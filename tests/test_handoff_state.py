@@ -6,6 +6,15 @@ NOW = '2026-10-11T23:00:00Z'
 
 
 class HandoffTests(unittest.TestCase):
+    def test_empty_notes_cannot_erase_a_saved_operator_summary(self):
+        state=transition(new_state(),0,{'type':'takeover'},NOW)
+        state=transition(state,1,{'type':'notes','summary':'קבענו ביקור','instructions':'לאשר שעה'},NOW)
+        for empty in ('','   '):
+            with self.assertRaises(HandoffError):
+                transition(state,2,{'type':'notes','summary':empty,'instructions':''},NOW)
+        self.assertEqual(state['summary'],'קבענו ביקור')
+        self.assertEqual(state['revision'],2)
+
     def test_takeover_blocks_reply_and_followup_until_explicit_return(self):
         state = transition(new_state(), 0, {'type': 'takeover'}, NOW)
         self.assertFalse(automatic_reply_allowed(state, NOW))
