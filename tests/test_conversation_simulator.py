@@ -75,6 +75,30 @@ class ConversationSimulation(unittest.TestCase):
             "quote_requested": False, "solution_agreed": False,
         }, **fields)
 
+    def test_astra_request_preserves_json_contract_and_consultant_context(self):
+        captured = []
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses, 'create', side_effect=capture):
+            self.step('אני רוצה מראה עגולה בקוטר 90 בלי תאורה', self.model(
+                'מראה עגולה יכולה להתאים. באיזה חדר היא מיועדת להיות?', product='מראה'))
+        request = captured[-1]
+        self.assertEqual(request['model'], yossi.MODEL)
+        self.assertEqual(request['reasoning'], {'effort': 'medium'})
+        self.assertEqual(request['timeout'], 90.0)
+        self.assertEqual(request['text']['format']['type'], 'json_object')
+        self.assertIn('ריצוף גמור אינו תנאי כללי למראה', request['instructions'])
+        self.assertIn('חוזה הפלט JSON נשארים מחייבים', request['instructions'])
+
+    def test_mirror_quote_closure_does_not_require_shower_flooring(self):
+        quote = {'issued': True, 'approved': True}
+        answer = yossi.close_validated_quote(quote, [], 'אני מאשר', product='מראה')
+        self.assertIn('מראה', answer)
+        self.assertNotIn('ריצוף', answer)
+        shower = yossi.close_validated_quote(quote, [], 'אני מאשר', product='מקלחון')
+        self.assertIn('ריצוף', shower)
+
     def test_tomorrow_callback_collects_hour_and_saves_exact_date(self):
         with patch.object(yossi, 'save_callback', return_value=True) as store:
             first = self.step('היי תתקשרו אליי מחר')
