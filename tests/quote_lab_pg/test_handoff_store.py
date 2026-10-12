@@ -11,7 +11,7 @@ class HandoffStoreTests(unittest.TestCase):
         self.store._parameters['options'] = '-c search_path=handoff_test_stage,public'
         with self.store._transaction() as cursor:
             cursor.execute('CREATE SCHEMA IF NOT EXISTS handoff_test_stage')
-            cursor.execute('CREATE TABLE IF NOT EXISTS glass_leads(phone TEXT PRIMARY KEY,status TEXT DEFAULT 'חדש',callback_request_id TEXT,last_inbound_at TIMESTAMPTZ)')
+            cursor.execute("CREATE TABLE IF NOT EXISTS glass_leads(phone TEXT PRIMARY KEY,status TEXT DEFAULT 'חדש',callback_request_id TEXT,last_inbound_at TIMESTAMPTZ)")
             ensure_tables(cursor)
             cursor.execute('DELETE FROM yossi_handoffs')
             cursor.execute("INSERT INTO glass_leads(phone) VALUES('0000000999') ON CONFLICT DO NOTHING")
