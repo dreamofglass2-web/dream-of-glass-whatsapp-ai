@@ -123,3 +123,21 @@ def parse_echoes(change, business_number_id):
         append_verified_message(new_state(), item)
         result.append((phone, item))
     return result
+
+
+def escalate_to_owner(cursor, phone, reason, customer_text, now):
+    """Persist pause and owner request atomically, without customer sends."""
+    import hashlib
+    phone_lock(cursor, phone)
+    state = read_state(cursor, phone)
+    if state['owner'] == 'operator':
+        return state
+    result = transition(state, state['revision'], {'type':'takeover'}, now)
+    capture_suppression(cursor, phone, result)
+    identity = hashlib.sha256((phone + ':' + str(result['handoff_generation'])).encode()).hexdigest()[:32]
+    result['escalation'] = {'id':identity, 'active':True, 'reason':reason[:300],
+        'customerText':str(customer_text)[:1800], 'requestedAt':now,
+        'notificationStatus':'not_configured'}
+    write_state(cursor, phone, result)
+    return result
+
