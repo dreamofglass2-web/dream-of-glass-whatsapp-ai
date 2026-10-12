@@ -44,6 +44,18 @@ WHATSAPP_TOKEN = os.getenv('whatsapp_token') or os.getenv('WHATSAPP_TOKEN', '')
 PHONE_NUMBER_ID = os.getenv('PHONE_NUMBER_ID', '1280310741842089')
 # Disabled by default. Configure a DISTINCT Meta test number ID AND exact testers.
 BUSINESS_AUTO_REPLY_ENABLED = os.getenv('BUSINESS_AUTO_REPLY_ENABLED', 'false').lower() == 'true'
+# Owner-authorized real-number pilots still require verified Meta lead provenance.
+# Empty by default; does not enable replies to any other business contact.
+BUSINESS_REPLY_TEST_SENDERS = frozenset(
+    v.strip() for v in os.getenv('BUSINESS_REPLY_TEST_SENDERS', '').split(',')
+    if re.fullmatch(r'9725\d{8}', v.strip())
+)
+
+
+def business_auto_reply_allowed(phone):
+    return BUSINESS_AUTO_REPLY_ENABLED or phone in BUSINESS_REPLY_TEST_SENDERS
+
+
 SIMULATION_PHONE_NUMBER_ID = os.getenv('SIMULATION_PHONE_NUMBER_ID', '').strip()
 SIMULATION_ALLOWED_SENDERS = frozenset(
     v.strip() for v in os.getenv('SIMULATION_ALLOWED_SENDERS', '').split(',')
@@ -626,9 +638,10 @@ def next_batch():
     with lock:
         now = time.monotonic()
         for phone, messages in list(pending.items()):
-            if not BUSINESS_AUTO_REPLY_ENABLED and not is_simulation_contact(phone):
+            if not business_auto_reply_allowed(phone) and not is_simulation_contact(phone):
                 continue
-            if not is_yossi_business_hours() and not is_simulation_contact(phone):
+            if (not is_yossi_business_hours() and not is_simulation_contact(phone)
+                    and phone not in BUSINESS_REPLY_TEST_SENDERS):
                 continue
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:
                 continue
@@ -1634,7 +1647,7 @@ def customer_freeform_send_allowed(phone):
 def send_whatsapp(phone, body=None, image_url=None, caption=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
-    if not is_simulation_contact(phone) and not BUSINESS_AUTO_REPLY_ENABLED:
+    if not is_simulation_contact(phone) and not business_auto_reply_allowed(phone):
         raise PermissionError('Business auto-replies disabled until owner launch approval')
     if not verified_business_lead(phone):
         app.logger.warning('OUTBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
@@ -2979,10 +2992,11 @@ def webhook():
                             return 'Manual conversation storage unavailable', 503
                     pending.append(incoming)
                 value = {**value, 'messages':pending}
-            if recipient_id == str(PHONE_NUMBER_ID) and not BUSINESS_AUTO_REPLY_ENABLED:
-                ignored += len(value.get('messages', []))
-                continue
             for message in value.get('messages', []):
+                if (recipient_id == str(PHONE_NUMBER_ID)
+                        and not business_auto_reply_allowed(message.get('from'))):
+                    ignored += 1
+                    continue
                 message_type = message.get('type')
                 if message_type not in ('text', 'image', 'document', 'audio', 'video'):
                     ignored += 1
