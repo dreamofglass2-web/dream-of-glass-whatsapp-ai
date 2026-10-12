@@ -2212,8 +2212,12 @@ def process_message(phone, body, batch_rows=None):
                 reply = direct_identity
             if 'שישי' in body and any(x in body for x in ('עובדים', 'פתוחים', 'מגיעים', 'מתקינים')):
                 reply = 'לא, אנחנו לא עובדים בימי שישי.'
-            if 'אחריות' in customer_request and any(x in customer_request for x in ('כמה', 'יש', 'מה', 'שנים')):
-                reply = 'כן, יש 7 שנות אחריות על הפרזול ושנה אחריות על ההתקנה. אם תרצה לדעת מה מכוסה במקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
+            if 'אחריות' in customer_request and any(x in customer_request for x in ('כמה', 'יש', 'מה', 'שנים', 'איזו')):
+                warranty_product = str(data.get('product') or (prior or {}).get('product') or '')
+                if 'מקלחון' in customer_request or warranty_product.startswith('מקלחון') or not warranty_product:
+                    reply = 'במקלחונים יש 7 שנות אחריות על הפרזול ושנה על ההתקנה. לגבי כיסוי לזכוכית או מקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
+                else:
+                    reply = 'כדי למסור לך תנאי אחריות מדויקים למוצר הזה, צריך לבדוק את הכיסוי שלו; לא אייחס לו את האחריות שהוגדרה למקלחונים.'
             if re.search(r'אינסטגרם|instagram', customer_request, re.I):
                 reply = ('כן, יש לנו אינסטגרם 🙂 ' + (INSTAGRAM_URL if INSTAGRAM_URL.startswith('https://') else 'אין לי כרגע קישור מדויק כאן, אבל אפשר לבקש מאיתנו את הקישור.'))
             if re.search(r'דף נחיתה|אתר\s+שלכם|אתר\s+אינטרנט', customer_request, re.I):
