@@ -34,6 +34,39 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 cur.execute("DELETE FROM glass_leads WHERE phone LIKE 'TEST_FOLLOWUP_%'")
         cls.connection_patcher.stop()
 
+    def test_dialog_reset_preserves_channel_provenance_and_optouts(self):
+        import json
+        phone = '972500000999'
+        protected = {'simulation_recipient_id': 'meta-test-number',
+                     'meta_leads': {'test-lead': {'source': 'meta_instant_form'}},
+                     'whatsapp_referral': {'source': 'meta_click_to_whatsapp_ad'},
+                     'no_followups': True, 'no_phone_calls': True}
+        try:
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("INSERT INTO glass_leads(phone,context,conversation,status,callback_time) "
+                                "VALUES(%s,%s::jsonb,%s::jsonb,'ממתין לחזרה','מחר')",
+                                (phone, json.dumps({**protected, 'validated_quote': {'issued': True}}),
+                                 json.dumps([{'role':'user','content':'old dialogue'}])))
+            with patch.object(yossi, 'SIMULATION_PHONE_NUMBER_ID', 'meta-test-number'), \
+                 patch.object(yossi, 'SIMULATION_ALLOWED_SENDERS', frozenset({phone})):
+                self.assertTrue(yossi.is_simulation_contact(phone))
+                self.assertTrue(yossi.reset_conversation_for_phone(phone))
+                self.assertTrue(yossi.is_simulation_contact(phone))
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("SELECT context,conversation,status,callback_time FROM glass_leads WHERE phone=%s", (phone,))
+                    context, conversation, status, callback = cur.fetchone()
+            self.assertEqual(context, protected)
+            self.assertEqual(conversation, [])
+            self.assertEqual(status, 'ממתין לחזרה')
+            self.assertEqual(callback, 'מחר')
+            self.assertEqual(yossi.customer_context[phone], protected)
+        finally:
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute("DELETE FROM glass_leads WHERE phone=%s", (phone,))
+
     def test_meta_provenance_gate_in_disposable_database(self):
         """A lead row alone cannot authorize outgoing customer messages."""
         import json
