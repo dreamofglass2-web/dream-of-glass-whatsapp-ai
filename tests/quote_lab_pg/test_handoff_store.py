@@ -6,6 +6,15 @@ from handoff_state import HandoffError
 
 
 class HandoffStoreTests(unittest.TestCase):
+    def test_blank_notes_do_not_overwrite_the_saved_summary(self):
+        with self.store._transaction() as cursor:
+            state=owner_action(cursor,'0000000999',0,{'type':'notes','summary':'סיכום שמור','instructions':'המשך'},self.now)
+        with self.assertRaises(HandoffError):
+            with self.store._transaction() as cursor:
+                owner_action(cursor,'0000000999',state['revision'],{'type':'notes','summary':'','instructions':''},self.now)
+        with self.store._transaction() as cursor:
+            self.assertEqual(read_state(cursor,'0000000999'),state)
+
     def setUp(self):
         self.store = PostgresQuoteStore(os.environ['QUOTE_LAB_TEST_DATABASE_URL'])
         self.store._parameters['options'] = '-c search_path=handoff_test_stage,public'
