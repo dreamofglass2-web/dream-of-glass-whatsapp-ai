@@ -9,7 +9,7 @@ import hashlib
 import secrets
 from callback_store import save_callback_record
 from owner_escalation import escalation_reason
-from owner_notifications import dispatch_owner_alerts
+from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
@@ -1977,6 +1977,9 @@ def process_message(phone, body, batch_rows=None):
                         previous = next((m for m in handoff['messages'] if m['id'] == identity), None)
                         record_message(cur, phone, {'id':identity,'role':'customer','text':body,
                             'at':previous['at'] if previous else datetime.now(timezone.utc).isoformat()})
+                        held_reason = escalation_reason(body)
+                        if held_reason:
+                            escalate_to_owner(cur, phone, held_reason, body, datetime.now(timezone.utc).isoformat())
                         return True
         if starts_new_customer_conversation(body):
             if has_new_messages(phone, batch_rows):
@@ -2765,6 +2768,8 @@ def pending_batch_message_ids(phone, rows):
 
 def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
+    app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
+                    os.getenv("OWNER_ALERT_CHANNEL", "whatsapp"), bool(alert_configuration()))
     last_alert_check = 0.0
     while True:
         try:

@@ -10,6 +10,28 @@ from owner_notifications import alert_configuration, dispatch_owner_alerts
 
 
 class EscalationTests(unittest.TestCase):
+    def test_manual_ownership_can_receive_new_attention_without_resuming_yossi(self):
+        state = new_state()
+        state = transition(state, 0, {'type':'takeover'}, '2026-10-12T21:00:00+00:00')
+        state['summary'] = 'ידני'
+        with patch('handoff_store.read_state',return_value=state), patch('handoff_store.write_state'), patch('handoff_store.capture_suppression') as capture:
+            result = escalate_to_owner(MagicMock(),'972501234567','בקשת נציג','אני רוצה נציג אנושי','2026-10-12T21:10:00+00:00')
+        self.assertTrue(result['escalation']['active'])
+        self.assertEqual(result['owner'],'operator')
+        self.assertEqual(result['handoff_generation'],state['handoff_generation'])
+        self.assertEqual(result['summary'],'ידני')
+        capture.assert_not_called()
+
+    def test_held_human_request_creates_attention_without_ai_or_customer_reply(self):
+        os.environ.setdefault('OPENAI_API_KEY','sk-offline-test-only')
+        import app as yossi
+        state = transition(new_state(),0,{'type':'takeover'},'2026-10-12T21:00:00+00:00')
+        with patch.object(yossi,'HANDOFF_ENABLED',True), patch.object(yossi,'ensure_db'), patch.object(yossi,'db_connection',return_value=MagicMock()), patch.object(yossi,'read_handoff_state',return_value=state), patch.object(yossi,'record_message'), patch.object(yossi,'escalate_to_owner') as escalate, patch.object(yossi.client.responses,'create') as ai, patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message('TEST_ONLY','אני רוצה נציג אנושי'))
+            escalate.assert_called_once()
+            ai.assert_not_called()
+            send.assert_not_called()
+
     def test_telegram_requires_private_chat_and_explicit_activation(self):
         config={'OWNER_ALERT_ENABLED':'true','OWNER_ALERT_CHANNEL':'telegram',
                 'OWNER_TELEGRAM_BOT_TOKEN':'123456789:'+'a'*35,'OWNER_TELEGRAM_CHAT_ID':'123456'}
