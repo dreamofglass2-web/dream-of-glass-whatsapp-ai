@@ -36,7 +36,11 @@ class EscalationTests(unittest.TestCase):
             self.assertTrue(call.args[0].endswith('/sendMessage'))
             self.assertEqual(call.kwargs['json']['chat_id'],'123456')
             self.assertNotIn('headers',call.kwargs)
-            self.assertEqual(len(call.kwargs['json']['reply_markup']['inline_keyboard']),2)
+            self.assertEqual(len(call.kwargs['json']['reply_markup']['inline_keyboard']),1)
+            self.assertNotIn('972501234567',json.dumps(call.kwargs['json']))
+            self.assertNotIn('נדרשת בדיקה',json.dumps(call.kwargs['json'],ensure_ascii=False))
+            self.assertNotIn('הבקשה',json.dumps(call.kwargs['json'],ensure_ascii=False))
+            self.assertNotIn('?attention=',json.dumps(call.kwargs['json']))
             dispatch_owner_alerts(lambda:db,http,'','unused',Mock())
             http.post.assert_called_once()
 
