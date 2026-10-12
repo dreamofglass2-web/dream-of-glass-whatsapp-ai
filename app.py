@@ -2217,7 +2217,7 @@ def process_message(phone, body, batch_rows=None):
                 if 'מקלחון' in customer_request or warranty_product.startswith('מקלחון') or not warranty_product:
                     reply = 'במקלחונים יש 7 שנות אחריות על הפרזול ושנה על ההתקנה. לגבי כיסוי לזכוכית או מקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
                 else:
-                    reply = 'כדי למסור לך תנאי אחריות מדויקים למוצר הזה, צריך לבדוק את הכיסוי שלו; לא אייחס לו את האחריות שהוגדרה למקלחונים.'
+                    reply = 'למוצר הזה צריך לבדוק את הכיסוי שלו לפי המפרט וההתקנה; אין לי כרגע תנאי אחריות מאומתים שאוכל להבטיח.'
             if re.search(r'אינסטגרם|instagram', customer_request, re.I):
                 reply = ('כן, יש לנו אינסטגרם 🙂 ' + (INSTAGRAM_URL if INSTAGRAM_URL.startswith('https://') else 'אין לי כרגע קישור מדויק כאן, אבל אפשר לבקש מאיתנו את הקישור.'))
             if re.search(r'דף נחיתה|אתר\s+שלכם|אתר\s+אינטרנט', customer_request, re.I):
