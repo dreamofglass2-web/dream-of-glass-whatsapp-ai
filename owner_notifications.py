@@ -61,14 +61,13 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
         try:
             if telegram:
                 bot_token, chat_id = template, language
+                # External alerts contain no customer identity, excerpt, reason or deep link.
+                # The signed-in CRM remains the only place to inspect private details.
                 payload = {'chat_id':chat_id,
-                    'text':'יוסי עצר — נדרשת עזרתך\nלקוח: ' + phone + '\nסיבה: ' + reason
-                           + '\nהודעת הלקוח: ' + customer_text
-                           + '\nיוסי נשאר עצור עד שתחזיר אותו דרך ה־CRM.',
+                    'text':'יוסי צריך את עזרתך. היכנס ל־CRM כדי לבדוק את הפנייה. השיחה עצורה עד לטיפול שלך.',
                     'link_preview_options':{'is_disabled':True},
                     'reply_markup':{'inline_keyboard':[
-                        [{'text':'פתיחת הפנייה ב־CRM','url':link}],
-                        [{'text':'כניסה לשיחה בוואטסאפ','url':'https://wa.me/' + phone.lstrip('+')}]]}}
+                        [{'text':'פתיחת ה־CRM','url':'https://yossi-david-crm-demo.abloompetal2.chatgpt.site'}]]}}
                 response = http.post('https://api.telegram.org/bot' + bot_token + '/sendMessage',
                                      json=payload, timeout=15)
                 result = response.json() if response.ok else {}
