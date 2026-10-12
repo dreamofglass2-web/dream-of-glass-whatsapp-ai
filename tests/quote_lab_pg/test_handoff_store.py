@@ -6,6 +6,17 @@ from handoff_state import HandoffError
 
 
 class HandoffStoreTests(unittest.TestCase):
+    def test_paused_customer_inbound_reaches_source_without_operator_or_replay_advancement(self):
+        with self.store._transaction() as cursor:
+            cursor.execute("UPDATE glass_leads SET last_inbound_at='2026-10-12T15:00:00Z' WHERE phone='0000000999'")
+            message={'id':'wamid.customer.returned','role':'customer','text':'חזרתי לבדוק','at':'2026-10-12T16:00:00Z'}
+            record_message(cursor,'0000000999',message)
+            record_message(cursor,'0000000999',message)
+            record_message(cursor,'0000000999',{'id':'wamid.operator.response','role':'operator','text':'שלום','at':'2026-10-12T17:00:00Z'},operator=True)
+            record_message(cursor,'0000000999',{'id':'inbound-batch-old','role':'customer','text':'ישן','at':'2026-10-12T18:00:00Z'})
+            cursor.execute("SELECT last_inbound_at FROM glass_leads WHERE phone='0000000999'")
+            self.assertEqual(cursor.fetchone()['last_inbound_at'].isoformat(),'2026-10-12T16:00:00+00:00')
+
     def test_blank_notes_do_not_overwrite_the_saved_summary(self):
         with self.store._transaction() as cursor:
             state=owner_action(cursor,'0000000999',0,{'type':'notes','summary':'סיכום שמור','instructions':'המשך'},self.now)
