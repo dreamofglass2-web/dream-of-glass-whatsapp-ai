@@ -56,6 +56,13 @@ def record_message(cursor, phone, message, *, operator=False):
     phone_lock(cursor, phone)
     state = read_state(cursor, phone)
     result = append_verified_message(state, message)
+    if (result['revision'] != state['revision'] and message['role'] == 'customer'
+            and not message['id'].startswith('inbound-batch-')):
+        # A paused customer's original Meta timestamp must reach the source CRM.
+        # Replays/operator messages never advance inbound. Queued batches already
+        # recorded their inbound at admission: never use their later processing time.
+        cursor.execute('''UPDATE glass_leads SET last_inbound_at=
+            GREATEST(last_inbound_at,%s::timestamptz) WHERE phone=%s''', (message['at'],phone))
     if operator:
         result['echo_verified'] = True
         # A manual message itself takes ownership. Duplicate delivery must never
