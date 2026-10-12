@@ -137,10 +137,26 @@ class ConversationSimulation(unittest.TestCase):
         self.assertFalse(yossi.conversation_constraints(history)['no_dimensions'])
 
 
-    def test_warranty_does_not_invent_glass_exclusion(self):
-        answer = self.step('איזו אחריות על המקלחונים?', self.model('אין אחריות לזכוכית'))
-        self.assertNotIn('אין אחריות לזכוכית', answer)
-        self.assertIn('נבדוק את תנאי האחריות', answer)
+    def test_warranty_applies_owner_confirmed_glass_exclusion(self):
+        answer = self.step('איזו אחריות על המקלחונים?', self.model('אחריות מלאה לזכוכית'))
+        self.assertIn('אין אחריות על הזכוכית', answer)
+        self.assertIn('7 שנות אחריות על הפרזול', answer)
+        self.assertIn('שנה על ההתקנה', answer)
+
+    def test_explicit_glass_warranty_uses_verified_policy_without_ai(self):
+        self.step('רוצה מקלחון', self.model('מה חשוב לך?', product='מקלחון'))
+        with patch.object(yossi.client.responses, 'create') as ai:
+            answer = self.step('יש אחריות על הזכוכית במקלחון?')
+            self.assertIn('אין אחריות על הזכוכית', answer)
+            self.assertIn('7 שנות אחריות על הפרזול', answer)
+            ai.assert_not_called()
+
+    def test_mirror_glass_warranty_does_not_borrow_shower_coverage(self):
+        self.step('אני רוצה מראה', self.model('מה הגודל?', product='מראה'))
+        with patch.object(yossi.client.responses, 'create') as ai:
+            answer = self.step('יש אחריות על הזכוכית?')
+            self.assertEqual(answer, 'אין אחריות על הזכוכית.')
+            ai.assert_not_called()
 
     def test_mirror_does_not_receive_shower_hardware_warranty(self):
         self.step('רוצה מראה לחדר רחצה', self.model('בשמחה', product='מראה'))
