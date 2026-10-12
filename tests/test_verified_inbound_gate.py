@@ -152,5 +152,55 @@ class VerifiedInboundGateTests(unittest.TestCase):
             connection.assert_not_called()
 
 
+    def test_pilot_queues_only_exact_verified_recipient_with_general_launch_off(self):
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'BUSINESS_REPLY_TEST_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'HANDOFF_ENABLED', False), \
+             patch.object(yossi, 'ensure_worker_started'), \
+             patch.object(yossi, 'clear_simulation_for_business_inbound'), \
+             patch.object(yossi, 'verified_business_lead', return_value=True), \
+             patch.object(yossi, 'queue_message') as queue:
+            self.assertEqual(self.signed_post().status_code, 200)
+            queue.assert_called_once_with('972501234567', 'שלום', 'wamid.TEST')
+            self.payload['entry'][0]['changes'][0]['value']['messages'][0]['from'] = '972509999999'
+            self.assertEqual(self.signed_post().status_code, 200)
+            queue.assert_called_once()
+
+    def test_pilot_does_not_authorize_private_contact_without_meta_provenance(self):
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'BUSINESS_REPLY_TEST_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'HANDOFF_ENABLED', False), \
+             patch.object(yossi, 'ensure_worker_started'), \
+             patch.object(yossi, 'clear_simulation_for_business_inbound'), \
+             patch.object(yossi, 'verified_business_lead', return_value=False), \
+             patch.object(yossi, 'queue_message') as queue:
+            self.assertEqual(self.signed_post().status_code, 200)
+            queue.assert_not_called()
+
+    def test_pilot_send_boundary_blocks_other_contacts_and_expired_windows(self):
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'BUSINESS_REPLY_TEST_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'is_simulation_contact', return_value=False), \
+             patch.object(yossi, 'verified_business_lead', return_value=True), \
+             patch.object(yossi, 'customer_freeform_send_allowed', return_value=False), \
+             patch.object(yossi.requests, 'post') as send:
+            for phone in ('972509999999', '972501234567'):
+                with self.assertRaises(PermissionError):
+                    yossi.send_whatsapp(phone, body='בדיקה')
+            send.assert_not_called()
+
+    def test_only_pilot_batch_can_run_outside_business_hours(self):
+        rows = [('wamid.PILOT', 'שלום', 10)]
+        with patch.object(yossi, 'BUSINESS_AUTO_REPLY_ENABLED', False), \
+             patch.object(yossi, 'BUSINESS_REPLY_TEST_SENDERS', frozenset({'972501234567'})), \
+             patch.object(yossi, 'is_simulation_contact', return_value=False), \
+             patch.object(yossi, 'is_yossi_business_hours', return_value=False), \
+             patch.object(yossi.time, 'monotonic', return_value=100), \
+             patch.object(yossi, 'pending', {'972509999999': rows, '972501234567': rows}), \
+             patch.object(yossi, 'processing', set()):
+            self.assertEqual(yossi.next_batch(), ('972501234567', rows))
+            self.assertIsNone(yossi.next_batch())
+
+
 if __name__ == "__main__":
     unittest.main()
