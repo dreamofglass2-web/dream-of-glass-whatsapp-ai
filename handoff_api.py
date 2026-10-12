@@ -52,11 +52,11 @@ def register_routes(app, *, connect, ensure, enabled, key_hex):
                     if not cursor.fetchone():
                         return Response('Repeated request', status=401)
                     if phone is None:
-                        cursor.execute("SELECT phone,state->>'owner',state->'revision',state->>'silenced_callback_id',state->>'silenced_inbound_at' FROM yossi_handoffs ORDER BY phone LIMIT 2001")
+                        cursor.execute("SELECT phone,state->>'owner',state->'revision',state->>'silenced_callback_id',state->>'silenced_inbound_at',state->'escalation' FROM yossi_handoffs ORDER BY phone LIMIT 2001")
                         rows = cursor.fetchall()
                         if len(rows)>2000:
                             raise HandoffError('Too many controls')
-                        result = {'controls':[{'phone':p,'owner':o,'revision':v,'silencedCallbackId':cb,'silencedInboundAt':at} for p,o,v,cb,at in rows]}
+                        result = {'controls':[{'phone':p,'owner':o,'revision':v,'silencedCallbackId':cb,'silencedInboundAt':at,'escalation':e} for p,o,v,cb,at,e in rows]}
                     else:
                         cursor.execute('SELECT 1 FROM glass_leads WHERE phone=%s', (phone,))
                         if not cursor.fetchone():
@@ -80,3 +80,4 @@ def register_routes(app, *, connect, ensure, enabled, key_hex):
             app.logger.error('OPERATOR_CONTROL_STORAGE_FAILED')
             return Response('Control storage unavailable',status=503)
     app.add_url_rule('/v1/handoff','crm_operator_control',handle,methods=['GET','POST'])
+
