@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
+from sales_pro import YOSSI_PRO_GUIDANCE
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -62,7 +63,7 @@ SIMULATION_ALLOWED_SENDERS = frozenset(
     if re.fullmatch(r'9725\d{8}', v.strip())
 )
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
+MODEL = os.getenv('OPENAI_MODEL', 'gpt-6-astra')
 SEND_QUOTES = os.getenv('SEND_QUOTES', 'true').lower() == 'true'  # Only validated prices; set false to disable
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
@@ -1567,7 +1568,11 @@ def helpful_quote_followup(data, customer_request, first_message=False):
     return greeting + missing_quote_detail(data)
 
 
-def close_validated_quote(quote, history, message):
+def close_validated_quote(quote, history, message, product='מקלחון'):
+    if 'מראה' in str(product):
+        if not (quote.get('approved') or explicit_quote_approval(message)):
+            return 'בשמחה. אם ההצעה מתאימה לך, אפשר לאשר אותה ולהתקדם לתיאום פרטי העבודה על המראה.'
+        return 'ההצעה מאושרת. אפשר להתקדם לתיאום פרטי העבודה על המראה. מה כתובת ההתקנה?'
     if not (quote.get('approved') or explicit_quote_approval(message)):
         return 'בשמחה 🙂 ההצעה שקיבלת היא הבסיס להמשך. אם אתה מאשר אותה, נתקדם לתיאום מדידה סופית לאחר שהריצוף הסתיים.'
     if tiling_completed(history):
@@ -2114,15 +2119,21 @@ def process_message(phone, body, batch_rows=None):
         instructions += '\n' + proposed_layout_guidance(history)
         instructions += ('\nאל תבטיח \"רק שאלה אחת\" בלי שווידאת שזה החוסר האחרון לתמחור. '
                          'אם הצעת כבר תצורה, המשך ממנה כטיוטת מפרט לאישור ולא כשאלון טכני חדש.\n')
+        instructions += '\n' + YOSSI_PRO_GUIDANCE
         try:
-            app.logger.info("AI_REQUEST phone_suffix=%s", phone[-4:])
+            app.logger.info("AI_REQUEST model=%s phone_suffix=%s", MODEL, phone[-4:])
             response = client.responses.create(
                 model=MODEL,
+                reasoning={'effort':'medium'},
+                timeout=90.0,
                 instructions=instructions,
                 input=[{'role':'developer','content':'Return a valid JSON object. Follow the JSON output contract in the instructions.'}] + model_history,
                 text={'format':{'type':'json_object'}},
             )
-            app.logger.info("AI_RESPONSE phone_suffix=%s", phone[-4:])
+            usage = getattr(response, 'usage', None)
+            app.logger.info('AI_RESPONSE model=%s input_tokens=%s output_tokens=%s phone_suffix=%s',
+                            getattr(response, 'model', MODEL), getattr(usage, 'input_tokens', None),
+                            getattr(usage, 'output_tokens', None), phone[-4:])
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
@@ -2251,7 +2262,7 @@ def process_message(phone, body, batch_rows=None):
             if ordinary_turn and prior_quote and closing_intent(customer_request):
                 if explicit_quote_approval(customer_request):
                     quote_record['approved'] = True
-                reply = close_validated_quote(quote_record, history, customer_request)
+                reply = close_validated_quote(quote_record, history, customer_request, merged_pricing.get('product') or 'מקלחון')
             elif ordinary_turn and prior_quote and quote_intent(customer_request):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
                 if isinstance(saved_amount, (int, float)) and saved_amount > 0:
