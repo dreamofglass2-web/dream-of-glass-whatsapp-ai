@@ -29,3 +29,12 @@ jobs:
 
       - name: Compact consultation and usage regressions
         run: python -m unittest discover -s tests -p "test_sales_dialogue.py" -v
+
+      - name: Voice transcription and inbound admission regressions
+        env:
+          OPENAI_API_KEY: sk-offline-test-only
+          DATABASE_URL: ""
+          WHATSAPP_TOKEN: ""
+        run: |
+          python -m unittest discover -s tests -p "test_audio_transcription.py" -v
+          python -m unittest discover -s tests -p "test_verified_inbound_gate.py" -v
