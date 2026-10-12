@@ -2381,7 +2381,7 @@ def process_message(phone, body, batch_rows=None):
                 quote_record.get('issued') and ordinary_turn and
                 re.search(r'מתחר|הצעה\s+(?:זולה|זול)|זול\s+ב|פחות\s+מ|הציעו\s+לי', customer_request)
             )
-            if competitor_price_objection:
+            if competitor_price_objection and (not reply.strip() or contains_ils_amount(reply)):
                 reply = ('מבין אותך לגמרי, פער כזה במחיר בהחלט מרגישים בכיס 🙂 '
                          'אבל כשבוחרים מקלחון חשוב להסתכל על מה מקבלים לאורך זמן, '
                          'לא רק על המחיר ביום ההזמנה. '
