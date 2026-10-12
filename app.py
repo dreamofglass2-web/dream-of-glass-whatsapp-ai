@@ -2387,7 +2387,7 @@ def process_message(phone, body, batch_rows=None):
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
                     reply = ('אפשר לתת מחיר מדויק יותר כשנבין מה צריך להתקין. '
                              'אם תספר לי קצת על השטח ומה חשוב לכם, אוכל לכוון אותך לפתרון מתאים.')
-            if not quote_record.get('issued') and re.search(r'רוצה\s+(?:לסגור|להתקדם)|מה\s+צריך\s+ממני', customer_request, re.I) and re.search(r'מתי\s+נוח.*מדיד|נבוא\s+למדיד|כדי\s+להתקדם\s+צריך\s+מדידה', reply, re.I):
+            if not quote_record.get('issued') and re.search(r'רוצה\s+(?:לסגור|להתקדם)|מה\s+צריך\s+ממני', customer_request, re.I) and re.search(r'מתי\s+נוח.*מדיד|נבוא\s+למדיד|כדי\s+להתקדם\s+צריך\s+מדידה', reply, re.I) and is_shower:
                 reply = ('אפשר להתקדם כבר עכשיו להצעת מחיר לפי מה שידוע על השטח. אחרי אישור ההצעה וסיום הריצוף נגיע למדידה סופית. '
                          'יש לך מידה משוערת או צילום של האזור?')
             # Do not expose internal infrastructure or disabled pricing to customers.
