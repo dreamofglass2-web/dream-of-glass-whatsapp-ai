@@ -45,3 +45,13 @@ class OperatorWebhookTests(unittest.TestCase):
             response=self.post(self.payload())
             self.assertEqual(response.status_code,503)
             self.assertNotIn('private data',response.text)
+
+    def test_paused_customer_text_is_saved_with_meta_time_even_when_automatic_replies_disabled(self):
+        from handoff_state import new_state
+        state=new_state();state['owner']='operator'
+        payload={'entry':[{'changes':[{'field':'messages','value':{'metadata':{'phone_number_id':str(yossi.PHONE_NUMBER_ID)},'messages':[{'from':'972501234567','id':'wamid.customer','timestamp':'1791817200','type':'text','text':{'body':'בסדר, תודה'}}]}}]}]}
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'BUSINESS_AUTO_REPLY_ENABLED',False),patch.object(yossi,'ensure_worker_started'),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'verified_business_lead',return_value=True),patch.object(yossi,'phone_lock'),patch.object(yossi,'read_handoff_state',return_value=state),patch.object(yossi,'record_message') as record,patch.object(yossi,'queue_message') as queue,patch.object(yossi,'send_whatsapp') as send:
+            self.assertEqual(self.post(payload).status_code,200)
+            self.assertEqual(record.call_args.args[2]['role'],'customer')
+            self.assertEqual(record.call_args.args[2]['at'],'2026-10-12T15:00:00+00:00')
+            queue.assert_not_called();send.assert_not_called()

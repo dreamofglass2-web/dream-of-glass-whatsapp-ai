@@ -22,3 +22,13 @@ class ControlAuthenticationTests(unittest.TestCase):
             with patch.object(yossi,'HANDOFF_ENABLED',True),patch.dict(os.environ,{'CRM_CONTROL_KEY_HEX':'19'*32}),patch.object(yossi,'db_connection') as db:
                 response=yossi.app.test_client().post('/v1/handoff',data=body,content_type='application/json',headers=headers)
                 self.assertEqual(response.status_code,401);db.assert_not_called()
+
+    def test_old_callback_time_request_is_not_reopened_after_owner_handling(self):
+        from unittest.mock import MagicMock
+        from handoff_state import new_state
+        state=new_state();state['silenced_callback_id']='old-callback'
+        for current,expected in [('old-callback',False),('new-callback',True)]:
+            connection=MagicMock();cursor=connection.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect=[('ממתין לחזרה','ממתין לתיאום'),(state,),(current,)]
+            with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=connection):
+                self.assertEqual(yossi.waiting_for_callback_time('972501234567'),expected)

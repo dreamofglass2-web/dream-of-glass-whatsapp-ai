@@ -313,6 +313,12 @@ def waiting_for_callback_time(phone):
             with conn.cursor() as cur:
                 cur.execute('SELECT status, callback_time FROM glass_leads WHERE phone=%s', (phone,))
                 row = cur.fetchone()
+                if HANDOFF_ENABLED:
+                    state = read_handoff_state(cur, phone)
+                    cur.execute('SELECT callback_request_id FROM glass_leads WHERE phone=%s', (phone,))
+                    identity = cur.fetchone()
+                    if state['owner'] == 'operator' or state.get('silenced_callback_id') == ((identity[0] if identity else None) or 'legacy'):
+                        return False
         return bool(row and row[0] == 'ממתין לחזרה' and row[1] == 'ממתין לתיאום')
     except Exception:
         app.logger.exception('Could not read callback state')
@@ -1923,6 +1929,10 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body='יש כרגע תקלה בפתיחת שיחה חדשה, אפשר לנסות שוב בעוד רגע?')
             return True
         history, prior = load_conversation(phone)
+        if handoff and prior.get('_operator_generation_seen') != handoff['handoff_generation']:
+            prior = dict(prior or {})
+            prior.pop('callback_requested_day', None)
+            prior['_operator_generation_seen'] = handoff['handoff_generation']
         history.append({'role':'user','content':body})
         # Explicit opt-outs win over stale sales/callback requests.
         if refuses_phone_calls(body) or refuses_further_contact(body):
@@ -2018,7 +2028,7 @@ def process_message(phone, body, batch_rows=None):
         # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
         callback_answer = (is_callback_time_answer(body) and
                            (waiting_for_callback_time(phone) or
-                            last_assistant_asked_callback(history)))
+                            (last_assistant_asked_callback(history) and not (handoff and handoff.get('silenced_callback_id')))))
         if callback_answer:
             safe_context = dict(prior or {})
             scheduling_text = body
@@ -2947,6 +2957,28 @@ def webhook():
             if recipient_id != str(PHONE_NUMBER_ID) and not simulation_inbound:
                 ignored += len(value.get('messages', []))
                 continue
+            if HANDOFF_ENABLED and recipient_id == str(PHONE_NUMBER_ID):
+                pending = []
+                for incoming in value.get('messages', []):
+                    phone = incoming.get('from')
+                    if incoming.get('type') == 'text' and phone and verified_business_lead(phone):
+                        try:
+                            ensure_db()
+                            with db_connection() as conn:
+                                with conn.cursor() as cur:
+                                    phone_lock(cur, phone)
+                                    state = read_handoff_state(cur, phone)
+                                    if state['owner'] == 'operator':
+                                        at = datetime.fromtimestamp(int(incoming['timestamp']), timezone.utc).isoformat()
+                                        record_message(cur, phone, {'id':incoming['id'],'role':'customer',
+                                            'text':(incoming.get('text') or {})['body'],'at':at})
+                                        received += 1
+                                        continue
+                        except Exception:
+                            app.logger.error('MANUAL_INBOUND_STORAGE_FAILED')
+                            return 'Manual conversation storage unavailable', 503
+                    pending.append(incoming)
+                value = {**value, 'messages':pending}
             if recipient_id == str(PHONE_NUMBER_ID) and not BUSINESS_AUTO_REPLY_ENABLED:
                 ignored += len(value.get('messages', []))
                 continue
