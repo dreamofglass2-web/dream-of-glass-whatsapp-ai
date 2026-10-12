@@ -2,6 +2,7 @@
 import hashlib, hmac, json, re, time
 from datetime import datetime, timezone
 from flask import request, Response
+from contextlib import closing
 from handoff_state import HandoffError
 from handoff_store import read_state, owner_action
 
@@ -44,18 +45,18 @@ def register_routes(app, *, connect, ensure, enabled, key_hex):
             if request.method == 'POST' and phone is None:
                 raise HandoffError('Customer required')
             ensure()
-            with connect() as connection:
+            with closing(connect()) as connection, connection:
                 with connection.cursor() as cursor:
                     cursor.execute('DELETE FROM yossi_control_nonces WHERE expires<now()')
                     cursor.execute("INSERT INTO yossi_control_nonces(nonce,expires) VALUES(%s,now()+interval '601 seconds') ON CONFLICT DO NOTHING RETURNING nonce", (nonce,))
                     if not cursor.fetchone():
                         return Response('Repeated request', status=401)
                     if phone is None:
-                        cursor.execute("SELECT phone,state->>'owner',state->'revision' FROM yossi_handoffs ORDER BY phone LIMIT 2001")
+                        cursor.execute("SELECT phone,state->>'owner',state->'revision',state->>'silenced_callback_id',state->>'silenced_inbound_at' FROM yossi_handoffs ORDER BY phone LIMIT 2001")
                         rows = cursor.fetchall()
                         if len(rows)>2000:
                             raise HandoffError('Too many controls')
-                        result = {'controls':[{'phone':p,'owner':o,'revision':v} for p,o,v in rows]}
+                        result = {'controls':[{'phone':p,'owner':o,'revision':v,'silencedCallbackId':cb,'silencedInboundAt':at} for p,o,v,cb,at in rows]}
                     else:
                         cursor.execute('SELECT 1 FROM glass_leads WHERE phone=%s', (phone,))
                         if not cursor.fetchone():

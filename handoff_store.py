@@ -1,6 +1,6 @@
 """Durable operator ownership and WhatsApp Business echoes, without sending."""
 import json
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from handoff_state import new_state, validate, transition, append_verified_message, automatic_reply_allowed, HandoffError
 
@@ -19,7 +19,7 @@ def phone_lock(cursor, phone):
 def read_state(cursor, phone):
     cursor.execute('SELECT state FROM yossi_handoffs WHERE phone=%s', (phone,))
     row = cursor.fetchone()
-    return validate(row[0]) if row else new_state()
+    return validate(row['state'] if isinstance(row, dict) else row[0]) if row else new_state()
 
 
 def write_state(cursor, phone, state):
@@ -35,8 +35,21 @@ def owner_action(cursor, phone, revision, action, now):
     if not cursor.fetchone():
         raise HandoffError('Customer not found')
     result = transition(read_state(cursor, phone), revision, action, now)
+    if action.get('type') == 'takeover':
+        capture_suppression(cursor, phone, result)
     write_state(cursor, phone, result)
     return result
+
+
+def capture_suppression(cursor, phone, state):
+    cursor.execute('SELECT status,callback_request_id,last_inbound_at FROM glass_leads WHERE phone=%s', (phone,))
+    row = cursor.fetchone()
+    if isinstance(row, dict):
+        status, callback, inbound = row['status'], row['callback_request_id'], row['last_inbound_at']
+    else:
+        status, callback, inbound = row
+    state['silenced_callback_id'] = (callback or 'legacy') if status == 'ממתין לחזרה' else None
+    state['silenced_inbound_at'] = inbound.isoformat() if inbound else None
 
 
 def record_message(cursor, phone, message, *, operator=False):
@@ -49,6 +62,7 @@ def record_message(cursor, phone, message, *, operator=False):
         # pause a conversation that the owner has subsequently returned to Yossi.
         if result['revision'] != state['revision'] and result['owner'] == 'yossi':
             result = transition(result, result['revision'], {'type': 'takeover'}, message['at'])
+            capture_suppression(cursor, phone, result)
     write_state(cursor, phone, result)
     return result
 
@@ -60,7 +74,7 @@ def authorized_send(connect, phone, expected_revision):
     An accepted takeover waits for any already-started send. After its acknowledgement,
     stale model generations and queued automatic sends cannot start a provider call.
     """
-    with connect() as connection:
+    with closing(connect()) as connection, connection:
         with connection.cursor() as cursor:
             phone_lock(cursor, phone)
             state = read_state(cursor, phone)

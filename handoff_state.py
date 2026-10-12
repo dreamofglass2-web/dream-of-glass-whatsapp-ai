@@ -58,7 +58,7 @@ def validate(state):
         if not isinstance(message.get('text'), str) or len(message['text']) > 20000:
             raise HandoffError('Invalid message content')
         instant(message.get('at'))
-    if sum(len(m['text']) for m in messages) > 700000:
+    if sum(len(m['text'].encode('utf-8')) for m in messages) > 600000:
         raise HandoffError('Handoff history byte limit reached')
     return state
 
@@ -126,6 +126,7 @@ def automatic_reply_allowed(state, now):
 def resume_context(state):
     validate(state)
     return {'owner_summary': state['summary'], 'owner_instructions': state['instructions'],
-            'manual_conversation': deepcopy(state['messages']),
+            'manual_conversation': deepcopy(state['messages'][-36:]),
+            'older_manual_messages_omitted': max(0, len(state['messages'])-36),
             'app_messages_verified': state['echo_verified'],
             'generation': state['handoff_generation']}

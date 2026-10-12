@@ -3334,9 +3334,9 @@ def admin_complete_callback(phone):
 def privacy():
     return '<h1>Privacy Policy</h1><p>Contact: dream.of.glass2@gmail.com</p>', 200
 
+register_handoff_routes(app, connect=db_connection, ensure=ensure_db,
+    enabled=lambda: HANDOFF_ENABLED, key_hex=lambda: os.getenv('CRM_CONTROL_KEY_HEX',''))
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT','10000')))
 
-
-register_handoff_routes(app, connect=db_connection, ensure=ensure_db,
-    enabled=lambda: HANDOFF_ENABLED, key_hex=lambda: os.getenv('CRM_CONTROL_KEY_HEX',''))
