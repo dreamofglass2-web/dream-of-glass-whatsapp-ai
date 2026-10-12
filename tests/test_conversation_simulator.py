@@ -106,6 +106,36 @@ class ConversationSimulation(unittest.TestCase):
         customer_messages = [m['content'] for m in captured[-1]['input'] if m['role'] == 'user']
         self.assertTrue(any('100/100' in t for t in customer_messages))
 
+
+    def test_price_inclusions_answer_keeps_installation_and_vat(self):
+        specs = dict(product='מקלחון', configuration='פינתי 2 דלתות',
+                     width_cm=100, second_width_cm=100, height_cm=200,
+                     glass_type='שקופה', finish='שחור',
+                     handles=['ידית כפתור', 'ידית כפתור'],
+                     quote_requested=True, solution_agreed=True)
+        self.step('אפשר מחיר לפינתי 100/100?', self.model('בודק', **specs))
+        answer = self.step('כולל התקנה ומע״מ?', self.model('המחיר כולל מע״מ 3,999 ש״ח'))
+        self.assertIn('ההתקנה כלולות', answer)
+        self.assertIn('המע״מ מתווסף', answer)
+        self.assertNotIn('3,999', answer)
+        self.assertEqual(self.memory[self.phone][1]['validated_quote']['amount_ils_pre_vat'],
+                         yossi.calculate_quote(specs))
+
+    def test_no_dimensions_statement_does_not_inject_a_photo_pitch(self):
+        reply = 'אפשר להתחיל בכיוון כללי גם בלי מידות. במקלחון מודדים אחרי סיום הריצוף.'
+        self.assertEqual(yossi.avoid_repeated_dimensions(reply, {'no_dimensions': True}, 'מתי מודדים?'), reply)
+
+    def test_dimensions_guard_removes_only_repeated_question(self):
+        reply = 'אפשר להתחיל בייעוץ. מה הרוחב והגובה שלכם?'
+        answer = yossi.avoid_repeated_dimensions(reply, {'no_dimensions': True}, 'אין לי מידות')
+        self.assertEqual(answer, 'אפשר להתחיל בייעוץ.')
+        self.assertNotIn('תמונה', answer)
+
+    def test_customer_measurements_stay_known_after_following_turn(self):
+        history = [{'role':'user','content':v} for v in
+                   ('אין לי מידות', 'מדדתי: 100/100', 'כן, שקוף')]
+        self.assertFalse(yossi.conversation_constraints(history)['no_dimensions'])
+
     def test_astra_request_preserves_json_contract_and_consultant_context(self):
         captured = []
         def capture(**kwargs):
