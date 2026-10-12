@@ -91,7 +91,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(request['prompt_cache_options'], {'mode': 'explicit', 'ttl': '30m'})
         prefix = request['input'][0]['content'][0]
         self.assertEqual(prefix['prompt_cache_breakpoint']['mode'], 'explicit')
-        state = json.loads(request['input'][1]['content'].split('\\n', 1)[1])
+        state = json.loads('{' + request['input'][1]['content'].split('{', 1)[1])
         self.assertTrue(state['dialogue']['sanitary_fixtures_installed'])
         self.assertTrue(state['dialogue']['customer_needs_plain_visual_explanation'])
 
