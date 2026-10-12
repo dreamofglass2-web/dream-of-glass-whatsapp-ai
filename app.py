@@ -1340,7 +1340,14 @@ def conversation_constraints(history):
     """Extract explicit limits from customer messages; never infer unknown measurements."""
     customer = [str(m.get('content', '')) for m in history if m.get('role') == 'user']
     text = '\n'.join(customer)
-    no_dimensions = bool(re.search(r'(אין לי|לא יודע|לא יודעת|אין לנו|לא מדדתי|לא מדדנו).{0,28}(מידות|רוחב|גובה)|בלי מידות', text))
+    no_dimensions = False
+    for customer_turn in customer:
+        turn = customer_written_text(customer_turn)
+        lacks = bool(re.search(r'(אין לי|לא יודע|לא יודעת|אין לנו|לא מדדתי|לא מדדנו).{0,28}(מידות|רוחב|גובה)|בלי מידות', turn))
+        if lacks:
+            no_dimensions = True
+        elif re.search(r'מדדתי|יש לי מידות|המידות הן|הרוחב הוא|הגובה הוא|\d+\s*[/xX×]\s*\d+|(?:רוחב|גובה)\s+\d+', turn):
+            no_dimensions = False
     no_written_quote = bool(re.search(r'(אין לי|אין לנו).{0,20}(הצעה כתובה|הצעת מחיר כתובה|צילום של ההצעה)', text))
     competitor = bool(re.search(r'הצעה.{0,35}(זול|מתחרה|מישהו אחר)|(?:זול|מתחרה).{0,35}הצעה', text))
     corner = 'פינתי' in text
@@ -1353,22 +1360,16 @@ def conversation_constraints(history):
 
 
 def avoid_repeated_dimensions(reply, facts, body):
-    """Last-resort guard against the exact loop observed in the simulation."""
+    """Remove only an actual repeated measurement question, never add a new pitch."""
     if not facts['no_dimensions']:
         return reply
-    if not re.search(r'(איזה|מה|כמה|תוכל|אפשר).{0,32}(רוחב|גובה|מידות)|(רוחב|גובה|מידות).{0,20}(מתכננים|שלכם|יש לכם)', reply):
+    pattern = r'(איזה|מה|כמה|תוכל|אפשר).{0,32}(רוחב|גובה|מידות)|(רוחב|גובה|מידות).{0,20}(מתכננים|שלכם|יש לכם)'
+    sentences = re.split(r'(?<=[.!?])\s+', str(reply))
+    repeated = [part for part in sentences if part.rstrip().endswith('?') and re.search(pattern, part)]
+    if not repeated:
         return reply
-    # Preserve the useful explanation before the repeated question.
-    sentences = re.split(r'(?<=[.!?])\s+', reply)
-    kept = [x for x in sentences if not re.search(r'(איזה|מה|כמה|תוכל|אפשר).{0,32}(רוחב|גובה|מידות)|(רוחב|גובה|מידות).{0,20}(מתכננים|שלכם|יש לכם)', x)]
-    base = ' '.join(kept).strip()
-    if re.search(r'אסלה', body):
-        return 'אם האסלה קרובה למקלחון, כדאי לתכנן פתיחה שלא תיתקע בה. אפשר לבדוק הזזה או דלת שנפתחת פנימה, לפי השטח. יש לך אפשרות לשלוח תמונה של אזור המקלחת?'
-    if re.search(r'ממליץ|המלצה|מה עדיף', body):
-        return 'במקלחון פינתי אני מעדיף דלתות ציר כשיש להן מקום להיפתח, והזזה כשצפוף. אם יש אסלה או ארון ליד המקלחון זה יכול להשפיע. יש משהו צמוד אליו?'
-    if re.search(r'מחיר|בערך|כמה עולה', body):
-        return 'בשמחה. המחיר תלוי בגודל ובמבנה המקלחון. אפשר להתחיל להבין יחד מה מתאים לשטח ולתקציב, ואז לתת הצעה לפי הפרטים.'
-    return (base + ' ' if base else '') + 'אם נוח לך, אפשר לשלוח תמונה של אזור המקלחת כדי שאוכל לכוון אותך גם בלי מידות.'
+    kept = [part for part in sentences if part not in repeated]
+    return ' '.join(kept).strip() or 'אפשר להתחיל בהכוונה כללית, ואת המידות להשלים בהמשך כשיהיו לך.'
 
 
 def guard_corner_shower_advice(reply, customer_request, history):
@@ -1569,7 +1570,7 @@ def confirmed_corner_two_door_specs(history, data):
 def helpful_quote_followup(data, customer_request, first_message=False):
     """Respond like a consultant, without asking to repeat a configuration already supplied."""
     text = str(customer_request or '')
-    greeting = 'היי, מה שלומך? ' if first_message else ''
+    greeting = 'היי, ' if first_message else ''
     explicit_corner_two_doors = (
         'פינתי' in text and
         bool(re.search(r'(?:שתי|2)\s+דלתות|דלתות\s+פתיחה', text))
@@ -1582,6 +1583,10 @@ def helpful_quote_followup(data, customer_request, first_message=False):
             return greeting + prefix + 'רק דבר אחד: הדלתות מחוברות ישירות לקירות, או שיש לצדן גם זכוכיות קבועות?'
         if not data.get('handles'):
             return greeting + prefix + 'איזה ידיות תרצה לדלתות — כפתור או מגבת?'
+    if data.get('configuration') not in BOM and data.get('configuration') not in SLIDING:
+        if 'פינתי' in text:
+            return greeting + 'למקלחון פינתי אפשר להתאים פתיחה נוחה לפי המקום בחדר. יש לידו כיור או אסלה שצריך להתחשב בהם?'
+        return greeting + 'המחיר תלוי בגודל ובמבנה המקלחון. הוא מיועד לפינה או לפתח בין שני קירות?'
     return greeting + missing_quote_detail(data)
 
 
@@ -2207,8 +2212,12 @@ def process_message(phone, body, batch_rows=None):
                 reply = direct_identity
             if 'שישי' in body and any(x in body for x in ('עובדים', 'פתוחים', 'מגיעים', 'מתקינים')):
                 reply = 'לא, אנחנו לא עובדים בימי שישי.'
-            if 'אחריות' in customer_request and any(x in customer_request for x in ('כמה', 'יש', 'מה', 'שנים')):
-                reply = 'כן, יש 7 שנות אחריות על הפרזול ושנה אחריות על ההתקנה. אם תרצה לדעת מה מכוסה במקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
+            if 'אחריות' in customer_request and any(x in customer_request for x in ('כמה', 'יש', 'מה', 'שנים', 'איזו')):
+                warranty_product = str(data.get('product') or (prior or {}).get('product') or '')
+                if 'מקלחון' in customer_request or warranty_product.startswith('מקלחון') or not warranty_product:
+                    reply = 'במקלחונים יש 7 שנות אחריות על הפרזול ושנה על ההתקנה. לגבי כיסוי לזכוכית או מקרה מסוים, נבדוק את תנאי האחריות המדויקים.'
+                else:
+                    reply = 'למוצר הזה צריך לבדוק את הכיסוי שלו לפי המפרט וההתקנה; אין לי כרגע תנאי אחריות מאומתים שאוכל להבטיח.'
             if re.search(r'אינסטגרם|instagram', customer_request, re.I):
                 reply = ('כן, יש לנו אינסטגרם 🙂 ' + (INSTAGRAM_URL if INSTAGRAM_URL.startswith('https://') else 'אין לי כרגע קישור מדויק כאן, אבל אפשר לבקש מאיתנו את הקישור.'))
             if re.search(r'דף נחיתה|אתר\s+שלכם|אתר\s+אינטרנט', customer_request, re.I):
@@ -2410,6 +2419,14 @@ def process_message(phone, body, batch_rows=None):
                     reply = (f'המחיר המאומת למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
                              if isinstance(saved_amount, (int, float)) else
                              'כדי לא למסור מספר שגוי, צריך לאמת את המחיר.')
+            # Preserve a direct answer to both parts of a price-inclusions question.
+            inclusions_question = bool(re.search(
+                r'(כולל|כלול|מחיר|עולה|תוספת).{0,45}(התקנה|מע[״"]?מ)|'
+                r'(התקנה|מע[״"]?מ).{0,20}(כולל|כלול|במחיר|בתשלום)', customer_request))
+            if ordinary_turn and is_shower and quote_record.get('issued') and inclusions_question:
+                amount = quote_record.get('amount_ils_pre_vat')
+                if isinstance(amount, (int, float)):
+                    reply = f'המדידה, ההובלה וההתקנה כלולות במחיר. ₪{amount:,.0f} הוא הסכום לפני מע״מ; המע״מ מתווסף אליו.'
             if not quote_record.get('issued') and generic_price_question and not mentions_current_picture and not media_was_analyzed and re.search(r'מקלחון|מחיר\s+בערך', customer_request):
                 # Prevent any old measurements/configurations being echoed by the model.
                 if re.search(r'171|תמונה|צילום|הזזה|אנטיסן', reply):
