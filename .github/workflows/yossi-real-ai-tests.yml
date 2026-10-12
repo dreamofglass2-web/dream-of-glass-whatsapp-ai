@@ -1,6 +1,15 @@
 name: Yossi real AI conversation tests
 on:
   workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Synthetic customer scenarios to run (comma-separated)'
+        required: true
+        default: 'hello,price_only,full_quote,objection,closing,renovation,confused,competitor_exit,warranty,mirror,partition,plain_advice,joint_decision,trust_after_service,no_pressure,identity,correction,mirror_warranty'
+      budget_usd:
+        description: 'Conservative estimated API test budget in USD'
+        required: true
+        default: '5'
 jobs:
   real-model-sales-conversations:
     runs-on: ubuntu-latest
@@ -8,6 +17,11 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.YOSSI_TEST_OPENAI_API_KEY }}
       RUN_LIVE_YOSSI_TESTS: "1"
+      OPENAI_MODEL: gpt-6-astra
+      HANDOFF_ENABLED: "false"
+      YOSSI_TEST_MAX_CALLS: "90"
+      YOSSI_TEST_MAX_USD: ${{ inputs.budget_usd }}
+      YOSSI_TEST_SCENARIOS: ${{ inputs.scenarios }}
       DATABASE_URL: ""
       WHATSAPP_TOKEN: ""
       SEND_QUOTES: "true"
