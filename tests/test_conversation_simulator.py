@@ -136,6 +136,18 @@ class ConversationSimulation(unittest.TestCase):
                    ('אין לי מידות', 'מדדתי: 100/100', 'כן, שקוף')]
         self.assertFalse(yossi.conversation_constraints(history)['no_dimensions'])
 
+
+    def test_warranty_does_not_invent_glass_exclusion(self):
+        answer = self.step('איזו אחריות על המקלחונים?', self.model('אין אחריות לזכוכית'))
+        self.assertNotIn('אין אחריות לזכוכית', answer)
+        self.assertIn('נבדוק את תנאי האחריות', answer)
+
+    def test_mirror_does_not_receive_shower_hardware_warranty(self):
+        self.step('רוצה מראה לחדר רחצה', self.model('בשמחה', product='מראה'))
+        answer = self.step('מה האחריות עליה?', self.model('7 שנות אחריות לפרזול', product='מראה'))
+        self.assertNotIn('7 שנות', answer)
+        self.assertIn('לבדוק את הכיסוי', answer)
+
     def test_astra_request_preserves_json_contract_and_consultant_context(self):
         captured = []
         def capture(**kwargs):
