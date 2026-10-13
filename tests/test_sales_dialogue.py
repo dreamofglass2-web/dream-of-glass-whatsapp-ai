@@ -121,3 +121,13 @@ class NaturalDiscoveryPreservationTests(unittest.TestCase):
         self.assertTrue(preserves_consultation_step('אשמח לעזור. זה לשיפוץ או לבית חדש?',{'step':'project_context'}))
         self.assertFalse(preserves_consultation_step('המחיר ₪2000. זה לבית חדש?',{'step':'project_context'}))
         self.assertFalse(preserves_consultation_step('מה רוחב הפתח?',{'step':'project_context'}))
+
+class CustomerNameConsultationTests(unittest.TestCase):
+    def test_name_is_asked_once_and_known_form_name_is_respected(self):
+        from sales_dialogue import consultation_plan
+        history=[{'role':'user','content':'מקלחון לבית חדש, חשוב לי ניקוי קל'}]
+        self.assertEqual(consultation_plan(history,{},history[0]['content'])['step'],'customer_name')
+        history += [{'role':'assistant','content':'אגב, איך קוראים לך?'},{'role':'user','content':'לא רוצה למסור שם'}]
+        self.assertIsNone(consultation_plan(history,{},history[-1]['content'])['question'])
+        prior={'meta_leads':{'lead':{'fields':{'full_name':['דניאל']}}}}
+        self.assertIsNone(consultation_plan(history[:1],prior,'חשוב לי ניקוי קל')['question'])
