@@ -171,12 +171,13 @@ def comparison_turn(history, prior, customer, calculate, bom, glass_types, finis
             matches=[v for v in options if v in turn]
             if matches:data[field]=max(matches,key=len)
         if re.search(r'כפתור',turn):data['handle_choice']='ידית כפתור'
-        elif re.search(r'ידית מגבת|ידיות מגבת',turn):data['handle_choice']='ידית מגבת'
+        elif re.search(r'ידית מגבת|ידיות מגבת',turn) or turn.strip()=='מגבת':data['handle_choice']='ידית מגבת'
     if not data.get('handle_choice') and data.get('handles') and len(set(data['handles']))==1:
         data['handle_choice']=data['handles'][0]
     data.setdefault('height_cm',200)
     state={'pending':True,'configurations':configs,'specification':data}
     result=dict(prior,quote_comparison=state)
+    result.update({k:data[k] for k in ('width_cm','second_width_cm','height_cm','glass_type','finish') if data.get(k) is not None})
     if not data.get('width_cm') or not data.get('second_width_cm'):
         return 'אפשר להשוות את האפשרויות. מה המידות המשוערות של שתי הצלעות?',result
     if not data.get('glass_type'):
