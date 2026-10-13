@@ -2267,8 +2267,9 @@ def process_message(phone, body, batch_rows=None):
                 data['height_cm'] = 200
                 quote_specs['height_cm'] = 200
                 height_basis = 'owner_approved_preliminary_200'
-            if (SEND_QUOTES and quote_requested_now and reply and calculate_quote(quote_specs) is not None
+            if (SEND_QUOTES and quote_is_shower and quote_requested_now and reply and calculate_quote(quote_specs) is not None
                     and not escalation_reason(customer_request)
+                    and not re.search(r'אשראי|תשלומ|ביטול|תיקון|התחייב|הבטח|אטימות|מחר|אחריות', customer_request)
                     and (quote_specs.get('solution_agreed') is True or quote_intent(customer_request))):
                 data['needs_human'] = False
                 data['quote_requested'] = True
