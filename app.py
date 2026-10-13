@@ -2363,7 +2363,8 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm', 'glass_type', 'finish', 'handles'):
                 if data.get(key) is not None:
                     merged_pricing[key] = data[key]
-            merged_pricing = confirmed_corner_two_door_specs(history, merged_pricing)
+            if not prior.get("sales_items"):
+                merged_pricing = confirmed_corner_two_door_specs(history, merged_pricing)
             # Any changed quote specification invalidates the previous offer.
             explicit_spec_change = bool(re.search(
                 r'בעצם|תיקון|תשנה|לשנות|תחליף|להחליף|במקום|לא\s+רוצה|החלטתי\s+על|מעכשיו|עדכנתי|'
