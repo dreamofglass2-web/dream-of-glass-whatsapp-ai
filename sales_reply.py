@@ -19,7 +19,10 @@ def quote_facts_for_turn(prior, customer, calculator):
         specs['width_cm'] = int(width.group(1))
     if specs['height_cm'] is None:
         specs['height_cm'] = 200
-    amount = calculator(specs)
+    try:
+        amount = calculator(specs)
+    except (TypeError, ValueError, KeyError):
+        return None
     if amount is None:
         return None
     return {'amount_ils_pre_vat':amount, 'display_amount_ils':round(amount),
