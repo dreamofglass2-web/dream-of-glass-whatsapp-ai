@@ -1269,7 +1269,7 @@ class MeasurementPlanningRegressionTests(ConversationSimulation):
         pause.assert_not_called()
         self.assertIn('אפשר בהחלט לחשוב יחד',self.sent[-1])
         self.assertIn('אחרי אישור ההצעה',self.sent[-1])
-        self.assertIn('כשהריצוף גמור',self.sent[-1])
+        self.assertIn('סיום הריצוף',self.sent[-1])
         self.assertFalse(self.memory[self.phone][1]['needs_human'])
         self.assertEqual(self.ai.queue,[])
 
