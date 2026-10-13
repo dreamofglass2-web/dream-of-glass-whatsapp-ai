@@ -163,7 +163,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn('בית חדש',answer)
         self.assertNotIn('2294',answer)
         answer=self.step('להחליף מקלחון קיים',self.model('המחיר 2294 ש״ח',**specs))
-        self.assertIn('קוראים לך',answer)
+        self.assertIn('מה שמך',answer)
         answer=self.step('דניאל',self.model('בוא נחשב מחיר',**specs))
         self.assertIn('בשימוש',answer)
         self.assertEqual(yossi.extract_customer_name(self.memory[self.phone][0]),'דניאל')
@@ -525,7 +525,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn("אלירן דוד הכהן", reply)
         self.assertIn("בעל העסק", reply)
         self.assertIn("שמרתי את הפנייה", reply)
-        self.assertNotIn("איך קוראים לך", reply)
+        self.assertNotIn("מה שמך", reply)
 
     def test_unsupported_corner_sliding_creates_owner_lead(self):
         self.step("אני רוצה מקלחון פינתי 90 על 90 גובה 200",
@@ -533,7 +533,7 @@ class ConversationSimulation(unittest.TestCase):
         reply = self.step("אני רוצה דלתות הזזה. כמה יעלה?",
                           self.model("איך מחולקות הדלתות?", quote_requested=True))
         self.assertIn("שמרתי את הפנייה", reply)
-        self.assertIn("איך קוראים לך", reply)
+        self.assertIn("מה שמך", reply)
         self.assertTrue(self.memory[self.phone][1].get("custom_quote_lead_saved"))
         with patch.object(yossi, "save_custom_quote_lead") as store:
             again = self.step("אמרתי לך הזזה",
