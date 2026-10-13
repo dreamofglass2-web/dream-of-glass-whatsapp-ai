@@ -84,7 +84,7 @@ def retain_known_quote_choices(prior, data, customer):
         return data
     # Protect facts only on price/calculation turns, not answers to discovery
     # questions such as a bare new measurement or a newly accepted proposal.
-    if not re.search(r'מחיר|כמה.*עול|תחשב|חשב|כולל.*(?:התקנה|מע)', customer):
+    if re.fullmatch(r'\s*\d+(?:[.,]\d+)?\s*', customer):
         return data
     result = dict(data)
     changes = {
@@ -97,6 +97,29 @@ def retain_known_quote_choices(prior, data, customer):
         'height_cm':r'גובה',
     }
     for field, pattern in changes.items():
-        if (prior or {}).get(field) is not None and not re.search(pattern, customer):
+        if (prior or {}).get(field) is not None and (not re.search(pattern, customer) or
+                (re.search(r'היה לי|הקודם|בעבר|אהבתי', customer) and not re.search(r'רוצה|בוחר|תשנה|תחליף|במקום', customer))):
             result[field] = prior[field]
+    return result
+
+def normalize_sales_fields(data, configurations, glass_types, finishes):
+    """Normalize only exact wording aliases of catalog values, never a new design."""
+    if not isinstance(data,dict):
+        return data
+    result=dict(data)
+    for field,allowed in (('configuration',configurations),('glass_type',glass_types),('finish',finishes)):
+        value=result.get(field)
+        if not isinstance(value,str) or value in allowed:
+            continue
+        candidate=value.strip()
+        if field=='configuration':
+            candidate=re.sub(r'^מקלחון\\s+','',candidate)
+            candidate=candidate.replace('חזיתי','חזית')
+            candidate=re.sub(r'קבוע\\s+ודלת', 'קבוע + דלת', candidate)
+        elif field=='glass_type':
+            candidate=re.sub(r'^זכוכית\\s+','',candidate)
+        else:
+            candidate=re.sub(r'^פרזול\\s+','',candidate)
+        if candidate in allowed:
+            result[field]=candidate
     return result
