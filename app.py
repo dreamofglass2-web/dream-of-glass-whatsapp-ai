@@ -14,6 +14,7 @@ from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
+from sales_reply import quote_facts_for_turn, safe_quote_wording
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -2187,6 +2188,8 @@ def process_message(phone, body, batch_rows=None):
             'meta_form_context': meta_lead_sales_context(prior),
             'owner_handoff': resume_context(handoff) if handoff is not None else None,
             'quotes_enabled': SEND_QUOTES,
+            'approved_quote_for_reply': (quote_facts_for_turn(prior, customer_request, calculate_quote)
+                                         if SEND_QUOTES else None),
             'handle_images_available': image_ready,
             'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG}),
             'instagram_url': INSTAGRAM_URL or None,
@@ -2221,6 +2224,7 @@ def process_message(phone, body, batch_rows=None):
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
+            consultant_reply = reply
             # A repeated assistant reply is a failed consultation, not a valid next turn.
             last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
                                    if m.get('role') == 'assistant'), '')
@@ -2237,17 +2241,6 @@ def process_message(phone, body, batch_rows=None):
                 else:
                     reply = 'סליחה, חזרתי על עצמי. מה שהעלית עכשיו חשוב, ואענה עליו לגופו.'
             reply = guard_corner_shower_advice(reply, customer_request, history)
-            # Keep the hardware finish question open-ended unless the customer asks for available finishes.
-            finish_options_requested = bool(re.search(
-                r'איזה\s+(?:גוונים|צבעים)\s+(?:יש|קיימים)|מה\s+(?:הגוונים|הצבעים)|'
-                r'אילו\s+(?:גוונים|צבעים)|במה\s+אפשר\s+לבחור',
-                customer_request or ''))
-            if not finish_options_requested and re.search(
-                    r'(?:פרזול|גוון|צבע).{0,45}(?:שחור\s+או\s+כרום|כרום\s+או\s+שחור|'
-                    r'שחור\s+או\s+ניקל|ניקל\s+או\s+שחור)',
-                    reply):
-                reply = 'איזה גוון פרזול תרצו?'
-
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
             quote_already_issued = bool((prior.get('validated_quote') or {}).get('issued'))
@@ -2275,7 +2268,8 @@ def process_message(phone, body, batch_rows=None):
                     and (quote_specs.get('solution_agreed') is True or quote_intent(customer_request))):
                 data['needs_human'] = False
                 data['quote_requested'] = True
-                reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
+                if not safe_quote_wording(consultant_reply, calculate_quote(quote_specs)):
+                    reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
             reason = escalation_reason(customer_request, data, reply, history)
             if reason and HANDOFF_ENABLED:
                 if has_new_messages(phone, batch_rows):
@@ -2390,8 +2384,9 @@ def process_message(phone, body, batch_rows=None):
             elif ordinary_turn and prior_quote and quote_intent(customer_request):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
                 if isinstance(saved_amount, (int, float)) and saved_amount > 0:
-                    reply = (f'לפי ההצעה שסיכמנו, המחיר המשוער הוא ₪{saved_amount:,.0f} לפני מע״מ, '
-                             'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.')
+                    reply = (consultant_reply if safe_quote_wording(consultant_reply, saved_amount)
+                             else (f'לפי ההצעה שסיכמנו, המחיר המשוער הוא ₪{saved_amount:,.0f} לפני מע״מ, '
+                                   'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.'))
                 else:
                     reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
             elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and (
@@ -2411,8 +2406,11 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm': merged_pricing.get('height_cm'),
                         'handles': merged_pricing.get('handles'),
                     }
-                    reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
-                             f"זו הצעה ראשונית לפי המפרט וגובה {merged_pricing.get('height_cm')} ס״מ; את המידות הסופיות נבדוק בשטח, ושינוי במפרט או במידות עשוי לשנות את המחיר. איך זה נשמע לך?")
+                    if safe_quote_wording(consultant_reply, verified_price):
+                        reply = consultant_reply
+                    else:
+                        reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
+                                 f"זו הצעה ראשונית לפי המפרט וגובה {merged_pricing.get('height_cm')} ס״מ; את המידות הסופיות נבדוק בשטח, ושינוי במפרט או במידות עשוי לשנות את המחיר. איך זה נשמע לך?")
                 elif contains_ils_amount(reply):
                     reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             if quote_changed and not quote_intent(customer_request):
@@ -2484,19 +2482,8 @@ def process_message(phone, body, batch_rows=None):
                 quote_record.get('issued') and ordinary_turn and
                 re.search(r'מתחר|הצעה\s+(?:זולה|זול)|זול\s+ב|פחות\s+מ|הציעו\s+לי', customer_request)
             )
-            if competitor_price_objection and (not reply.strip() or contains_ils_amount(reply)):
-                reply = ('מבין אותך לגמרי, פער כזה במחיר בהחלט מרגישים בכיס 🙂 '
-                         'אבל כשבוחרים מקלחון חשוב להסתכל על מה מקבלים לאורך זמן, '
-                         'לא רק על המחיר ביום ההזמנה. '
-                         'אצלנו ההצעה כוללת זכוכית מחוסמת 8 מ״מ, פרזול פליז, '
-                         'התקנה, 7 שנות אחריות על הפרזול ושנה על ההתקנה. '
-                         'מעבר לזה, אנחנו נותנים שירות אישי וליווי לאורך התהליך, ' 
-                         'וזמינים לשאלות ולסיוע גם אחרי ההתקנה — יש לך למי לפנות. ' 
-                         'המטרה היא שתהיה מרוצה מהמקלחון גם הרבה אחרי ההתקנה. '
-                         'בוא נוודא שאנחנו באמת משווים את אותו המפרט — '
-                         'ההצעה שקיבלת כוללת גם התקנה ואחריות על הפרזול?')
             # Even after issuing a quote, an unrelated AI amount must not replace it.
-            if ordinary_turn and is_shower and quote_record.get('issued') and not competitor_price_objection and contains_ils_amount(reply):
+            if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
                 mentioned_numbers = [int(v.replace(',', '')) for v in re.findall(
                     r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)',
