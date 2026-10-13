@@ -1638,7 +1638,14 @@ EMOJI_PATTERN = re.compile(r'[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]')
 def without_emojis(message):
     if message is None:
         return None
-    return re.sub(r' {2,}', ' ', EMOJI_PATTERN.sub('', str(message))).strip()
+    cleaned = EMOJI_PATTERN.sub('', str(message))
+    # Preserve functional links and clock times, normalize prose punctuation only.
+    parts = re.split(r'(https?://\S+|\b\d{1,2}:\d{2}\b)', cleaned)
+    for index in range(0, len(parts), 2):
+        prose = re.sub(r'(\d)\s*[-–—]\s*(\d)', r'\1 עד \2', parts[index])
+        prose = re.sub(r'[-–—־]', ' ', prose)
+        parts[index] = prose.replace(':', ',')
+    return re.sub(r' {2,}', ' ', ''.join(parts)).strip()
 
 
 def ensure_outbound_attempts_table():
@@ -2004,7 +2011,7 @@ def measurement_planning_reply(history, prior, customer):
     if not visiting and not joint_planning:
         return None
     return ('אפשר בהחלט לחשוב יחד על מה שיתאים לך, גם בלי מידות כרגע. '
-            'המדידה הסופית נעשית אחרי אישור ההצעה וכשהריצוף גמור; כרגע לא תואם ביקור. '
+            'את המדידה הסופית עושים אחרי אישור ההצעה וסיום הריצוף. '
             'בשינוי המידות, מה חשוב לך יותר — יותר מקום בתוך המקלחון או כניסה נוחה יותר?')
 
 
