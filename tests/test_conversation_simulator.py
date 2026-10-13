@@ -96,6 +96,17 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(captured[0]['input'][2]['content'], 'אני רוצה מקלחון')
         self.assertEqual(self.memory[self.phone][0][0]['at'], '2026-10-13T14:43:41Z')
 
+    def test_ready_quote_does_not_bypass_unknown_payment_policy_handoff(self):
+        specs = dict(product='מקלחון', configuration='חזית קבוע + דלת',
+                     width_cm=120, height_cm=200, glass_type='שקופה', finish='שחור',
+                     handles=['ידית מגבת'], solution_agreed=True, quote_requested=True)
+        self.memory[self.phone] = ([], specs)
+        with patch.object(yossi,'HANDOFF_ENABLED',True), patch.object(yossi,'ensure_db'), patch.object(yossi,'db_connection',return_value=unittest.mock.MagicMock()), patch.object(yossi,'read_handoff_state',return_value=__import__('handoff_state').new_state()), patch.object(yossi,'pause_for_owner',return_value=True) as pause:
+            self.ai.queue.append(self.model('צריך לבדוק תנאי תשלום', needs_human=True))
+            self.assertTrue(yossi.process_message(self.phone, 'כמה זה עולה והאם מקבלים אשראי?'))
+        pause.assert_called_once()
+        self.assertEqual(self.sent, [])
+
     def test_indirect_visual_request_sends_matching_catalog_example(self):
         catalog = [dict(url='https://res.cloudinary.com/test/image/upload/front.jpg',
                         glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]
