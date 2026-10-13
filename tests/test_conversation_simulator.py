@@ -53,7 +53,9 @@ class ConversationSimulation(unittest.TestCase):
 
     def load(self, phone):
         history, context = self.memory.get(phone, ([], {'sales_discovery_completed': True}))
-        return list(history), dict(context)
+        context = dict(context)
+        context.setdefault('sales_discovery_completed', True)  # Pricing fixtures represent post-discovery turns.
+        return list(history), context
 
     def save(self, phone, history, context):
         self.memory[phone] = (list(history), dict(context))
@@ -116,7 +118,7 @@ class ConversationSimulation(unittest.TestCase):
 
 
     def test_price_first_discovers_project_and_experience(self):
-        self.memory[self.phone] = ([], {})
+        self.memory[self.phone] = ([], {'sales_discovery_completed': False})
         specs=dict(product='מקלחון',configuration='פינתי 2 קבועים + 2 דלתות',width_cm=80,
                    second_width_cm=80,height_cm=200,glass_type='שקופה',finish='ניקל',
                    handles=['ידית כפתור']*2,solution_agreed=True,quote_requested=True)
