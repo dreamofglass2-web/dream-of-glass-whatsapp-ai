@@ -138,3 +138,65 @@ def sales_output_format(configurations, glass_types, finishes):
         properties[field]={'type':'boolean'}
     return {'type':'json_schema','name':'yossi_sales_turn','strict':True,
             'schema':{'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}}
+
+
+def comparison_turn(history, prior, customer, calculate, bom, glass_types, finishes):
+    """Compare alternatives for one shower; never treat them as extra orders."""
+    text=str(customer or '')
+    saved=prior.get('quote_comparison') or {}
+    requesting=bool(re.search(r'מחיר|עול|יעל|עלות|הצעה',text))
+    configs=[]
+    if requesting:
+        if re.search(r'(?:2|שני)\s+קבועים.{0,8}(?:2|שתי)\s+דלתות',text):
+            configs.append('פינתי 2 קבועים + 2 דלתות')
+        if re.search(r'הרמוניקה',text):configs.append('פינתי הרמוניקה')
+        # Standalone two doors, not the suffix of the fixed-panel alternative.
+        stripped=re.sub(r'(?:2|שני)\s+קבועים.{0,8}(?:2|שתי)\s+דלתות','',text)
+        if re.search(r'(?:2|שתי)\s+דלתות',stripped):configs.insert(0,'פינתי 2 דלתות')
+    if len(configs)<2:
+        if not saved.get('pending'):return None
+        if re.search(r'מראה|מחיצה|חיפוי|מקלחון (?:שני|אחר)|תמונה|אחריות|לא מעוניין',text):return None
+        configs=list(saved['configurations'])
+    data=dict(saved.get('specification') or {})
+    for key in ('width_cm','second_width_cm','height_cm','glass_type','finish','handles'):
+        if prior.get(key) is not None:data[key]=prior[key]
+    users=[str(m.get('content') or '') for m in history if m.get('role')=='user']
+    # Current dimensions override prior state. History is already scoped by reset.
+    for turn in users:
+        pair=re.search(r'(\d{2,3})\s*[/xX×]\s*(\d{2,3})',turn)
+        if pair:data.update(width_cm=int(pair[1]),second_width_cm=int(pair[2]))
+        height=re.search(r'גובה\s*(\d{2,3})',turn)
+        if height:data['height_cm']=int(height[1])
+        for field,options in (('glass_type',glass_types),('finish',finishes)):
+            matches=[v for v in options if v in turn]
+            if matches:data[field]=max(matches,key=len)
+        if re.search(r'כפתור',turn):data['handle_choice']='ידית כפתור'
+        elif re.search(r'ידית מגבת|ידיות מגבת',turn):data['handle_choice']='ידית מגבת'
+    if not data.get('handle_choice') and data.get('handles') and len(set(data['handles']))==1:
+        data['handle_choice']=data['handles'][0]
+    data.setdefault('height_cm',200)
+    state={'pending':True,'configurations':configs,'specification':data}
+    result=dict(prior,quote_comparison=state)
+    if not data.get('width_cm') or not data.get('second_width_cm'):
+        return 'אפשר להשוות את האפשרויות. מה המידות המשוערות של שתי הצלעות?',result
+    if not data.get('glass_type'):
+        return 'נחשב את האפשרויות לאותו מפרט, כדי שההשוואה תהיה ברורה. איזה סוג זכוכית תרצה?',result
+    if not data.get('finish'):
+        return 'איזה גוון פרזול תרצה לצורך השוואת המחירים?',result
+    if not data.get('handle_choice'):
+        return 'לצורך התמחור, תרצה ידיות כפתור או ידיות מגבת?',result
+    offers=[]
+    for config in configs:
+        spec=dict(data,product='מקלחון',configuration=config)
+        count=bom[config].get('ידית כפתור',0)+bom[config].get('ידית מגבת',0)
+        spec['handles']=[data['handle_choice']]*count
+        amount=calculate(spec)
+        if amount is None:
+            return 'המידות או המפרט האלה דורשים בדיקת תמחור, ולכן לא אוכל לתת להם מחיר אוטומטי מדויק.',result
+        offers.append(dict(spec,amount_ils_pre_vat=amount))
+    state.update(pending=False,offers=offers)
+    lines=[f"{o['configuration']}: ₪{o['amount_ils_pre_vat']:,.0f}" for o in offers]
+    reply=(f"להשוואה, לפי {data['width_cm']}×{data['second_width_cm']} ס״מ, גובה {data['height_cm']} ס״מ, זכוכית {data['glass_type']}, פרזול {data['finish']} ו{data['handle_choice']}:\n"+
+           '\n'.join(lines)+
+           '\nהמחירים לפני מע״מ וכוללים מדידה, הובלה והתקנה. זו הצעה ראשונית; המידות וההתאמה לפתיחה ייבדקו בשטח, ושינוי מפרט או מידות עשוי לשנות את המחיר. אלה חלופות לאותו מקלחון, ולא סכום להזמנת כולן.')
+    return reply,result
