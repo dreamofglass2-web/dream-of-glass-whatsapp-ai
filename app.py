@@ -13,7 +13,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics
+from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -2099,7 +2099,7 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior or {}))
             return True
         # Explicit owner-confirmed glass policy needs no model call or escalation.
-        if ('אחריות' in body and re.search(r'זכוכית|זכוכיות', body)):
+        if (warranty_only_request(body) and re.search(r'זכוכית|זכוכיות', body)):
             if has_new_messages(phone, batch_rows):
                 return False
             reply = 'אין אחריות על הזכוכית.'
@@ -2265,9 +2265,11 @@ def process_message(phone, body, batch_rows=None):
             if 'אחריות' in customer_request:
                 warranty_product = str(data.get('product') or (prior or {}).get('product') or '')
                 if 'מקלחון' in customer_request or warranty_product.startswith('מקלחון') or not warranty_product:
-                    reply = 'במקלחונים יש 7 שנות אחריות על הפרזול ושנה על ההתקנה. אין אחריות על הזכוכית.'
+                    warranty_policy = 'במקלחונים יש 7 שנות אחריות על הפרזול ושנה על ההתקנה. אין אחריות על הזכוכית.'
                 else:
-                    reply = 'אין אחריות על הזכוכית. לגבי רכיבים והתקנה במוצר הזה, צריך לבדוק את הכיסוי לפי המפרט.'
+                    warranty_policy = 'אין אחריות על הזכוכית. לגבי רכיבים והתקנה במוצר הזה, צריך לבדוק את הכיסוי לפי המפרט.'
+                reply = (warranty_policy if warranty_only_request(customer_request)
+                         else mixed_warranty_reply(reply, warranty_policy, history))
             if re.search(r'אינסטגרם|instagram', customer_request, re.I):
                 reply = ('כן, יש לנו אינסטגרם 🙂 ' + (INSTAGRAM_URL if INSTAGRAM_URL.startswith('https://') else 'אין לי כרגע קישור מדויק כאן, אבל אפשר לבקש מאיתנו את הקישור.'))
             if re.search(r'דף נחיתה|אתר\s+שלכם|אתר\s+אינטרנט', customer_request, re.I):
