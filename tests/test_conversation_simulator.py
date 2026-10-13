@@ -95,6 +95,30 @@ class ConversationSimulation(unittest.TestCase):
         self.assertTrue(state['dialogue']['sanitary_fixtures_installed'])
         self.assertTrue(state['dialogue']['customer_needs_plain_visual_explanation'])
 
+    def test_calculate_by_200_uses_known_specs_despite_model_uncertainty(self):
+        specs = dict(product='מקלחון', configuration='חזית קבוע + דלת',
+                     width_cm=120, height_cm=None, glass_type='שקופה', finish='שחור',
+                     handles=['ידית מגבת'], solution_agreed=True, quote_requested=True)
+        self.memory[self.phone] = ([{'role':'user','content':'בחרנו קבוע ודלת שקופה שחור ידית מגבת'},
+                                   {'role':'assistant','content':'מה הגובה?'}], specs)
+        with patch.object(yossi,'HANDOFF_ENABLED',True), patch.object(yossi,'ensure_db'), patch.object(yossi,'db_connection',return_value=unittest.mock.MagicMock()), patch.object(yossi,'read_handoff_state',return_value=yossi.new_handoff_state() if hasattr(yossi,'new_handoff_state') else __import__('handoff_state').new_state()), patch.object(yossi,'pause_for_owner') as pause:
+            answer = self.step('תחשב לי לפי גובה 200', self.model('צריך בדיקה', needs_human=True))
+        pause.assert_not_called()
+        self.assertIn('₪', answer)
+        self.assertIn('200', answer)
+        self.assertIn('ראשונית', answer)
+        self.assertIn('לפני מע״מ', answer)
+        self.assertEqual(self.memory[self.phone][1]['validated_quote']['height_cm'], 200)
+
+    def test_missing_height_uses_owner_approved_preliminary_basis(self):
+        specs = dict(product='מקלחון', configuration='חזית קבוע + דלת',
+                     width_cm=120, glass_type='שקופה', finish='שחור',
+                     handles=['ידית מגבת'], solution_agreed=True)
+        self.memory[self.phone] = ([], specs)
+        answer = self.step('כמה זה עולה?', self.model('צריך לדעת את הגובה'))
+        self.assertIn('₪', answer)
+        self.assertEqual(self.memory[self.phone][1]['pricing_height_basis'], 'owner_approved_preliminary_200')
+
     def test_general_price_question_keeps_known_customer_dimensions(self):
         captured = []
         def capture(**kwargs):

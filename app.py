@@ -998,7 +998,7 @@ WEBSITE_VERIFIED_FACTS = """
 האתר מציג ליווי אישי של אלירן דוד הכהן לאורך התהליך ומדידה והתקנה אישיות, ללא קבלני משנה. אין להבטיח שאלירן כבר שוחח, בדק תוכנית או קבע ביקור כשלא עשה זאת.
 חומרים המתוארים באתר: זכוכית מחוסמת לפי תקן ישראלי, פרזול פליז איכותי, סיליקון ניטרלי וברגי נירוסטה; התאמה מדויקת של עובי ומפרט רק לאחר בירור מקצועי. אפשרות אקסטרה קליר למי שמעוניין להפחית את הגוון הירקרק בזכוכית.
 אחריות המצוינת באתר: שבע שנים לרכיבי פרזול במקלחונים ושנה על יתר עבודות החברה. לפי עדכון בעל העסק אין אחריות על זכוכית; מדיניות זו גוברת על ניסוח כללי באתר. אין להרחיב התחייבויות או להמציא חריגים.
-תהליך כללי המתואר באתר: ייעוץ ראשוני, תכנון והתאמה, מדידת לייזר, ייצור וחיסום, התקנה ובדיקת גימור. שים לב: סדר המכירה המחייב שכבר מוגדר ליוסי קודם למסגור השיווקי של האתר: הצעת מחיר מאומתת ואישורה לפני מדידה סופית, למעט צורך בהיערכות מוקדמת.
+תהליך כללי המתואר באתר: ייעוץ ראשוני, תכנון והתאמה, מדידת לייזר, ייצור וחיסום, התקנה ובדיקת גימור. שים לב: סדר המכירה המחייב שכבר מוגדר ליוסי קודם למסגור השיווקי של האתר: הצעת מחיר מדויקת ואישורה לפני מדידה סופית, למעט צורך בהיערכות מוקדמת.
 זמן אספקה שמצוין באתר: 10 עד 14 ימי עסקים מיום המדידה הסופית. הצג כטווח מוצהר באתר בלבד, בכפוף לזמינות, אופי עבודה ואישור פרטני; לעולם אל תבטיח תאריך התקנה קבוע.
 מספר יצירת קשר המופיע באתר: 050-8554415, והאתר עצמו https://dreamofglass.com/.
 אין להסיק ממונה אנימציה באתר מספר מדויק של פרויקטים או שנות אחריות. אין לייבא תמונות אוטומטית, להמציא מחיר, להבטיח שירות או לשנות הרשאות/שעות עבודה מתוך האתר.
@@ -1216,7 +1216,7 @@ YOSSI_SALES_PLAYBOOK = """
 ארבעה שלבים גמישים, לא תסריט קשיח:
 1. היכרות וחיבור: בשיחה חדשה השב בנעימות ומתוך הקשר; 'אהלן' מתאים, אך אל תשאל 'מה שלומך' באופן אוטומטי כאשר ביקשו מחיר, ואל תציג את עצמך מחדש באמצע שיחה.
 2. בירור: הקשב למילים של הלקוח וחפש את המניע (שיפוץ/בנייה/החלפה, כאב שימושי, בטיחות, תקציב, עיצוב, תזמון). שאל שאלה פתוחה אחת בעלת ערך במקום שאלות טכניות בזו אחר זו. אם הלקוח סיפק מפרט מפורט, הודה בכך בקצרה ואל תחזור עליו. אם התכנון כבר סגור, שאל רק את החסר להערכת מחיר אמינה ואל תגרור לבירור מיותר. אין חובה לשאול בכל הודעה.
-3. פתרון: לאחר הבנת הצורך, הצע כיוון מקצועי אחד או שתי חלופות מועילות עם הסיבה המעשית. במקלחון שקול את פתיחת הדלת, אסלה, ראש דוש, כניסה, ניקוז וקירות. במקלחון חזיתי שקול שני קבועים ודלת באמצע, קבוע ודלת או הזזה בהתאם למקום. אל תבחר הזזה אוטומטית בגלל אסלה. אם הלקוח מבקש מחיר — תן הצעה מאומתת בהקדם שבו הנתונים מספיקים, לא הבטחה ריקה ולא מינימום הזמנה.
+3. פתרון: לאחר הבנת הצורך, הצע כיוון מקצועי אחד או שתי חלופות מועילות עם הסיבה המעשית. במקלחון שקול את פתיחת הדלת, אסלה, ראש דוש, כניסה, ניקוז וקירות. במקלחון חזיתי שקול שני קבועים ודלת באמצע, קבוע ודלת או הזזה בהתאם למקום. אל תבחר הזזה אוטומטית בגלל אסלה. אם הלקוח מבקש מחיר — תן הצעה מדויקת בהקדם שבו הנתונים מספיקים, לא הבטחה ריקה ולא מינימום הזמנה.
 4. המשך וסגירה: כשהלקוח מאותת שרוצה להתקדם, הובל להצעת מחיר לפי נתונים ותצורה מוסכמת. רק אחרי אישור הצעת המחיר ולאחר סיום הריצוף, מתאמים מדידה סופית ותכנון משותף בשטח. הכנות לפני ריצוף רק אם הלקוח מבקש זאת במיוחד. לקוח שעוד לא יודע את הפרטים: אל תחזור לבקש מידות; הצע שיחזור כשהשטח מוכן או שאל אם ירצה שנרשום בקשה לחזור אליו במועד שיבחר. אל תבטיח חזרה אם הבקשה לא נשמרה במערכת. אין ביקור מדידה בחינם או למתן מחיר בשטח כתנאי להצעה.
 ניהול מכירה לפי עקרונות ההקשבה וההתנגדויות:
 - יצירת אמון: התייחס קודם למה שהלקוח מבקש עכשיו. בשיחה חדשה ברר את שמו באופן טבעי במועד מוקדם; אם שאל על מחיר, אל תעכב את המענה רק כדי לקבל שם. אם השם כבר נמסר, אל תשאל אותו שוב.
@@ -1469,7 +1469,7 @@ def calculate_quote(data):
 
 
 def quote_intent(text):
-    return bool(re.search(r'מחיר|כמה\s+(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות', str(text or '')))
+    return bool(re.search(r'מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+לפי', str(text or '')))
 
 
 def closing_intent(text):
@@ -2221,7 +2221,7 @@ def process_message(phone, body, batch_rows=None):
                 app.logger.warning('Repeated assistant answer; regenerate based on new request phone_suffix=%s', phone[-4:])
                 if re.search(r'מחיר|הצעה|כמה עולה', body):
                     reply = ('אתה צודק, עוד לא קיבלת תשובה למחיר. כדי לתת סכום מדויק '
-                             'נדרש להשלים תצורת דלתות ופרזול ולחשב הצעה מאומתת, '
+                             'נדרש להשלים תצורת דלתות ופרזול ולחשב הצעה מדויקת, '
                              'כולל בדיקת עלות ההתקנה. לא אמציא מחיר.')
                 elif re.search(r'אסלה|ניקיון|ניקוי|לנקות|פתיחה', body):
                     reply = ('אתה צודק. עם אסלה סמוכה צריך קודם לוודא שדלת ציר '
@@ -2241,6 +2241,31 @@ def process_message(phone, body, batch_rows=None):
                     reply):
                 reply = 'איזה גוון פרזול תרצו?'
 
+            # Ordinary quotes use the calculator before accepting model uncertainty.
+            # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
+            quote_requested_now = quote_intent(customer_request) or data.get('quote_requested') is True or prior.get('quote_requested') is True
+            quote_specs = dict(prior or {})
+            for key in ('product','configuration','width_cm','second_width_cm',
+                        'height_cm','glass_type','finish','handles','solution_agreed'):
+                if data.get(key) is not None:
+                    quote_specs[key] = data[key]
+            quote_is_shower = str(quote_specs.get('product') or '').startswith('מקלחון')
+            explicit_height = re.search(r'(?:לפי\s+)?גובה\s*(\d{2,3})(?:\s*ס[״"]?מ)?', customer_request)
+            height_basis = None
+            if quote_requested_now and quote_is_shower and explicit_height:
+                data['height_cm'] = int(explicit_height.group(1))
+                quote_specs['height_cm'] = data['height_cm']
+                height_basis = 'customer_requested_quote_height'
+            elif quote_requested_now and quote_is_shower and quote_specs.get('height_cm') is None:
+                data['height_cm'] = 200
+                quote_specs['height_cm'] = 200
+                height_basis = 'owner_approved_preliminary_200'
+            if (SEND_QUOTES and quote_requested_now and reply and calculate_quote(quote_specs) is not None
+                    and not escalation_reason(customer_request)
+                    and (quote_specs.get('solution_agreed') is True or quote_intent(customer_request))):
+                data['needs_human'] = False
+                data['quote_requested'] = True
+                reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
             reason = escalation_reason(customer_request, data, reply, history)
             if reason and HANDOFF_ENABLED:
                 if has_new_messages(phone, batch_rows):
@@ -2377,7 +2402,7 @@ def process_message(phone, body, batch_rows=None):
                         'handles': merged_pricing.get('handles'),
                     }
                     reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
-                             'המחיר מבוסס על הפרטים שמסרת וכפוף לאימות המידות לפני הביצוע. איך זה נשמע לך?')
+                             f"זו הצעה ראשונית לפי המפרט וגובה {merged_pricing.get('height_cm')} ס״מ; את המידות הסופיות נבדוק בשטח, ושינוי במפרט או במידות עשוי לשנות את המחיר. איך זה נשמע לך?")
                 elif contains_ils_amount(reply):
                     reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             if quote_changed and not quote_intent(customer_request):
@@ -2434,7 +2459,7 @@ def process_message(phone, body, batch_rows=None):
                     reply = (f'בשמחה, לפני שסוגרים חשוב שתראה את המחיר: ₪{checked_price:,.0f} לפני מע״מ, '
                              'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות. מתאים לך לאשר את ההצעה הזו?')
                 else:
-                    reply = ('בשמחה נתקדם 🙂 עוד לא נתתי לך הצעת מחיר מאומתת, '
+                    reply = ('בשמחה נתקדם 🙂 עוד לא נתתי לך הצעת מחיר מדויקת, '
                              'אז לפני סגירה ' + missing_quote_detail(merged_pricing))
             # An AI-generated ILS amount is never permission to quote a shower.
             if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
@@ -2606,6 +2631,8 @@ def process_message(phone, body, batch_rows=None):
                 next_context.pop('validated_quote', None)
             if quote_record.get('issued'):
                 next_context['validated_quote'] = quote_record
+            if height_basis:
+                next_context['pricing_height_basis'] = height_basis
             save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
             return True
         except Exception:
