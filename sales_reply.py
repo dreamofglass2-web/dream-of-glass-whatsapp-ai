@@ -79,17 +79,15 @@ def grounded_price_comparison(reply, amount, customer):
     return True
 
 def retain_known_quote_choices(prior, data, customer):
-    """Only explicit customer changes may replace already known quote choices."""
-    if not isinstance(data, dict):
+    """Keep current choices when discussing needs or a past product."""
+    if not isinstance(data,dict):
         return data
-    if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון', customer):
+    if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון',customer):
         return data
-    # Protect facts only on price/calculation turns, not answers to discovery
-    # questions such as a bare new measurement or a newly accepted proposal.
-    if re.fullmatch(r'\s*\d+(?:[.,]\d+)?\s*', customer):
+    if re.fullmatch(r'\s*\d+(?:[.,]\d+)?\s*',customer):
         return data
-    result = dict(data)
-    changes = {
+    result=dict(data)
+    changes={
         'configuration':r'דלת|קבוע|פינתי|חזית|הזזה|הרמוניקה|בין.*קירות',
         'glass_type':r'זכוכית|שקופ|קליר|חלבי|חלבית|אסיד|אנטיסן|פיפיטה|ברונזה',
         'finish':r'פרזול|גוון|צבע|שחור|ניקל|גרפיט|ברונזה|זהב|לבן|כרום',
@@ -98,10 +96,10 @@ def retain_known_quote_choices(prior, data, customer):
         'second_width_cm':r'רוחב|מידה|מידות|צלע|צד|\d+\s*[/×x]\s*\d+',
         'height_cm':r'גובה',
     }
-    for field, pattern in changes.items():
-        if (prior or {}).get(field) is not None and (not re.search(pattern, customer) or
-                (re.search(r'היה לי|הקודם|בעבר|אהבתי', customer) and not re.search(r'רוצה|בוחר|תשנה|תחליף|במקום', customer))):
-            result[field] = prior[field]
+    past=bool(re.search(r'היה לי|הקודם|בעבר|אהבתי',customer)) and not re.search(r'רוצה|בוחר|תשנה|תחליף|במקום',customer)
+    for field,pattern in changes.items():
+        if (prior or {}).get(field) is not None and (past or not re.search(pattern,customer)):
+            result[field]=prior[field]
     return result
 
 def normalize_sales_fields(data, configurations, glass_types, finishes):
