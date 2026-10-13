@@ -38,7 +38,12 @@ class ReadOnlyLeadSource:
                     if self.fixture and role['name']!='quote_lab_test':raise LeadPreviewError('Wrong fixture database')
                     # These are fixed trusted identifiers, never request-supplied tables.
                     table='crm_preview_stage.leads' if self.fixture else 'crm_bridge_source.leads'
-                    cur.execute(f"""SELECT phone,name,product,status,callback_time,notes,updated_at,
+                    cur.execute(f"""SELECT phone,name,product,
+                        CASE WHEN status IN ('חדש','בטיפול') AND context->'validated_quote'->>'issued'='true'
+                          THEN 'הצעה ניתנה'
+                          WHEN status='חדש' AND product<>'' AND jsonb_array_length(conversation)>1
+                            AND EXISTS (SELECT 1 FROM jsonb_array_elements(conversation) m WHERE m->>'role'='assistant')
+                          THEN 'בטיפול' ELSE status END AS status,callback_time,notes,updated_at,
                         created_at,last_inbound_at,manual_followup_completed_at,callback_request_id,callback_requested_at
                         FROM {table} WHERE phone>%s ORDER BY phone LIMIT %s""",(after,limit+1))
                     rows=[dict(row) for row in cur.fetchall()]
@@ -69,7 +74,12 @@ class ReadOnlyLeadSource:
                     if role['rolsuper'] or role['rolcreatedb'] or role['rolcreaterole'] or role['read_only']!='on' or (self.fixture and role['name']!='quote_lab_test'):
                         raise LeadPreviewError('Limited read-only source role required')
                     table='crm_preview_stage.leads' if self.fixture else 'crm_bridge_source.leads'
-                    cur.execute(f"""SELECT phone,name,product,status,callback_time,notes,updated_at,
+                    cur.execute(f"""SELECT phone,name,product,
+                        CASE WHEN status IN ('חדש','בטיפול') AND context->'validated_quote'->>'issued'='true'
+                          THEN 'הצעה ניתנה'
+                          WHEN status='חדש' AND product<>'' AND jsonb_array_length(conversation)>1
+                            AND EXISTS (SELECT 1 FROM jsonb_array_elements(conversation) m WHERE m->>'role'='assistant')
+                          THEN 'בטיפול' ELSE status END AS status,callback_time,notes,updated_at,
                         created_at,last_inbound_at,manual_followup_completed_at,callback_request_id,callback_requested_at,
                         conversation,context->'validated_quote' AS legacy_quote FROM {table} WHERE phone=%s""",(phone,))
                     row=cur.fetchone()
