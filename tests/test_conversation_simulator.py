@@ -80,6 +80,39 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+
+    def test_two_showers_keep_separate_specs_and_complete_total(self):
+        first=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית כפתור'],
+                   solution_agreed=True)
+        self.step('אני צריך שני מקלחונים. הראשון חזית קבוע ודלת 120 שקוף שחור כפתור',
+                  self.model('נעבור למקלחון השני: מה רוחב הפתח?',**first))
+        second=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=160,
+                    height_cm=200,glass_type='אנטיסן ברונזה',finish='ברונזה',
+                    handles=['ידית מגבת'],solution_agreed=True)
+        self.step('160',self.model('להכין הצעת מחיר לשני המקלחונים?',**second))
+        reply=self.step('כן תודה',self.model('בודק מחיר',**second,quote_requested=True))
+        total=round(yossi.calculate_quote(first))+round(yossi.calculate_quote(second))
+        self.assertIn(f'{total:,.0f}',reply)
+        state=self.memory[self.phone][1]
+        self.assertEqual(state['sales_items']['1']['width_cm'],120)
+        self.assertEqual(state['sales_items']['1']['handles'],['ידית כפתור'])
+        self.assertEqual(state['sales_items']['2']['width_cm'],160)
+
+    def test_handle_example_uses_shower_photo_caption_and_not_glass_gallery(self):
+        self.memory[self.phone]=([{'role':'assistant','content':'ידית כפתור או מגבת?'}],
+                                 {'handles':['ידית כפתור']})
+        pictures=[]
+        def capture(phone,body=None,image_url=None,caption=None):
+            self.sent.append(body or '[TEST_IMAGE]')
+            if image_url: pictures.append((image_url,caption))
+        catalog=[dict(url='https://example.test/button',glass='גלינה קליר',
+                      product='מקלחון',handle='כפתור')]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog), patch.object(yossi,'send_whatsapp',side_effect=capture):
+            self.step('יש לך דוגמה?',self.model('הנה דוגמה'))
+        self.assertEqual(len(pictures),1)
+        self.assertIn('כפתור',pictures[0][1])
+
     def test_recalculate_changed_width_keeps_known_choices_and_uses_calculator(self):
         specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
                    height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],
