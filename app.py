@@ -15,7 +15,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
+from sales_reply import normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -2232,7 +2232,7 @@ def process_message(phone, body, batch_rows=None):
                                  customer_turn=sum(m.get('role') == 'user' for m in history),
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
-            data = retain_known_quote_choices(prior, json.loads(response.output_text), customer_request)
+            data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(BOM) | set(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
             if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
                 data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
