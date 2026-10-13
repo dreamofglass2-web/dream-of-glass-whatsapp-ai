@@ -172,7 +172,7 @@ def mixed_warranty_reply(reply, policy, history):
 def consultation_plan(history, prior, customer):
     """All sales openings use customer evidence, not only technical specs."""
     text=str(customer or '')
-    if re.search(r'לא מעוניין|לא מעוניינת|צריך לחשוב|אחשוב|אל תפנ|תפסיק|עזוב|רק מחיר|בלי שאלות',text):
+    if re.search(r'לא מעוניין|לא מעוניינת|צריך לחשוב|אחשוב|אל תפנ|תפסיק|עזוב|רק מחיר|מחיר בלבד|בלי שאלות|לא רוצה.{0,12}(?:ייעוץ|שאלות)',text):
         return {'step':'respect_choice','question':None}
     if prior.get('sales_discovery_completed') or (prior.get('validated_quote') or {}).get('issued'):
         return {'step':'consult_and_progress','question':None}
@@ -207,3 +207,16 @@ def consultation_plan(history, prior, customer):
 
 def discovery_before_quote(history, prior, customer):
     return consultation_plan(history,prior,customer)['question']
+
+def preserves_consultation_step(reply, plan):
+    """Keep natural valid discovery wording rather than scripting every reply."""
+    text=str(reply or '').strip()
+    if not text or not text.endswith('?') or len(text)>650:
+        return False
+    if re.search(r'₪|ש[״"]ח|שקלים|קבענו|תיאמתי|מבטיח|אחריות מלאה|מתאים בוודאות',text):
+        return False
+    if plan.get('step')=='project_context':
+        return bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|להחלפ|החלפה',text))
+    if plan.get('step')=='experience_and_needs':
+        return bool(re.search(r'בשימוש|חוויה|אהבת|מפריע|לשפר|מה.{0,20}חשוב',text))
+    return False
