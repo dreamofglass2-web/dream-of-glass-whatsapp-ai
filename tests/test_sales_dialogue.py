@@ -153,3 +153,16 @@ class DeferredMeasurementTests(unittest.TestCase):
         for text in ('מחר אבדוק, אבל כמה עולה?', 'מחר אבדוק, הרוחב 120', 'מחר אבדוק, מה האחריות?'):
             self.assertIsNone(deferred_measurement_reply(history,text))
         self.assertIsNone(deferred_measurement_reply([{'role':'assistant','content':'איזו זכוכית תרצה?'}],'מחר אבדוק'))
+
+
+class PreferredNameWordingTests(unittest.TestCase):
+    def test_requested_name_wording_and_legacy_question_are_respected(self):
+        from sales_dialogue import consultation_plan, preserves_consultation_step
+        h=[{'role':'user','content':'מקלחון לבית חדש'}]
+        plan=consultation_plan(h,{},h[0]['content'])
+        self.assertEqual(plan['question'],'מה שמך?')
+        self.assertTrue(preserves_consultation_step('נעים להכיר, מה שמך?',plan))
+        self.assertFalse(preserves_consultation_step('אגב, איך קוראים לך?',plan))
+        for question in ('מה שמך?','אגב, איך קוראים לך?'):
+            history=h+[{'role':'assistant','content':question},{'role':'user','content':'אדוה'}]
+            self.assertNotEqual(consultation_plan(history,{},'אדוה')['step'],'customer_name')
