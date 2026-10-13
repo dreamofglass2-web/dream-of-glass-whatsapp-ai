@@ -142,7 +142,22 @@ def warranty_only_request(text):
 
 def mixed_warranty_reply(reply, policy, history):
     """Replace warranty sentences, retaining the consultation and final question."""
-    pieces = re.split(r'(?<=[.!?])\s+', str(reply or '').strip())
+    text = str(reply or '').strip()
+    normalized = re.sub(r'אין\\s+אחריות\\s+(?:על\\s+|ל)?(?:ה)?זכוכי(?:ת|ות)', '', text)
+    no_glass = normalized != text
+    conflicting_glass = bool(re.search(r'אחריות.{0,35}(?:על\\s+ה?זכוכית|לזכוכית)|זכוכית.{0,15}באחריות', normalized))
+    shower_policy = '7 שנות' in policy
+    hardware_ok = bool(re.search(r'(?:7|שבע)\\s+שנ(?:ות|ים)\\s+(?:אחריות\\s+)?(?:על\\s+|ל)?(?:ה)?פרזול', text))
+    install_ok = bool(re.search(r'שנה\\s+(?:אחריות\\s+)?(?:על\\s+|ל)?(?:ה)?התקנה', text))
+    if no_glass and not conflicting_glass and ((shower_policy and hardware_ok and install_ok) or
+                                              (not shower_policy and not re.search(r'7|שבע', text))):
+        # Correct policy may share a sentence with location or need context.
+        # Preserve the whole sentence instead of deleting useful consultation.
+        first_reply = not any(m.get('role') == 'assistant' for m in history)
+        if first_reply and not re.match(r'^(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)', text):
+            text = 'היי, אני יוסי מחלומות מזכוכית 🙂 ' + text
+        return text
+    pieces = re.split(r'(?<=[.!?])\\s+', text)
     kept = [p for p in pieces if not re.search(r'אחריות|כיסוי', p)]
     question = kept.pop() if kept and kept[-1].endswith('?') else None
     result = ' '.join(kept + [policy] + ([question] if question else []))
