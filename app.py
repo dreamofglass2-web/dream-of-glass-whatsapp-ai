@@ -16,7 +16,7 @@ from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_dialogue import preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -2233,6 +2233,8 @@ def process_message(phone, body, batch_rows=None):
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
             data = retain_known_quote_choices(prior, json.loads(response.output_text), customer_request)
+            if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
+                data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
             reply = open_finish_question(reply, customer_request)
@@ -2648,7 +2650,8 @@ def process_message(phone, body, batch_rows=None):
                     reply = aggregate_reply
             direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
-                reply = discovery_question
+                if not preserves_consultation_step(reply, sales_plan):
+                    reply = discovery_question
                 if not any(m.get('role') == 'assistant' for m in history):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. ' + reply
                 data['quote_requested'] = bool(quote_intent(customer_request) or prior.get('quote_requested') or data.get('quote_requested'))
