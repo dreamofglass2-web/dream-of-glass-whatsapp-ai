@@ -80,6 +80,35 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+    def test_grounded_quote_keeps_consultant_voice_and_receives_calculator_facts(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True)
+        self.memory[self.phone]=([{'role':'user','content':'חשוב לי כניסה נוחה'},
+                                 {'role':'assistant','content':'נבחר קבוע ודלת'}],specs)
+        amount=yossi.calculate_quote(dict(specs,height_cm=200))
+        answer=(f'לכניסה הנוחה שרצית, ההצעה הראשונית היא ₪{amount:,.0f} לפני מע״מ, '
+                'כולל מדידה, הובלה והתקנה. את המידות נבדוק בשטח; שינוי במידות עשוי לשנות את המחיר. איך זה נשמע לך?')
+        captured=[]
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses,'create',side_effect=capture):
+            actual=self.step('אין לי גובה מדוד, כמה זה עולה?',self.model(answer,quote_requested=True))
+        self.assertEqual(actual,answer)
+        state=json.loads('{' + captured[0]['input'][1]['content'].split('{',1)[1])
+        self.assertEqual(state['approved_quote_for_reply']['amount_ils_pre_vat'],amount)
+        self.assertEqual(state['approved_quote_for_reply']['specification']['height_cm'],200)
+        self.assertTrue(self.memory[self.phone][1]['validated_quote']['issued'])
+
+    def test_wrong_model_amount_cannot_use_natural_quote_preservation(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True)
+        self.memory[self.phone]=([],specs)
+        bad='ההצעה הראשונית היא ₪500 לפני מע״מ כולל מדידה, הובלה והתקנה. נבדוק בשטח ושינוי במידות ישנה את המחיר.'
+        answer=self.step('כמה זה עולה?',self.model(bad,quote_requested=True))
+        self.assertNotIn('₪500',answer)
+        self.assertIn(f"₪{yossi.calculate_quote(specs):,.0f}",answer)
+
     def test_crm_message_metadata_never_reaches_model_input(self):
         self.memory[self.phone] = ([
             {'role':'user','content':'אני רוצה מקלחון','at':'2026-10-13T14:43:41Z','source':'crm'},
