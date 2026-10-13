@@ -452,6 +452,8 @@ def main():
                     raise AssertionError('Post-quote consultation was overwritten by calculator placeholder')
                 if scenario == 'busy_customer' and customer == 'לא רוצה שתחזרו אליי' and 'לא נתקשר' not in answer:
                     raise AssertionError('Customer callback opt-out was not respected')
+                if scenario == 'spec_change' and customer == 'תחשב מחדש' and not yossi.contains_ils_amount(answer):
+                    raise AssertionError('Recalculation after an explicit width change failed to produce a quote')
                 if 'הצעת מחיר מאומתת' in answer:
                     raise AssertionError('Technical quote wording leaked to customer')
                 if scenario == 'indirect_visual' and customer == 'קשה לי לדמיין איך זה ייראה' and not reports[-1].get('media'):
