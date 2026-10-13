@@ -383,6 +383,10 @@ def main():
                 raise AssertionError('Unexpected field in model conversation input')
         call_count += 1
         response = real_create(**kwargs)
+        try:
+            reports[-1]['model_reply'] = json.loads(response.output_text).get('reply')
+        except (ValueError, TypeError, AttributeError):
+            reports[-1]['model_reply'] = None
         metrics = yossi.api_usage_metrics(response)
         reports[-1].setdefault('api_calls', []).append(metrics)
         input_tokens, output_tokens = metrics['input_tokens'], metrics['output_tokens']
@@ -448,11 +452,13 @@ def main():
                     raise AssertionError('Post-quote consultation was overwritten by calculator placeholder')
                 if scenario == 'busy_customer' and customer == 'לא רוצה שתחזרו אליי' and 'לא נתקשר' not in answer:
                     raise AssertionError('Customer callback opt-out was not respected')
+                if scenario == 'spec_change' and customer == 'תחשב מחדש' and not yossi.contains_ils_amount(answer):
+                    raise AssertionError('Recalculation after an explicit width change failed to produce a quote')
                 if 'הצעת מחיר מאומתת' in answer:
                     raise AssertionError('Technical quote wording leaked to customer')
                 if scenario == 'indirect_visual' and customer == 'קשה לי לדמיין איך זה ייראה' and not reports[-1].get('media'):
                     raise AssertionError('Indirect visual request did not produce an approved illustration')
-                if scenario == 'front_owner_height' and customer == 'תחשב לפי גובה 200' and '₪' not in answer:
+                if scenario == 'front_owner_height' and customer == 'תחשב לפי גובה 200' and not yossi.contains_ils_amount(answer):
                     raise AssertionError('Complete front shower specification did not produce a calculated price')
                 if turn == 1 and scenario in ("full_quote", "closing"):
                     if not answer.startswith(("היי", "אהלן", "שלום")):

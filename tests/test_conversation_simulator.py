@@ -80,6 +80,53 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+    def test_recalculate_changed_width_keeps_known_choices_and_uses_calculator(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],
+                   quote_requested=True,solution_agreed=True)
+        self.step('תחשב מחיר',self.model('בודק',**specs))
+        self.step('בעצם רוחב 100 במקום 120',self.model('נחשב לפי הרוחב החדש',width_cm=100))
+        answer=self.step('תחשב מחדש',self.model('המחיר 2,254 ש״ח',configuration='תיאור לא תקין',finish='שם לא תקין'))
+        expected=yossi.calculate_quote(dict(specs,width_cm=100))
+        self.assertIn(f'₪{expected:,.0f}',answer)
+        self.assertEqual(self.memory[self.phone][1]['configuration'],specs['configuration'])
+        self.assertEqual(self.memory[self.phone][1]['width_cm'],100)
+
+    def test_correct_mixed_warranty_keeps_location_in_the_same_sentence(self):
+        reply='היי, אני יוסי מחלומות מזכוכית. אין אחריות על הזכוכית; במקלחון יש 7 שנות אחריות לפרזול ושנה להתקנה, ופתח תקווה באזור השירות שלנו. הפתח בין שני קירות?'
+        answer=self.step('מקלחון ברוחב 120 בפתח תקווה, יש אחריות לזכוכית?',self.model(reply,width_cm=120))
+        self.assertEqual(answer,reply)
+        self.assertIn('פתח תקווה',answer)
+
+    def test_grounded_quote_keeps_consultant_voice_and_receives_calculator_facts(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True)
+        self.memory[self.phone]=([{'role':'user','content':'חשוב לי כניסה נוחה'},
+                                 {'role':'assistant','content':'נבחר קבוע ודלת'}],specs)
+        amount=yossi.calculate_quote(dict(specs,height_cm=200))
+        answer=(f'לכניסה הנוחה שרצית, ההצעה הראשונית היא ₪{amount:,.0f} לפני מע״מ, '
+                'כולל מדידה, הובלה והתקנה. את המידות נבדוק בשטח; שינוי במידות עשוי לשנות את המחיר. איך זה נשמע לך?')
+        captured=[]
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses,'create',side_effect=capture):
+            actual=self.step('אין לי גובה מדוד, כמה זה עולה?',self.model(answer,quote_requested=True))
+        self.assertEqual(actual,answer)
+        state=json.loads('{' + captured[0]['input'][1]['content'].split('{',1)[1])
+        self.assertEqual(state['approved_quote_for_reply']['amount_ils_pre_vat'],amount)
+        self.assertEqual(state['approved_quote_for_reply']['specification']['height_cm'],200)
+        self.assertTrue(self.memory[self.phone][1]['validated_quote']['issued'])
+
+    def test_wrong_model_amount_cannot_use_natural_quote_preservation(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True)
+        self.memory[self.phone]=([],specs)
+        bad='ההצעה הראשונית היא ₪500 לפני מע״מ כולל מדידה, הובלה והתקנה. נבדוק בשטח ושינוי במידות ישנה את המחיר.'
+        answer=self.step('כמה זה עולה?',self.model(bad,quote_requested=True))
+        self.assertNotIn('₪500',answer)
+        self.assertIn(f"₪{yossi.calculate_quote(specs):,.0f}",answer)
+
     def test_crm_message_metadata_never_reaches_model_input(self):
         self.memory[self.phone] = ([
             {'role':'user','content':'אני רוצה מקלחון','at':'2026-10-13T14:43:41Z','source':'crm'},
@@ -320,7 +367,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(request['timeout'], 90.0)
         self.assertEqual(request['text']['format']['type'], 'json_object')
         self.assertIn('ריצוף גמור אינו תנאי כללי למראה', request['instructions'])
-        self.assertIn('חוזה הפלט JSON נשארים מחייבים', request['instructions'])
+        self.assertIn('החזר JSON בלבד', request['instructions'])
 
     def test_mirror_quote_closure_does_not_require_shower_flooring(self):
         quote = {'issued': True, 'approved': True}
@@ -491,10 +538,10 @@ class ConversationSimulation(unittest.TestCase):
                   self.model("הנה המחיר", **specs))
         answer = self.step("זה יותר ממה שתכננתי. קיבלתי הצעה זולה ב-700 שקל.",
                            self.model("המחיר שלנו הוא 700 שקל יותר"))
-        self.assertIn("פער כזה במחיר", answer)
-        self.assertIn("שירות אישי", answer)
-        self.assertIn("גם אחרי ההתקנה", answer)
-        self.assertIn("ההצעה שקיבלת כוללת גם התקנה", answer)
+        # A customer-stated price gap is retained as a comparison, not replaced
+        # by a long canned sales pitch or interpreted as a new quote total.
+        self.assertEqual(answer, "המחיר שלנו הוא 700 שקל יותר")
+        self.assertNotIn("₪700", answer)
         self.assertNotIn("המחיר המאומת למפרט", answer)
 
     def test_customer_reset_does_not_touch_real_db(self):
