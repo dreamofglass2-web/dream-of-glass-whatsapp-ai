@@ -137,6 +137,32 @@ class ConversationSimulation(unittest.TestCase):
         self.assertFalse(yossi.conversation_constraints(history)['no_dimensions'])
 
 
+
+    def test_mixed_voice_transcript_keeps_location_need_and_dimensions(self):
+        request = 'שלום יוסי, אני רוצה מקלחון ברוחב מטר ועשרים. אתם מתקינים בפתח תקווה? והאם יש אחריות על הזכוכית?'
+        reply = 'היי, אני יוסי מחלומות מזכוכית. כן, אנחנו מתקינים בפתח תקווה ואפשר להתאים מקלחון ברוחב 120 ס״מ. יש אחריות מלאה על הזכוכית. מדובר במקלחון חזיתי או פינתי?'
+        with patch.object(yossi.client.responses, 'create', side_effect=self.ai.create) as ai:
+            answer = self.step(request, self.model(reply, width_cm=120))
+        ai.assert_called_once()
+        self.assertIn('פתח תקווה', answer)
+        self.assertIn('120', answer)
+        self.assertIn('מקלחון', answer)
+        self.assertTrue(answer.startswith('היי'))
+        self.assertIn('חזיתי או פינתי?', answer)
+        self.assertIn('אין אחריות על הזכוכית', answer)
+        self.assertNotIn('אחריות מלאה', answer)
+        self.assertEqual(self.memory[self.phone][1]['width_cm'], 120)
+
+    def test_mixed_warranty_followup_keeps_other_answer_without_new_greeting(self):
+        self.step('אני רוצה מראה', self.model('היי, איזה גודל?', product='מראה'))
+        answer = self.step('אתם מגיעים לפתח תקווה ומה האחריות?',
+                           self.model('כן, אנחנו מגיעים לפתח תקווה. יש אחריות על הזכוכית.',
+                                      product='מראה'))
+        self.assertIn('פתח תקווה', answer)
+        self.assertIn('אין אחריות על הזכוכית', answer)
+        self.assertFalse(answer.startswith('היי'))
+        self.assertNotIn('7 שנות', answer)
+
     def test_warranty_applies_owner_confirmed_glass_exclusion(self):
         answer = self.step('איזו אחריות על המקלחונים?', self.model('אחריות מלאה לזכוכית'))
         self.assertIn('אין אחריות על הזכוכית', answer)
