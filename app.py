@@ -15,7 +15,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
+from sales_reply import sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -2181,7 +2181,7 @@ def process_message(phone, body, batch_rows=None):
         # Stable business policy is cached separately from private, changing context.
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
-        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), BOM.keys())
+        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote')
@@ -2220,7 +2220,7 @@ def process_message(phone, body, batch_rows=None):
                     'prompt_cache_breakpoint':{'mode':'explicit'}}]},
                     {'role':'developer','content':dynamic_context}] + model_history,
                 prompt_cache_options={'mode':'explicit','ttl':'30m'},
-                text={'format':{'type':'json_object'}},
+                text={'format':sales_output_format(list(BOM)+list(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS)},
             )
             usage = getattr(response, 'usage', None)
             app.logger.info('AI_RESPONSE model=%s input_tokens=%s output_tokens=%s phone_suffix=%s',
