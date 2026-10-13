@@ -60,3 +60,13 @@ class KnownQuoteChoiceTests(unittest.TestCase):
         self.assertEqual(retain_known_quote_choices(prior,{'configuration':'שם אחר','finish':'שם אחר'},'תחשב מחדש')['finish'],'שחור')
         self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'120')['width_cm'],120)
         self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'כמה עולה ברוחב 120')['width_cm'],120)
+
+class ConsultationFactRetentionTests(unittest.TestCase):
+    def test_past_experience_does_not_change_current_choice(self):
+        from sales_reply import retain_known_quote_choices, normalize_sales_fields
+        prior={'configuration':'חזית קבוע + דלת','finish':'שחור'}
+        result=retain_known_quote_choices(prior,{'configuration':'הזזה קבוע + דלת','finish':'ניקל'},'היה לי הזזה, אהבתי את הנוחות אבל קשה לנקות')
+        self.assertEqual(result,prior)
+        result=normalize_sales_fields({'configuration':'מקלחון חזיתי קבוע ודלת'},['חזית קבוע + דלת'],[],[])
+        self.assertEqual(result['configuration'],'חזית קבוע + דלת')
+        self.assertEqual(normalize_sales_fields({'configuration':'תכנון אחר'},['חזית קבוע + דלת'],[],[])['configuration'],'תכנון אחר')
