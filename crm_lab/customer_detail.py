@@ -2,7 +2,7 @@
 import hashlib
 import json
 from decimal import Decimal,InvalidOperation
-from crm_lab.lead_preview import map_leads,LeadPreviewError,text
+from crm_lab.lead_preview import map_leads,LeadPreviewError,text,timestamp
 
 def project_detail(row,*,synthetic=True):
     customer=map_leads([row],synthetic=synthetic)['customers'][0]
@@ -29,7 +29,7 @@ def project_detail(row,*,synthetic=True):
         raw=json.dumps([customer['id'],index,message['role'],body,attachments],ensure_ascii=False).encode()
         messages.append({'id':'message-'+hashlib.sha256(raw).hexdigest(),'ordinal':index,
                          'role':message['role'],'content':body,'attachment_count':attachments,
-                         'sent_at':None,'delivery_verified':False})
+                         'sent_at':timestamp(message['at']) if message.get('at') else None,'delivery_verified':False})
     if len(json.dumps(messages,ensure_ascii=False).encode())>700000:
         raise LeadPreviewError('Complete conversation exceeds supported bounds; not truncated')
     quote=row.get('legacy_quote');evidence=None
@@ -69,5 +69,5 @@ def project_detail(row,*,synthetic=True):
                   'identity_quality':'durable_request_id' if customer['callback_request_id'] else 'legacy_state_without_request_id',
                   'read_only':True}
     return {'customer':customer,'conversation':messages,'conversation_complete':True,
-            'conversation_timestamps_available':False,'callback':callback,'legacy_quote':evidence,
+            'conversation_timestamps_available':bool(messages) and all(m['sent_at'] for m in messages),'callback':callback,'legacy_quote':evidence,
             'quote_versions':[],'synthetic':synthetic,'read_only':True}
