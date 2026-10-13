@@ -418,6 +418,10 @@ def main():
         if yossi.MODEL.startswith('gpt-4.1'):
             kwargs.pop('reasoning',None)
             kwargs.pop('prompt_cache_options',None)
+            for message in kwargs.get('input',[]):
+                if isinstance(message.get('content'),list):
+                    for block in message['content']:
+                        block.pop('prompt_cache_breakpoint',None)
         response = real_create(**kwargs)
         try:
             reports[-1]['model_reply'] = json.loads(response.output_text).get('reply')
