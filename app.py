@@ -13,7 +13,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro
+from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -849,7 +849,7 @@ def reset_conversation_for_phone(phone):
 def requests_catalog_samples(text):
     """Strictly require a positive request for OUR samples, not merely the word photo."""
     text = str(text or '').strip()
-    if correcting_unrequested_photo(text):
+    if correcting_unrequested_photo(text) or declines_visuals(text):
         return False
     if implicit_visual_request(text):
         return True
@@ -1285,7 +1285,7 @@ LANDING_PAGE_URL = os.getenv('LANDING_PAGE_URL', '').strip()
 def requests_portfolio_photos(text):
     """Explicit requests for finished jobs, general examples, or a portfolio."""
     text = str(text or '').strip()
-    if correcting_unrequested_photo(text) or requests_all_glass_types(text):
+    if correcting_unrequested_photo(text) or declines_visuals(text) or requests_all_glass_types(text):
         return False
     if re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I) and not re.search(r'עבוד|פרויקט|מקלחונים\s+שעשיתם', text, re.I):
         return False
@@ -2608,7 +2608,7 @@ def process_message(phone, body, batch_rows=None):
             # Gallery captions follow only images successfully accepted by WhatsApp.
             # A send failure must never be described to the customer as a delivered image.
 
-            if image_ready and data.get('send_handle_images') is True and re.search(r'ידיות|ידית', customer_request):
+            if image_ready and not declines_visuals(customer_request) and data.get('send_handle_images') is True and re.search(r'ידיות|ידית', customer_request):
                 send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
                 send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
             # Photos are optional illustrations, never sent just to push a sale.
