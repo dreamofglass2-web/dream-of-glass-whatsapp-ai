@@ -2174,6 +2174,17 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
+        if re.search(r'שאלה לא טובה|מציע לך לשאול|במקום זה',customer_request) and re.search(r'מה שמך|איך קוראים לך',customer_request):
+            if has_new_messages(phone, batch_rows):
+                return False
+            feedback_context = dict(prior or {})
+            name = extract_customer_name(history)
+            if name:
+                feedback_context['customer_name'] = name
+            feedback_reply = 'תודה על ההערה' + (', ' + name if name else '') + '. נמשיך לפרטים הדרושים להצעת המחיר.'
+            send_whatsapp(phone, body=feedback_reply)
+            save_conversation(phone, history + [{'role':'assistant','content':feedback_reply}], feedback_context)
+            return True
         compare_result = comparison_turn(history, prior, customer_request, calculate_quote, BOM, GLASS_COSTS, FINISH_MULTIPLIERS) if SEND_QUOTES else None
         if compare_result:
             if has_new_messages(phone, batch_rows):
@@ -2240,6 +2251,7 @@ def process_message(phone, body, batch_rows=None):
             'approved_quote_for_reply': (quote_facts_for_turn(prior, customer_request, calculate_quote)
                                          if SEND_QUOTES and not discovery_question else None),
             'handle_images_available': bool(image_ready or any(p.get('handle') for p in PHOTO_CATALOG)),
+            'quote_comparison': prior.get('quote_comparison'),
             'active_sales_item': prior.get('active_sales_item'),
             'sales_items': prior.get('sales_items', {}),
             'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG}),
