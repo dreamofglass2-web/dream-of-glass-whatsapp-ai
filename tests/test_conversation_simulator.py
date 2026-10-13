@@ -124,6 +124,20 @@ class ConversationSimulation(unittest.TestCase):
         reply='היי, אני יוסי מחלומות מזכוכית. אשמח לעזור לבחור משהו שיהיה נוח לך. זה לשיפוץ או להחלפת מקלחון קיים?'
         self.assertEqual(self.step('מחפש מקלחון',self.model(reply)),reply)
 
+
+    def test_offer_request_and_city_turn_do_not_discard_valid_model_quote(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,height_cm=200,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True,
+                   sales_discovery_completed=True)
+        for request in ('פתח תקווה','תן הצעה לפי מה שבחרתי'):
+            self.memory[self.phone]=([],dict(specs))
+            amount=yossi.calculate_quote(specs)
+            reply=f'ההצעה הראשונית היא {amount:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. המידות הסופיות ייבדקו בשטח ושינוי במידות עשוי לשנות את המחיר.'
+            answer=self.step(request,self.model(reply,action='quote',quote_requested=False,solution_agreed=True))
+            self.assertIn(f'{amount:,.0f}',answer)
+            self.assertNotIn('חסר עוד אימות',answer)
+            self.assertTrue(self.memory[self.phone][1]['validated_quote']['issued'])
+
     def test_pending_price_survives_model_false_until_calculation(self):
         specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,height_cm=200,
                    glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True,
