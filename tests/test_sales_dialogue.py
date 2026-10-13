@@ -114,3 +114,10 @@ class GlobalConsultationTests(unittest.TestCase):
                  {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'},
                  {'role':'user','content':'אין לי מושג, תייעץ לי'}]
         self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'תייעץ לי')['question'])
+
+class NaturalDiscoveryPreservationTests(unittest.TestCase):
+    def test_keep_relevant_question_and_reject_price_or_wrong_axis(self):
+        from sales_dialogue import preserves_consultation_step
+        self.assertTrue(preserves_consultation_step('אשמח לעזור. זה לשיפוץ או לבית חדש?',{'step':'project_context'}))
+        self.assertFalse(preserves_consultation_step('המחיר ₪2000. זה לבית חדש?',{'step':'project_context'}))
+        self.assertFalse(preserves_consultation_step('מה רוחב הפתח?',{'step':'project_context'}))
