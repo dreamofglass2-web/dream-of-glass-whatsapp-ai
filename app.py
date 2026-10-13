@@ -1,4 +1,5 @@
 import os
+from crm_records import stamp_new_messages, conversation_status
 import json
 import logging
 import threading
@@ -252,6 +253,9 @@ def callback_time_from_text(body):
 
 
 def save_conversation(phone, history, context):
+    scope = getattr(_delivery_scope, 'current', None) or {}
+    history = stamp_new_messages(history, scope.get('existing_count', max(0, len(history)-1)))
+    progress_status = conversation_status(history, context)
     with lock:
         histories[phone] = list(history)
         customer_context[phone] = context
@@ -259,17 +263,21 @@ def save_conversation(phone, history, context):
         ensure_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""INSERT INTO glass_leads(phone, name, conversation, context, product)
-                    VALUES (%s, %s, %s::jsonb, %s::jsonb, %s)
+                cur.execute("""INSERT INTO glass_leads(phone, name, conversation, context, product, status)
+                    VALUES (%s, %s, %s::jsonb, %s::jsonb, %s, %s)
                     ON CONFLICT(phone) DO UPDATE SET
                         conversation=EXCLUDED.conversation, context=EXCLUDED.context,
+                        status=CASE
+                          WHEN glass_leads.status IN ('חדש','בטיפול') AND EXCLUDED.status='הצעה ניתנה' THEN EXCLUDED.status
+                          WHEN glass_leads.status='חדש' AND EXCLUDED.status='בטיפול' THEN EXCLUDED.status
+                          ELSE glass_leads.status END,
                         name=CASE WHEN glass_leads.name = '' THEN EXCLUDED.name ELSE glass_leads.name END,
                         product=CASE WHEN EXCLUDED.product <> '' THEN EXCLUDED.product
                                      ELSE glass_leads.product END,
                         updated_at=now()""",
                     (phone, extract_customer_name(history),
                      json.dumps(history, ensure_ascii=False),
-                     json.dumps(context, ensure_ascii=False), str(context.get('product') or '')))
+                     json.dumps(context, ensure_ascii=False), str(context.get('product') or ''), progress_status))
     except Exception:
         app.logger.exception('Database save failed; message was still handled')
 
@@ -2009,11 +2017,14 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body='יש כרגע תקלה בפתיחת שיחה חדשה, אפשר לנסות שוב בעוד רגע?')
             return True
         history, prior = load_conversation(phone)
+        scope = getattr(_delivery_scope, 'current', None)
+        if scope is not None:
+            scope['existing_count'] = len(history)
         if handoff and prior.get('_operator_generation_seen') != handoff['handoff_generation']:
             prior = dict(prior or {})
             prior.pop('callback_requested_day', None)
             prior['_operator_generation_seen'] = handoff['handoff_generation']
-        history.append({'role':'user','content':body})
+        history.append({'role':'user','content':body,'at':datetime.now(timezone.utc).isoformat()})
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
@@ -2922,6 +2933,7 @@ def batch_worker():
                 _delivery_scope.current = {
                     'fingerprint': fingerprint,
                     'ordinal': 0,
+                    'existing_count': 0,
                     'suppress_outbound': batch_has_outbound_attempt(fingerprint),
                 }
                 try:
