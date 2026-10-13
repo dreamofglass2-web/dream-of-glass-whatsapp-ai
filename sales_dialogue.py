@@ -170,9 +170,25 @@ def mixed_warranty_reply(reply, policy, history):
         result = 'היי, אני יוסי מחלומות מזכוכית 🙂 ' + result
     return result
 
+def deferred_measurement_reply(history, customer):
+    """Respect a customer who will supply requested dimensions later."""
+    text=str(customer or '')
+    last_question=next((str(m.get('content') or '') for m in reversed(history) if m.get('role')=='assistant'), '')
+    if not re.search(r'רוחב|מידות|למדוד|מה.{0,15}גובה',last_question):
+        return None
+    if re.search(r'\d|מחיר|כמה עולה|תמונה|אחריות',text):
+        return None
+    if not (re.search(r'מחר|אחר כך|בהמשך|כשאהיה|כשאגיע',text) and
+            re.search(r'אבדוק|אמדוד|בדירה|בבית|לא יודע|אין לי',text)):
+        return None
+    return 'אין בעיה, כשתהיה בדירה שלח את המידות ונמשיך מאותה נקודה. אין צורך למדוד בדיוק, מידות משוערות מספיקות להצעה ראשונית; את המידות הסופיות נבדוק בשטח.'
+
+
 def consultation_plan(history, prior, customer):
     """All sales openings use customer evidence, not only technical specs."""
     text=str(customer or '')
+    if deferred_measurement_reply(history, customer):
+        return {'step':'await_measurements','question':None}
     if re.search(r'לא מעוניין|לא מעוניינת|צריך לחשוב|אחשוב|אל תפנ|תפסיק|עזוב|רק מחיר|מחיר בלבד|בלי שאלות|לא רוצה.{0,12}(?:ייעוץ|שאלות)',text):
         return {'step':'respect_choice','question':None}
     if prior.get('sales_discovery_completed') or (prior.get('validated_quote') or {}).get('issued'):
@@ -186,8 +202,10 @@ def consultation_plan(history, prior, customer):
         starts=[i for i,m in enumerate(history) if m.get('role')=='assistant' and re.search(r'נעבור.{0,25}'+str(number),str(m.get('content') or ''))]
         if starts:
             messages=history[starts[-1]:]
+    # Project context belongs to the customer, not to the active shower item.
+    project_users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
     users=' '.join(str(m.get('content') or '') for m in messages if m.get('role')=='user')
-    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',users))
+    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
     needs=bool(re.search(r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|להפריד.{0,15}(?:חלל|חדר)',users))
     for i,m in enumerate(messages):
         if m.get('role')!='assistant' or not any(x.get('role')=='user' for x in messages[i+1:i+2]):

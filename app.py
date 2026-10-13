@@ -16,7 +16,7 @@ from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_dialogue import deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -2161,6 +2161,13 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
+        deferred_reply = deferred_measurement_reply(history, customer_request)
+        if deferred_reply:
+            if has_new_messages(phone, batch_rows):
+                return False
+            send_whatsapp(phone, body=deferred_reply)
+            save_conversation(phone, history + [{'role':'assistant','content':deferred_reply}], dict(prior or {}))
+            return True
         media_was_analyzed = '[לקוח צירף ' in body and ' שנותח בפועל.' in body
         facts = conversation_constraints(history)
         # Old visual descriptions are historical facts, never a new customer's measurements.
