@@ -16,7 +16,7 @@ from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_dialogue import consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -2179,13 +2179,15 @@ def process_message(phone, body, batch_rows=None):
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
         # Stable business policy is cached separately from private, changing context.
-        discovery_question = discovery_before_quote(history, prior, customer_request) if (quote_intent(customer_request) or prior.get('quote_requested')) and ('מקלחון' in customer_request or str(prior.get('product') or '').startswith('מקלחון')) else None
+        sales_plan = consultation_plan(history, prior, customer_request)
+        discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), BOM.keys())
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote')
         turn_context = {
             'facts': facts,
+            'consultation_plan': sales_plan,
             'discovery_before_quote': discovery_question,
             'dialogue': dialogue_context(history),
             'sales_focus': sales_turn_context(customer_request, history, prior),
@@ -2644,11 +2646,12 @@ def process_message(phone, body, batch_rows=None):
                 aggregate_reply = combined_quote(quote_state, history, customer_request, calculate_quote)
                 if aggregate_reply:
                     reply = aggregate_reply
-            if discovery_question and ordinary_turn:
+            direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
+            if discovery_question and ordinary_turn and not direct_information and not photos:
                 reply = discovery_question
                 if not any(m.get('role') == 'assistant' for m in history):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. ' + reply
-                data['quote_requested'] = True
+                data['quote_requested'] = bool(quote_intent(customer_request) or prior.get('quote_requested') or data.get('quote_requested'))
                 quote_record = {}
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
