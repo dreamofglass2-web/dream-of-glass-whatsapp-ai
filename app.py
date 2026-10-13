@@ -2148,7 +2148,9 @@ def process_message(phone, body, batch_rows=None):
         # old picture details unless the customer explicitly references them.
         generic_price_question = bool(re.search(r'(?:כמה\s+עול[הים]|מחיר\s+בערך|בודק\s+מחירים|טווח\s+מחירים)', customer_request)) and not re.search(r'\d+\s*[/xX×]\s*\d+|(?:רוחב|גובה)\s*\d+', customer_request)
         mentions_current_picture = bool(re.search(r'(?:בתמונה|ששלחתי|לפי\s+הצילום|171)', customer_request))
-        model_history = history[-36:]
+        # CRM timestamps and audit metadata are not valid Responses input fields.
+        model_history = [{'role':m['role'], 'content':str(m.get('content') or '')}
+                         for m in history[-36:] if m.get('role') in ('user','assistant')]
         if generic_price_question and not mentions_current_picture and not media_was_analyzed:
             # General inquiry: no old picture and no old AI claim may leak into answer.
             if any('[לקוח צירף ' in str(m.get('content', '')) for m in model_history[:-1]):
