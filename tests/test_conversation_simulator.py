@@ -52,7 +52,7 @@ class ConversationSimulation(unittest.TestCase):
         yossi.histories.clear()
 
     def load(self, phone):
-        history, context = self.memory.get(phone, ([], {}))
+        history, context = self.memory.get(phone, ([], {'sales_discovery_completed': True}))
         return list(history), dict(context)
 
     def save(self, phone, history, context):
@@ -113,6 +113,20 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(len(pictures),1)
         self.assertIn('כפתור',pictures[0][1])
 
+
+
+    def test_price_first_discovers_project_and_experience(self):
+        self.memory[self.phone] = ([], {})
+        specs=dict(product='מקלחון',configuration='פינתי 2 קבועים + 2 דלתות',width_cm=80,
+                   second_width_cm=80,height_cm=200,glass_type='שקופה',finish='ניקל',
+                   handles=['ידית כפתור']*2,solution_agreed=True,quote_requested=True)
+        answer=self.step('כמה עולה מקלחון פינתי 80/80',self.model('המחיר 2294 ש״ח',**specs))
+        self.assertIn('בית חדש',answer)
+        self.assertNotIn('2294',answer)
+        answer=self.step('להחליף מקלחון קיים',self.model('המחיר 2294 ש״ח',**specs))
+        self.assertIn('בשימוש',answer)
+        answer=self.step('היה הזזה וקשה לנקות את המסילה',self.model('נחשב מחיר',**specs))
+        self.assertIn('₪',answer)
 
     def test_owner_pricing_base_buffer_removal_rounding_and_no_minimum(self):
         specs=dict(configuration='חזית קבוע + דלת',width_cm=160,height_cm=200,
