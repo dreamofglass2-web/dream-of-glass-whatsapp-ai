@@ -173,7 +173,7 @@ def extract_customer_name(history):
         value=str(item.get('content') or '').strip()
         if (previous.get('role')=='assistant' and re.search(r'איך קוראים לך|מה השם שלך|באיזה שם לפנות',str(previous.get('content') or ''))
                 and re.fullmatch(r'[א-תA-Za-z]{2,30}(?:\s+[א-תA-Za-z]{2,30})?',value)
-                and not re.search(r'לא|רוצה|צריך|תודה|עזוב|משנה|יודע|שלום|היי|שיפוץ|מקלחון',value)):
+                and value not in ('לא','לא רוצה','לא משנה','לא יודע','תודה','עזוב','שלום','היי','שיפוץ','מקלחון')):
             return value
     return ''
 
