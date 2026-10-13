@@ -176,7 +176,7 @@ CALLBACK_TRIGGERS = ('לדבר עם', 'שיחזרו אלי', 'שיחזרו אל�
 def refuses_phone_calls(body):
     """Explicit no-calls request always overrides an earlier callback."""
     return bool(re.search(
-        r'לא\s+(?:רוצה|מעוניינ[ת]?)\s+(?:ש)?(?:תתקשרו|יתקשרו|שיחה\s+טלפונית)|'
+        r'לא\s+(?:רוצה|מעוניין|מעוניינת)\s+(?:ש)?(?:תתקשרו|יתקשרו|תחזרו|יחזרו|שיחה\s+טלפונית)|'
         r'אל\s+(?:תתקשרו|תתקשר|תחזרו)\s+אל[יי]|'
         r'(?:בלי|ללא)\s+(?:שיחות|טלפונים)|'
         r'לא\s+(?:צריך|צריכה)\s+(?:ש)?תחזרו\s+אל[יי]|'
@@ -2250,7 +2250,9 @@ def process_message(phone, body, batch_rows=None):
 
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
-            quote_requested_now = quote_intent(customer_request) or data.get('quote_requested') is True or prior.get('quote_requested') is True
+            quote_already_issued = bool((prior.get('validated_quote') or {}).get('issued'))
+            quote_requested_now = (quote_intent(customer_request) or
+                                   (not quote_already_issued and data.get('quote_requested') is True))
             quote_specs = dict(prior or {})
             for key in ('product','configuration','width_cm','second_width_cm',
                         'height_cm','glass_type','finish','handles','solution_agreed'):
@@ -2501,7 +2503,7 @@ def process_message(phone, body, batch_rows=None):
                     reply) for v in v if v]
                 if mentioned_numbers and (not isinstance(saved_amount, (int, float)) or
                                           any(n != round(saved_amount) for n in mentioned_numbers)):
-                    reply = (f'המחיר המאומת למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
+                    reply = (f'המחיר למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
                              if isinstance(saved_amount, (int, float)) else
                              'כדי לא למסור מספר שגוי, צריך לאמת את המחיר.')
             # Preserve a direct answer to both parts of a price-inclusions question.
@@ -2631,7 +2633,7 @@ def process_message(phone, body, batch_rows=None):
             # Model-generated replies may bypass the quote fallback, so apply at send time.
             if len(history) == 1 and re.search(r'מקלחון|אמבטיון|זכוכית', customer_request):
                 if not re.match(r'^\s*(?:היי|אהלן|שלום|בוקר טוב|ערב טוב)', reply):
-                    reply = 'היי, מה שלומך? 🙂 ' + reply
+                    reply = 'היי, אני יוסי מחלומות מזכוכית 🙂 ' + reply
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
@@ -2646,6 +2648,7 @@ def process_message(phone, body, batch_rows=None):
                 next_context.pop('validated_quote', None)
             if quote_record.get('issued'):
                 next_context['validated_quote'] = quote_record
+                next_context['quote_requested'] = False
             if height_basis:
                 next_context['pricing_height_basis'] = height_basis
             save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
