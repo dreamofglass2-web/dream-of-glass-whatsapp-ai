@@ -13,7 +13,8 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
+from sales_items import item_context, save_item, combined_quote
+from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
@@ -786,7 +787,8 @@ def load_photo_catalog():
             result.append({'url':url, 'glass':glass,
                            'product':str(item.get('product') or ''),
                            'configuration':str(item.get('configuration') or ''),
-                           'finish':str(item.get('finish') or '')})
+                           'finish':str(item.get('finish') or ''),
+                           'handle':str(item.get('handle') or '')})
         return result
     except (TypeError, ValueError):
         app.logger.warning('Invalid PHOTO_CATALOG_JSON')
@@ -2148,6 +2150,7 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
             return True
         customer_request = customer_written_text(body)
+        prior = item_context(prior, history, customer_request)
         media_was_analyzed = '[לקוח צירף ' in body and ' שנותח בפועל.' in body
         facts = conversation_constraints(history)
         # Old visual descriptions are historical facts, never a new customer's measurements.
@@ -2191,7 +2194,9 @@ def process_message(phone, body, batch_rows=None):
             'quotes_enabled': SEND_QUOTES,
             'approved_quote_for_reply': (quote_facts_for_turn(prior, customer_request, calculate_quote)
                                          if SEND_QUOTES else None),
-            'handle_images_available': image_ready,
+            'handle_images_available': bool(image_ready or any(p.get('handle') for p in PHOTO_CATALOG)),
+            'active_sales_item': prior.get('active_sales_item'),
+            'sales_items': prior.get('sales_items', {}),
             'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG}),
             'instagram_url': INSTAGRAM_URL or None,
             'landing_page_url': LANDING_PAGE_URL or None,
@@ -2547,14 +2552,18 @@ def process_message(phone, body, batch_rows=None):
             # Decide which photos will be sent BEFORE writing the accompanying text.
             photo_context = dict(prior or {})
             photo_context.update({k:v for k,v in data.items() if v is not None})
+            requested_handles = handle_photo_request(customer_request, history)
             consultation_visual = (implicit_visual_request(customer_request) or
                                    (requests_portfolio_photos(customer_request) and bool(photo_context.get('configuration'))))
             photos = (consultation_photos(PHOTO_CATALOG, photo_context) if consultation_visual
                       else (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, photo_context)))
-            if not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
+            if requested_handles:
+                photos = handle_photos(PHOTO_CATALOG, customer_request, photo_context,
+                                       HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
+            if not requested_handles and not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
                 if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
                     photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים')
-            if not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
+            if not requested_handles and not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
                 requested = explicitly_requests_catalog_photos(customer_request)
                 if requested:
                     wanted = data.get('glass_type') or (prior or {}).get('glass_type')
@@ -2570,7 +2579,9 @@ def process_message(phone, body, batch_rows=None):
             if photos:
                 # The model must not claim absent catalog types are attached.
                 # Only the photo sender's captions identify the images sent.
-                if consultation_visual:
+                if requested_handles:
+                    reply = 'מצרף דוגמה לידית שביקשת; בתמונה אפשר לראות אותה על המקלחון.'
+                elif consultation_visual:
                     reply = consultation_photo_intro(photos, photo_context)
                 elif requests_portfolio_photos(customer_request):
                     reply = 'בחרתי כמה דוגמאות מעבודות שלנו כדי שתוכל להתרשם מהסגנונות ומהגימור.'
@@ -2588,7 +2599,7 @@ def process_message(phone, body, batch_rows=None):
                              'בינתיים אשמח לעזור לך להבין מה יתאים לחדר שלך.')
             # A requested picture which cannot actually be provided becomes
             # a visible owner task, not a promise to send it later.
-            asked_for_photo = (requests_catalog_samples(customer_request)
+            asked_for_photo = (requested_handles or requests_catalog_samples(customer_request)
                                or requests_portfolio_photos(customer_request))
             if asked_for_photo and not photos:
                 if save_missing_photo_lead(phone, customer_request):
@@ -2601,14 +2612,11 @@ def process_message(phone, body, batch_rows=None):
             # Gallery captions follow only images successfully accepted by WhatsApp.
             # A send failure must never be described to the customer as a delivered image.
 
-            if image_ready and not declines_visuals(customer_request) and data.get('send_handle_images') is True and re.search(r'ידיות|ידית', customer_request):
-                send_whatsapp(phone, image_url=HANDLE_BUTTON_IMAGE_URL, caption='ידית כפתור')
-                send_whatsapp(phone, image_url=HANDLE_TOWEL_IMAGE_URL, caption='ידית מגבת')
             # Photos are optional illustrations, never sent just to push a sale.
             failed_photos = []
             for photo in photos:
                 try:
-                    send_whatsapp(phone, image_url=photo['url'], caption='דוגמה לזכוכית ' + photo['glass'])
+                    send_whatsapp(phone, image_url=photo['url'], caption=photo.get('caption') or ('דוגמה לזכוכית ' + photo['glass']))
                 except requests.RequestException:
                     failed_photos.append(photo['glass'])
                     app.logger.exception('Could not send sample photo for glass %s', photo['glass'])
@@ -2624,6 +2632,14 @@ def process_message(phone, body, batch_rows=None):
             if len(history) == 1 and re.search(r'מקלחון|אמבטיון|זכוכית', customer_request):
                 if not re.match(r'^\s*(?:היי|אהלן|שלום|בוקר טוב|ערב טוב)', reply):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. 🙂 ' + reply
+            quote_state = dict(prior or {})
+            quote_state.update({k:v for k,v in merged_pricing.items() if v is not None})
+            quote_state['solution_agreed'] = data.get('solution_agreed') or quote_state.get('solution_agreed')
+            save_item(quote_state)
+            if ordinary_turn and SEND_QUOTES:
+                aggregate_reply = combined_quote(quote_state, history, customer_request, calculate_quote)
+                if aggregate_reply:
+                    reply = aggregate_reply
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
@@ -2641,6 +2657,7 @@ def process_message(phone, body, batch_rows=None):
                 next_context['quote_requested'] = False
             if height_basis:
                 next_context['pricing_height_basis'] = height_basis
+            save_item(next_context)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
             return True
         except Exception:
