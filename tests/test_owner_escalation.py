@@ -98,6 +98,21 @@ class EscalationTests(unittest.TestCase):
         history = [{'role':'assistant','content':'מה המידות?'}, {'role':'user','content':'לא יודע'}, {'role':'assistant','content':'מה המידות?'}]
         self.assertIsNotNone(escalation_reason('אמרתי שאין', {}, 'מה המידות?', history))
 
+    def test_escalation_persists_triggering_customer_message_in_same_transaction(self):
+        cursor = MagicMock()
+        stamp = '2026-10-13T13:54:39+00:00'
+        text = 'זה נראה טוב, כמה עולה לי?'
+        with patch('handoff_store.read_state', return_value=new_state()), patch('handoff_store.capture_suppression'), patch('handoff_store.write_state'):
+            escalate_to_owner(cursor, 'TEST_ONLY', 'צריך בדיקה', text, stamp)
+        writes = [call for call in cursor.execute.call_args_list
+                  if 'SET conversation' in call.args[0]]
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0].args[1], (text, text, stamp, 'TEST_ONLY'))
+        self.assertIn("conversation->-1->>'content' = %s", writes[0].args[0])
+        self.assertIn("'role','user'", writes[0].args[0])
+        # No fabricated assistant answer is inserted during escalation.
+        self.assertNotIn("'assistant'", writes[0].args[0])
+
     def test_atomic_pause_and_duplicate_request(self):
         cursor = MagicMock()
         stamp = '2026-10-12T21:00:00+00:00'
