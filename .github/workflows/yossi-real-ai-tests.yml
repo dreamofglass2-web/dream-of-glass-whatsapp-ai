@@ -17,7 +17,7 @@ jobs:
       OPENAI_MODEL: ${{ matrix.model }}
       HANDOFF_ENABLED: "false"
       YOSSI_TEST_MAX_CALLS: "24"
-      YOSSI_TEST_MAX_USD: "2"
+      YOSSI_TEST_MAX_USD: "3"
       YOSSI_TEST_SCENARIOS: "adaptive_price,adaptive_beginner,adaptive_trust,adaptive_busy"
       DATABASE_URL: ""
       WHATSAPP_TOKEN: ""
