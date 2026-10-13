@@ -2260,11 +2260,12 @@ def process_message(phone, body, batch_rows=None):
                 data['height_cm'] = 200
                 quote_specs['height_cm'] = 200
                 height_basis = 'owner_approved_preliminary_200'
-            if (quote_requested_now and reply and calculate_quote(quote_specs) is not None
+            if (SEND_QUOTES and quote_requested_now and reply and calculate_quote(quote_specs) is not None
                     and not escalation_reason(customer_request)
                     and (quote_specs.get('solution_agreed') is True or quote_intent(customer_request))):
                 data['needs_human'] = False
                 data['quote_requested'] = True
+                reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
             reason = escalation_reason(customer_request, data, reply, history)
             if reason and HANDOFF_ENABLED:
                 if has_new_messages(phone, batch_rows):
