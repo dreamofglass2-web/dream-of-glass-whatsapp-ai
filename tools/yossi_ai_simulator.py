@@ -5,6 +5,7 @@ Usage (in a secure environment with OPENAI_API_KEY configured):
 Requires explicit opt-in and existing API account; consumes paid model tokens.
 """
 import json
+import re
 import os
 import sys
 import unittest
@@ -351,6 +352,38 @@ SCENARIOS += [
     'אין צורך בתמונות או עוד הסברים', 'תודה, אני אחשוב', 'לא רוצה שתחזרו אליי']],
 ]
 
+ADAPTIVE_LAST = {}
+class AdaptiveCustomer:
+    def __init__(self, name, opening, project, experience, objection):
+        self.name,self.opening,self.project,self.experience,self.objection=name,opening,project,experience,objection
+    def __iter__(self):
+        yield self.opening
+        seen=set()
+        for n in range(7):
+            answer=ADAPTIVE_LAST.get(self.name,'')
+            if re.search(r'בית חדש|שיפוץ|להחלפ',answer):
+                value=self.project
+            elif re.search(r'בשימוש|לשפר|הקודם|מה.{0,15}חשוב',answer):
+                value=self.experience
+            elif re.search(r'ש[״"]ח|₪',answer):
+                value=self.objection if 'objection' not in seen else 'תודה, אני צריך לחשוב'
+                seen.add('objection')
+            elif re.search(r'בין שני קירות|פינתי|מה.{0,15}רוחב|מידות|תצור|גובה|זכוכית|פרזול|ידית|מרווח|פתיח',answer):
+                value='פתח בין שני קירות, רוחב 120 וגובה 200. יש מקום לפתיחה. אני בוחר חלק קבוע ודלת נפתחת, שקוף שחור וידית מגבת.'
+            else:
+                value='הבנתי. תמליץ לפי מה שסיפרתי, ואם אפשר תן הצעה למקלחון חזית קבוע ודלת 120 גובה 200 שקוף שחור ידית מגבת.'
+            if value in seen:
+                value='כבר סיפרתי את זה. מה אתה ממליץ לפי הצורך שלי?'
+            seen.add(value)
+            yield value
+SCENARIOS=[(name,AdaptiveCustomer(name,*values)) for name,values in [
+('adaptive_price',('כמה עולה מקלחון 120 שקוף שחור קבוע ודלת ידית מגבת?', 'להחליף מקלחון קיים', 'היה לי הזזה, אהבתי את הנוחות אבל קשה לנקות מסילה תחתונה', 'קיבלתי הצעה זולה יותר ב-400 שקל')),
+('adaptive_beginner',('מחפש מקלחון ואין לי מושג מה לבחור', 'בית חדש, מקלחון ראשון', 'חשוב לי כניסה נוחה וניקוי קל, אין לי תמונה', 'אני צריך להתייעץ עם אשתי')),
+('adaptive_trust',('רוצה מקלחון חדש', 'אנחנו בשיפוץ', 'בעבר התקינו לי מקלחון שלא נסגר טוב, חשוב לי שיהיה שירות ולא הבטחות', 'איך אדע שיהיה למי לפנות אחרי התשלום?')),
+('adaptive_short',('צריך מקלחון', 'שיפוץ', 'לא יודע, תייעץ לי', 'יקר לי')),
+('adaptive_happy',('רוצה להחליף מקלחון', 'להחליף קיים', 'הקודם היה טוב, רוצה לשמור על אותה נוחות עם מראה חדש', 'אני רוצה לחשוב בלי שיחות טלפון')),
+('adaptive_busy',('מקלחון חזית קבוע ודלת 120 גובה 200 שקוף שחור ידית מגבת. רק מחיר בלי שאלות', 'בית חדש', 'ניקוי קל', 'תודה, אני צריך לחשוב'))
+]]
 selected_names = {s.strip() for s in os.getenv("YOSSI_TEST_SCENARIOS", "").split(",") if s.strip()}
 if selected_names:
     unknown = selected_names - {name for name, _ in SCENARIOS}
@@ -382,6 +415,8 @@ def main():
             if set(message) != {'role', 'content'} or message['role'] not in ('user','assistant'):
                 raise AssertionError('Unexpected field in model conversation input')
         call_count += 1
+        if yossi.MODEL.startswith('gpt-4.1'):
+            kwargs.pop('reasoning',None)
         response = real_create(**kwargs)
         try:
             reports[-1]['model_reply'] = json.loads(response.output_text).get('reply')
@@ -418,6 +453,7 @@ def main():
             reports[-1].setdefault('media', []).append({'url':image_url,'caption':caption})
             return
         reports[-1]["reply"] = yossi.without_emojis(body)
+        ADAPTIVE_LAST[reports[-1]["scenario"]] = body
 
     # Crucial: do not mock the real model. Only external customer I/O and persistence.
     with patch.object(yossi.client.responses, "create", side_effect=measured_create), \
