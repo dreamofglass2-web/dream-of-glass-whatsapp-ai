@@ -1863,6 +1863,7 @@ def polish_reply(reply, history):
             if any(term in first for term in ('רשמתי', 'סיכמנו', '100x100', '100×100')):
                 reply = rest.strip()
     reply = re.sub(r'\s*(?:רוצה|תרצה|תרצי|תרצו)\s+(?:שנכין|שאכין|להכין|לקבל|שאשלח|שנשלח)\s+(?:לך\s+|לכם\s+)?(?:הצעת\s+מחיר\s+רשמית|הצעת\s+מחיר|הצעה\s+רשמית)(?:\s+בכתב)?\s*[?!.]*\s*$', '', reply)
+    reply = re.sub(r'\s+[\u2013\u2014]\s+', ', ', reply)
     return without_emojis(re.sub(r'[-\u2013\u2014]', ' ', reply).strip())
 
 def identity_reply(body, history):
@@ -2622,7 +2623,7 @@ def process_message(phone, body, batch_rows=None):
             # Model-generated replies may bypass the quote fallback, so apply at send time.
             if len(history) == 1 and re.search(r'מקלחון|אמבטיון|זכוכית', customer_request):
                 if not re.match(r'^\s*(?:היי|אהלן|שלום|בוקר טוב|ערב טוב)', reply):
-                    reply = 'היי, אני יוסי מחלומות מזכוכית 🙂 ' + reply
+                    reply = 'היי, אני יוסי מחלומות מזכוכית. 🙂 ' + reply
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
