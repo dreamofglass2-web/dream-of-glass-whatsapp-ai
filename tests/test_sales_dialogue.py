@@ -104,7 +104,7 @@ class GlobalConsultationTests(unittest.TestCase):
         for text in ('צריך מקלחון','רוצה מראה','רוצה מחיצה','חיפוי למטבח'):
             self.assertEqual(consultation_plan([{'role':'user','content':text}],{},text)['step'],'project_context')
         text='מחפש מקלחון לשיפוץ, חשוב לי ניקוי קל'
-        self.assertIsNone(consultation_plan([{'role':'user','content':text}],{},text)['question'])
+        self.assertIsNone(consultation_plan([{'role':'user','content':text}],{'customer_name':'דניאל'},text)['question'])
         for text in ('צריך לחשוב','רק מחיר בלי שאלות','לא מעוניין'):
             self.assertIsNone(consultation_plan([],{'product':'מקלחון'},text)['question'])
 
@@ -113,7 +113,7 @@ class GlobalConsultationTests(unittest.TestCase):
         history=[{'role':'user','content':'מקלחון לבית חדש'},
                  {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'},
                  {'role':'user','content':'אין לי מושג, תייעץ לי'}]
-        self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'תייעץ לי')['question'])
+        self.assertIsNone(consultation_plan(history,{'product':'מקלחון','customer_name':'דניאל'},'תייעץ לי')['question'])
 
 class NaturalDiscoveryPreservationTests(unittest.TestCase):
     def test_keep_relevant_question_and_reject_price_or_wrong_axis(self):
@@ -121,3 +121,13 @@ class NaturalDiscoveryPreservationTests(unittest.TestCase):
         self.assertTrue(preserves_consultation_step('אשמח לעזור. זה לשיפוץ או לבית חדש?',{'step':'project_context'}))
         self.assertFalse(preserves_consultation_step('המחיר ₪2000. זה לבית חדש?',{'step':'project_context'}))
         self.assertFalse(preserves_consultation_step('מה רוחב הפתח?',{'step':'project_context'}))
+
+class CustomerNameConsultationTests(unittest.TestCase):
+    def test_name_is_asked_once_and_known_form_name_is_respected(self):
+        from sales_dialogue import consultation_plan
+        history=[{'role':'user','content':'מקלחון לבית חדש'}]
+        self.assertEqual(consultation_plan(history,{},history[0]['content'])['step'],'customer_name')
+        history += [{'role':'assistant','content':'אגב, איך קוראים לך?'},{'role':'user','content':'לא רוצה למסור שם, חשוב לי ניקוי קל'}]
+        self.assertIsNone(consultation_plan(history,{},history[-1]['content'])['question'])
+        prior={'meta_leads':{'lead':{'fields':{'full_name':['דניאל']}}}}
+        self.assertNotEqual(consultation_plan(history[:1],prior,'חשוב לי ניקוי קל')['step'],'customer_name')

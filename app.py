@@ -166,6 +166,15 @@ def extract_customer_name(history):
                 name = re.split(r'\s+(?:ואני|ואנחנו|ואני\b|אבל|כי|ומעוניין|ומעוניינת)', name, 1)[0]
                 if name not in ('מעוניין', 'מעוניינת', 'רוצה', 'צריך', 'צריכה', 'מחפש', 'מחפשת'):
                     return name[:100]
+    for i,item in enumerate(history):
+        if item.get('role')!='user' or i==0:
+            continue
+        previous=history[i-1]
+        value=str(item.get('content') or '').strip()
+        if (previous.get('role')=='assistant' and re.search(r'איך קוראים לך|מה השם שלך|באיזה שם לפנות',str(previous.get('content') or ''))
+                and re.fullmatch(r'[א-תA-Za-z]{2,30}(?:\s+[א-תA-Za-z]{2,30})?',value)
+                and value not in ('לא','לא רוצה','לא משנה','לא יודע','תודה','עזוב','שלום','היי','שיפוץ','מקלחון')):
+            return value
     return ''
 
 
@@ -2179,6 +2188,9 @@ def process_message(phone, body, batch_rows=None):
         image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
         # Stable business policy is cached separately from private, changing context.
+        if extract_customer_name(history):
+            prior = dict(prior or {})
+            prior['customer_name'] = extract_customer_name(history)
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
