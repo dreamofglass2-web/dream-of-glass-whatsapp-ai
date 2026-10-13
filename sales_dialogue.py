@@ -191,6 +191,10 @@ def consultation_plan(history, prior, customer):
         return {'step':'await_measurements','question':None}
     if re.search(r'לא מעוניין|לא מעוניינת|צריך לחשוב|אחשוב|אל תפנ|תפסיק|עזוב|רק מחיר|מחיר בלבד|בלי שאלות|לא רוצה.{0,12}(?:ייעוץ|שאלות)',text):
         return {'step':'respect_choice','question':None}
+    price_only=any(re.search(r'רק מחיר|מחיר בלבד|בלי שאלות|לא משנה למה|יותר מדי שאלות|תן כבר מחיר|תן מחיר לכל|שאלה לא טובה.{0,60}מחיר',str(m.get('content') or ''),re.S)
+                   for m in history if m.get('role')=='user')
+    if price_only:
+        return {'step':'price_preparation','question':None}
     if prior.get('sales_discovery_completed') or (prior.get('validated_quote') or {}).get('issued'):
         return {'step':'consult_and_progress','question':None}
     product=next((p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה','דלת') if p in text),None) or str(prior.get('product') or '')
