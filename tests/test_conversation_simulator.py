@@ -452,7 +452,11 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(request['model'], yossi.MODEL)
         self.assertEqual(request['reasoning'], {'effort': 'medium'})
         self.assertEqual(request['timeout'], 90.0)
-        self.assertEqual(request['text']['format']['type'], 'json_object')
+        self.assertEqual(request['text']['format']['type'], 'json_schema')
+        self.assertTrue(request['text']['format']['strict'])
+        schema=request['text']['format']['schema']
+        self.assertFalse(schema['additionalProperties'])
+        self.assertIn('חזית קבוע + דלת',schema['properties']['configuration']['enum'])
         self.assertIn('ריצוף גמור אינו תנאי כללי למראה', request['instructions'])
         self.assertIn('החזר JSON בלבד', request['instructions'])
 
