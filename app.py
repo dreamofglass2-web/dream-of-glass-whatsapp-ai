@@ -14,7 +14,7 @@ from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import quote_facts_for_turn, safe_quote_wording
+from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -2224,6 +2224,7 @@ def process_message(phone, body, batch_rows=None):
             data = json.loads(response.output_text)
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
+            reply = open_finish_question(reply, customer_request)
             consultant_reply = reply
             # A repeated assistant reply is a failed consultation, not a valid next turn.
             last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
@@ -2489,7 +2490,8 @@ def process_message(phone, body, batch_rows=None):
                     r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)',
                     reply) for v in v if v]
                 if mentioned_numbers and (not isinstance(saved_amount, (int, float)) or
-                                          any(n != round(saved_amount) for n in mentioned_numbers)):
+                                          (any(n != round(saved_amount) for n in mentioned_numbers)
+                                           and not grounded_price_comparison(reply, saved_amount, customer_request))):
                     reply = (f'המחיר למפרט שסיכמנו הוא ₪{saved_amount:,.0f} לפני מע״מ.'
                              if isinstance(saved_amount, (int, float)) else
                              'כדי לא למסור מספר שגוי, צריך לאמת את המחיר.')
