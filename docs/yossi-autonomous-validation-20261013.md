@@ -25,7 +25,8 @@ Production remains autonomous for explicitly admitted simulation contacts; broad
 
 - PR111: production consultation and fixed offline regressions.
 - Test-only PR112 / run38418768436: 42 real model turns across 10 synthetic scenarios, token estimate $1.03028. HTTP customer delivery blocked, production database disconnected. Initial manual review found post-quote overwrite and callback opt-out gaps; neither is marked accepted merely because the workflow succeeded.
-- Test-only PR113: focused real-model retest of discount, injection-price and busy-customer conversations; results will be recorded after review.
+- Test-only PR113 / run38420243733: focused real-model retest of discount, injection-price and busy-customer conversations, 12 turns / 11 paid calls, estimated token usage $0.29594. Manual review confirms objection/deliberation replies remain intact, 30% discount is refused, 7% maximum is stated, the stored calculator price is preserved, and callback opt-out bypasses AI and is recorded. Across both evaluations: 54 turns / 53 paid calls / estimated $1.32622. These are usage estimates, not billing invoices.
+- Final offline quote-safety suite: 90 conversation/worker cases plus 91 focused cases (181 total), with separate PostgreSQL integration suites. Updated source changes after the real-model run are image-refusal guards, policy/handoff scope guards, fixed assertions and documentation; those are covered by offline checks, not claimed as an identical end-to-end production recording.
 - Fixed offline cases validate API fields for every model-bound history and cover media rejection, media failure, owner pause/return and known quote state.
 
 ## Practical limits
