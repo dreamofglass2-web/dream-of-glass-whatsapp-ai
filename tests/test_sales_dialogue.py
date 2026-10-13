@@ -97,3 +97,20 @@ class SalesMethodTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class GlobalConsultationTests(unittest.TestCase):
+    def test_all_products_and_known_needs(self):
+        from sales_dialogue import consultation_plan
+        for text in ('צריך מקלחון','רוצה מראה','רוצה מחיצה','חיפוי למטבח'):
+            self.assertEqual(consultation_plan([{'role':'user','content':text}],{},text)['step'],'project_context')
+        text='מחפש מקלחון לשיפוץ, חשוב לי ניקוי קל'
+        self.assertIsNone(consultation_plan([{'role':'user','content':text}],{},text)['question'])
+        for text in ('צריך לחשוב','רק מחיר בלי שאלות','לא מעוניין'):
+            self.assertIsNone(consultation_plan([],{'product':'מקלחון'},text)['question'])
+
+    def test_uncertainty_is_not_repeated_needs_question(self):
+        from sales_dialogue import consultation_plan
+        history=[{'role':'user','content':'מקלחון לבית חדש'},
+                 {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'},
+                 {'role':'user','content':'אין לי מושג, תייעץ לי'}]
+        self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'תייעץ לי')['question'])
