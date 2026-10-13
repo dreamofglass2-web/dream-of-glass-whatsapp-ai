@@ -417,6 +417,7 @@ def main():
         call_count += 1
         if yossi.MODEL.startswith('gpt-4.1'):
             kwargs.pop('reasoning',None)
+            kwargs.pop('prompt_cache_options',None)
         response = real_create(**kwargs)
         try:
             reports[-1]['model_reply'] = json.loads(response.output_text).get('reply')
