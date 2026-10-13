@@ -2249,13 +2249,14 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm','glass_type','finish','handles','solution_agreed'):
                 if data.get(key) is not None:
                     quote_specs[key] = data[key]
+            quote_is_shower = str(quote_specs.get('product') or '').startswith('מקלחון')
             explicit_height = re.search(r'(?:לפי\s+)?גובה\s*(\d{2,3})(?:\s*ס[״"]?מ)?', customer_request)
             height_basis = None
-            if quote_requested_now and explicit_height:
+            if quote_requested_now and quote_is_shower and explicit_height:
                 data['height_cm'] = int(explicit_height.group(1))
                 quote_specs['height_cm'] = data['height_cm']
                 height_basis = 'customer_requested_quote_height'
-            elif quote_requested_now and quote_specs.get('height_cm') is None:
+            elif quote_requested_now and quote_is_shower and quote_specs.get('height_cm') is None:
                 data['height_cm'] = 200
                 quote_specs['height_cm'] = 200
                 height_basis = 'owner_approved_preliminary_200'
