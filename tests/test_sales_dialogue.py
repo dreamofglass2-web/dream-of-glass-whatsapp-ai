@@ -131,3 +131,25 @@ class CustomerNameConsultationTests(unittest.TestCase):
         self.assertIsNone(consultation_plan(history,{},history[-1]['content'])['question'])
         prior={'meta_leads':{'lead':{'fields':{'full_name':['דניאל']}}}}
         self.assertNotEqual(consultation_plan(history[:1],prior,'חשוב לי ניקוי קל')['step'],'customer_name')
+
+
+class DeferredMeasurementTests(unittest.TestCase):
+    def test_project_is_shared_across_items_and_dimensions_can_wait(self):
+        from sales_dialogue import consultation_plan, deferred_measurement_reply
+        history=[
+            {'role':'user','content':'בית חדש'},
+            {'role':'assistant','content':'נשלים קודם את הישר, ואז נעבור לפינתי ונכין הצעה לשניהם: מה רוחב הפתח בס״מ?'},
+            {'role':'user','content':'לא יודע, מחר אהיה בדירה ואבדוק'},
+        ]
+        prior={'product':'מקלחון','active_sales_item':'2','customer_name':'דניאל'}
+        self.assertEqual(consultation_plan(history,prior,history[-1]['content'])['step'],'await_measurements')
+        self.assertIn('נמשיך מאותה נקודה',deferred_measurement_reply(history,history[-1]['content']))
+        history[-1]['content']='120'
+        self.assertNotEqual(consultation_plan(history,prior,'120')['step'],'project_context')
+
+    def test_deferral_does_not_hide_new_dimensions_or_other_questions(self):
+        from sales_dialogue import deferred_measurement_reply
+        history=[{'role':'assistant','content':'מה רוחב הפתח?'}]
+        for text in ('מחר אבדוק, אבל כמה עולה?', 'מחר אבדוק, הרוחב 120', 'מחר אבדוק, מה האחריות?'):
+            self.assertIsNone(deferred_measurement_reply(history,text))
+        self.assertIsNone(deferred_measurement_reply([{'role':'assistant','content':'איזו זכוכית תרצה?'}],'מחר אבדוק'))
