@@ -114,7 +114,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn('כפתור',pictures[0][1])
 
 
-    def test_owner_pricing_base_buffer_removal_and_whole_ils_rounding(self):
+    def test_owner_pricing_base_buffer_removal_rounding_and_no_minimum(self):
         specs=dict(configuration='חזית קבוע + דלת',width_cm=160,height_cm=200,
                    glass_type='שקופה',finish='שחור',handles=['ידית מגבת'])
         # Old formula: glass + hardware + 1650. Owner replaces 1650 with 1300.
@@ -126,7 +126,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIsInstance(fractional,int)
         self.assertEqual(fractional,price+1)
         with patch.dict(yossi.GLASS_COSTS,{'שקופה':0}), patch.dict(yossi.HARDWARE_COSTS,dict.fromkeys(yossi.HARDWARE_COSTS,0)):
-            self.assertEqual(yossi.calculate_quote(specs),2000)
+            self.assertEqual(yossi.calculate_quote(specs),1300)
 
     def test_recalculate_changed_width_keeps_known_choices_and_uses_calculator(self):
         specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
