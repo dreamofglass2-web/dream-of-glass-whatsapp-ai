@@ -118,6 +118,21 @@ class ConversationSimulation(unittest.TestCase):
 
 
 
+
+    def test_natural_project_question_is_preserved(self):
+        self.memory[self.phone] = ([], {'sales_discovery_completed': False})
+        reply='היי, אני יוסי מחלומות מזכוכית. אשמח לעזור לבחור משהו שיהיה נוח לך. זה לשיפוץ או להחלפת מקלחון קיים?'
+        self.assertEqual(self.step('מחפש מקלחון',self.model(reply)),reply)
+
+    def test_pending_price_survives_model_false_until_calculation(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,height_cm=200,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True,
+                   quote_requested=True,sales_discovery_completed=False)
+        self.memory[self.phone]=([{'role':'user','content':'כמה עולה מקלחון לשיפוץ?'},
+                                  {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'}],specs)
+        answer=self.step('חשוב לי ניקוי קל',self.model('נוכל להכין הצעה',quote_requested=False))
+        self.assertIn('₪',answer)
+
     def test_non_price_product_openings_use_consultation(self):
         for customer,product in [('מחפש מקלחון','מקלחון'),('צריך מראה','מראה'),('מחיצה למשרד','מחיצה')]:
             self.memory[self.phone] = ([], {'sales_discovery_completed': False})
