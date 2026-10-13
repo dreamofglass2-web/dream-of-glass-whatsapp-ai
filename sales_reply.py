@@ -123,3 +123,18 @@ def normalize_sales_fields(data, configurations, glass_types, finishes):
         if candidate in allowed:
             result[field]=candidate
     return result
+
+def sales_output_format(configurations, glass_types, finishes):
+    """The API enforces catalog spelling and field types in the single model call."""
+    properties={}
+    for field in ('stage','action','next_missing_fact','reply','product'):
+        properties[field]={'type':['string','null']} if field not in ('reply','stage','action') else {'type':'string'}
+    for field,values in (('configuration',configurations),('glass_type',glass_types),('finish',finishes)):
+        properties[field]={'type':['string','null'],'enum':list(values)+[None]}
+    for field in ('width_cm','second_width_cm','height_cm'):
+        properties[field]={'type':['number','null']}
+    properties['handles']={'type':['array','null'],'items':{'type':'string','enum':['ידית כפתור','ידית מגבת']}}
+    for field in ('quote_requested','solution_agreed','needs_human','send_handle_images','send_glass_images'):
+        properties[field]={'type':'boolean'}
+    return {'type':'json_schema','name':'yossi_sales_turn','strict':True,
+            'schema':{'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}}
