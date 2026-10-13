@@ -80,6 +80,12 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+    def test_correct_mixed_warranty_keeps_location_in_the_same_sentence(self):
+        reply='היי, אני יוסי מחלומות מזכוכית. אין אחריות על הזכוכית; במקלחון יש 7 שנות אחריות לפרזול ושנה להתקנה, ופתח תקווה באזור השירות שלנו. הפתח בין שני קירות?'
+        answer=self.step('מקלחון ברוחב 120 בפתח תקווה, יש אחריות לזכוכית?',self.model(reply,width_cm=120))
+        self.assertEqual(answer,reply)
+        self.assertIn('פתח תקווה',answer)
+
     def test_grounded_quote_keeps_consultant_voice_and_receives_calculator_facts(self):
         specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
                    glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True)
