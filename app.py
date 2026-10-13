@@ -16,7 +16,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
+from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -171,7 +171,7 @@ def extract_customer_name(history):
         if item.get('role')!='user' or i==0:
             continue
         previous=history[i-1]
-        value=str(item.get('content') or '').strip()
+        value=str(item.get('content') or '').strip().split('\n')[0].strip()
         if (previous.get('role')=='assistant' and re.search(r'איך קוראים לך|מה השם שלך|באיזה שם לפנות',str(previous.get('content') or ''))
                 and re.fullmatch(r'[א-תA-Za-z]{2,30}(?:\s+[א-תA-Za-z]{2,30})?',value)
                 and value not in ('לא','לא רוצה','לא משנה','לא יודע','תודה','עזוב','שלום','היי','שיפוץ','מקלחון')):
@@ -1888,6 +1888,8 @@ def polish_reply(reply, history):
 
 def identity_reply(body, history):
     """Deterministic identity answers; never let the model invent a person's name."""
+    if re.search(r'שאלה לא טובה|מציע לך לשאול|במקום זה|ניסוח',str(body or '')):
+        return None
     normalized = re.sub(r'[\s?!.،,]+', ' ', body).strip()
     correction = ('רועי' in normalized and any(x in normalized for x in ('מי זה', 'מי זה רועי', 'לא רועי', 'קוראים לך', 'קוראים לי')))
     if correction:
@@ -2172,6 +2174,14 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
+        compare_result = comparison_turn(history, prior, customer_request, calculate_quote, BOM, GLASS_COSTS, FINISH_MULTIPLIERS) if SEND_QUOTES else None
+        if compare_result:
+            if has_new_messages(phone, batch_rows):
+                return False
+            compare_reply, compare_context = compare_result
+            send_whatsapp(phone, body=compare_reply)
+            save_conversation(phone, history + [{'role':'assistant','content':compare_reply}], compare_context)
+            return True
         deferred_reply = deferred_measurement_reply(history, customer_request)
         if deferred_reply:
             if has_new_messages(phone, batch_rows):
