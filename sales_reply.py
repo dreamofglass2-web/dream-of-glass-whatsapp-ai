@@ -62,18 +62,20 @@ def open_finish_question(reply, customer):
 
 
 def grounded_price_comparison(reply, amount, customer):
-    """A customer-stated price gap is comparison evidence, never a new offer."""
+    """Allow only quoted total or a clearly relative customer-supplied gap."""
     gaps={int(v.replace(',','')) for v in re.findall(
-        r'זול(?:ה)?\s+ב[-־\s]*([\d,]+)\s*(?:שקל|ש[״"]ח|₪)', customer)}
+        r'זול(?:ה)?(?:\s+יותר)?\s+ב[-־\s]*([\d,]+)\s*(?:שקל|ש[״"]ח|₪)', customer)}
     money=list(re.finditer(r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)', reply))
     if not money:
         return False
     for m in money:
         value=int((m.group(1) or m.group(2)).replace(',',''))
-        if value == round(amount):
+        if value==round(amount):
             continue
-        relative = (re.match(r'\s*(?:יותר|פחות|(?:זה\\s+)?פער|(?:זה\\s+)?הפרש)',reply[m.end():]) or
-                    re.search(r'(?:פער|הפרש)\\s+(?:של\\s+)?
+        relative=(re.match(r'\s*(?:יותר|פחות|(?:זה\s+)?פער|(?:זה\s+)?הפרש)',reply[m.end():]) or
+                  re.search(r'(?:פער|הפרש)\s+(?:של\s+)?$',reply[max(0,m.start()-25):m.start()]))
+        if value not in gaps or not relative:
+            return False
     return True
 
 def retain_known_quote_choices(prior, data, customer):
