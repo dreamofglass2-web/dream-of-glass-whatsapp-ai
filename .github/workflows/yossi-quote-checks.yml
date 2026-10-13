@@ -46,3 +46,10 @@ jobs:
           python -m unittest discover -s tests -p "test_owner_escalation.py" -v
           python -m unittest discover -s tests -p "test_handoff_state.py" -v
           python -m unittest discover -s tests -p "test_handoff_api.py" -v
+
+      - name: Service readiness and bot-only Gunicorn startup
+        env:
+          OPENAI_API_KEY: sk-offline-test-only
+          DATABASE_URL: ""
+          WHATSAPP_TOKEN: ""
+        run: python -m unittest discover -s tests -p "test_service_health.py" -v
