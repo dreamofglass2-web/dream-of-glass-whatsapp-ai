@@ -129,6 +129,16 @@ def escalate_to_owner(cursor, phone, reason, customer_text, now):
     """Persist pause and owner request atomically, without customer sends."""
     import hashlib
     phone_lock(cursor, phone)
+    # The triggering inbound must remain visible in the source CRM even when
+    # process_message exits before its normal save_conversation call.
+    cursor.execute("""UPDATE glass_leads SET conversation =
+        CASE WHEN conversation->-1->>'role' = 'user'
+                  AND conversation->-1->>'content' = %s
+             THEN conversation
+             ELSE COALESCE(conversation,'[]'::jsonb) ||
+                  jsonb_build_array(jsonb_build_object(
+                      'role','user','content',%s::text,'at',%s::text))
+        END WHERE phone=%s""", (str(customer_text),str(customer_text),now,phone))
     state = read_state(cursor, phone)
     if state['owner'] == 'operator' and (state.get('escalation') or {}).get('active'):
         return state
