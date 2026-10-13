@@ -115,13 +115,13 @@ def normalize_sales_fields(data, configurations, glass_types, finishes):
             continue
         candidate=value.strip()
         if field=='configuration':
-            candidate=re.sub(r'^מקלחון\\s+','',candidate)
+            candidate=re.sub(r'^מקלחון\s+','',candidate)
             candidate=candidate.replace('חזיתי','חזית')
-            candidate=re.sub(r'קבוע\\s+ודלת', 'קבוע + דלת', candidate)
+            candidate=re.sub(r'קבוע\s+ודלת', 'קבוע + דלת', candidate)
         elif field=='glass_type':
-            candidate=re.sub(r'^זכוכית\\s+','',candidate)
+            candidate=re.sub(r'^זכוכית\s+','',candidate)
         else:
-            candidate=re.sub(r'^פרזול\\s+','',candidate)
+            candidate=re.sub(r'^פרזול\s+','',candidate)
         if candidate in allowed:
             result[field]=candidate
     return result
