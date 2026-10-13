@@ -444,6 +444,10 @@ def main():
                 if "הייתה תקלה רגעית" in answer:
                     write_report("failed")
                     raise AssertionError("AI request failed or budget reached; inspect synthetic transcript")
+                if answer == 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.' and scenario in ('discount_pressure','injection_price','busy_customer') and turn > 1:
+                    raise AssertionError('Post-quote consultation was overwritten by calculator placeholder')
+                if scenario == 'busy_customer' and customer == 'לא רוצה שתחזרו אליי' and 'לא נתקשר' not in answer:
+                    raise AssertionError('Customer callback opt-out was not respected')
                 if 'הצעת מחיר מאומתת' in answer:
                     raise AssertionError('Technical quote wording leaked to customer')
                 if scenario == 'indirect_visual' and customer == 'קשה לי לדמיין איך זה ייראה' and not reports[-1].get('media'):
