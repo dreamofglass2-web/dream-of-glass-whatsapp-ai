@@ -80,6 +80,18 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+    def test_recalculate_changed_width_keeps_known_choices_and_uses_calculator(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
+                   height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],
+                   quote_requested=True,solution_agreed=True)
+        self.step('תחשב מחיר',self.model('בודק',**specs))
+        self.step('בעצם רוחב 100 במקום 120',self.model('נחשב לפי הרוחב החדש',width_cm=100))
+        answer=self.step('תחשב מחדש',self.model('המחיר 2,254 ש״ח',configuration='תיאור לא תקין',finish='שם לא תקין'))
+        expected=yossi.calculate_quote(dict(specs,width_cm=100))
+        self.assertIn(f'₪{expected:,.0f}',answer)
+        self.assertEqual(self.memory[self.phone][1]['configuration'],specs['configuration'])
+        self.assertEqual(self.memory[self.phone][1]['width_cm'],100)
+
     def test_correct_mixed_warranty_keeps_location_in_the_same_sentence(self):
         reply='היי, אני יוסי מחלומות מזכוכית. אין אחריות על הזכוכית; במקלחון יש 7 שנות אחריות לפרזול ושנה להתקנה, ופתח תקווה באזור השירות שלנו. הפתח בין שני קירות?'
         answer=self.step('מקלחון ברוחב 120 בפתח תקווה, יש אחריות לזכוכית?',self.model(reply,width_cm=120))
