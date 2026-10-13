@@ -104,7 +104,7 @@ class GlobalConsultationTests(unittest.TestCase):
         for text in ('צריך מקלחון','רוצה מראה','רוצה מחיצה','חיפוי למטבח'):
             self.assertEqual(consultation_plan([{'role':'user','content':text}],{},text)['step'],'project_context')
         text='מחפש מקלחון לשיפוץ, חשוב לי ניקוי קל'
-        self.assertIsNone(consultation_plan([{'role':'user','content':text}],{},text)['question'])
+        self.assertIsNone(consultation_plan([{'role':'user','content':text}],{'customer_name':'דניאל'},text)['question'])
         for text in ('צריך לחשוב','רק מחיר בלי שאלות','לא מעוניין'):
             self.assertIsNone(consultation_plan([],{'product':'מקלחון'},text)['question'])
 
@@ -113,7 +113,7 @@ class GlobalConsultationTests(unittest.TestCase):
         history=[{'role':'user','content':'מקלחון לבית חדש'},
                  {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'},
                  {'role':'user','content':'אין לי מושג, תייעץ לי'}]
-        self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'תייעץ לי')['question'])
+        self.assertIsNone(consultation_plan(history,{'product':'מקלחון','customer_name':'דניאל'},'תייעץ לי')['question'])
 
 class NaturalDiscoveryPreservationTests(unittest.TestCase):
     def test_keep_relevant_question_and_reject_price_or_wrong_axis(self):
