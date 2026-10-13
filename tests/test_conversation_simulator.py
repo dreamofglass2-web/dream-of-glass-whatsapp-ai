@@ -349,7 +349,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(request['timeout'], 90.0)
         self.assertEqual(request['text']['format']['type'], 'json_object')
         self.assertIn('ריצוף גמור אינו תנאי כללי למראה', request['instructions'])
-        self.assertIn('חוזה הפלט JSON נשארים מחייבים', request['instructions'])
+        self.assertIn('החזר JSON בלבד', request['instructions'])
 
     def test_mirror_quote_closure_does_not_require_shower_flooring(self):
         quote = {'issued': True, 'approved': True}
@@ -520,10 +520,10 @@ class ConversationSimulation(unittest.TestCase):
                   self.model("הנה המחיר", **specs))
         answer = self.step("זה יותר ממה שתכננתי. קיבלתי הצעה זולה ב-700 שקל.",
                            self.model("המחיר שלנו הוא 700 שקל יותר"))
-        self.assertIn("פער כזה במחיר", answer)
-        self.assertIn("שירות אישי", answer)
-        self.assertIn("גם אחרי ההתקנה", answer)
-        self.assertIn("ההצעה שקיבלת כוללת גם התקנה", answer)
+        # A customer-stated price gap is retained as a comparison, not replaced
+        # by a long canned sales pitch or interpreted as a new quote total.
+        self.assertEqual(answer, "המחיר שלנו הוא 700 שקל יותר")
+        self.assertNotIn("₪700", answer)
         self.assertNotIn("המחיר המאומת למפרט", answer)
 
     def test_customer_reset_does_not_touch_real_db(self):
