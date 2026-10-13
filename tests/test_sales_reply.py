@@ -37,7 +37,8 @@ class QuoteGroundingTests(unittest.TestCase):
     def test_unverified_amount_vat_missing_terms_or_fake_action_is_rejected(self):
         for text in (self.reply.replace('2,314','500'),self.reply.replace('לפני מע״מ','כולל מע״מ'),
                      self.reply.replace('ראשונית','סופית'),self.reply.replace('הובלה',''),
-                     self.reply+' קבענו התקנה מחר.', self.reply+' המחיר אחרי הנחה ₪2,000.'):
+                     self.reply+' קבענו התקנה מחר.', self.reply+' המחיר אחרי הנחה ₪2,000.',
+                     self.reply+' אחרי הנחה נסגור ב2000.', self.reply+' יש אחריות על הזכוכית.'):
             with self.subTest(text=text):
                 self.assertFalse(safe_quote_wording(text,2314.4))
 
