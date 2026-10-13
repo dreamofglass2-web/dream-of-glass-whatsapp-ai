@@ -27,6 +27,9 @@ jobs:
       - name: Focused regression checks
         run: python -m unittest discover -s tests -p "test_quote_flow.py" -v
 
+      - name: Grounded consultant quote preservation
+        run: python -m unittest discover -s tests -p "test_sales_reply.py" -v
+
       - name: Illustration intent and catalog honesty
         run: python -m unittest discover -s tests -p "test_sales_visuals.py" -v
 
