@@ -383,6 +383,10 @@ def main():
                 raise AssertionError('Unexpected field in model conversation input')
         call_count += 1
         response = real_create(**kwargs)
+        try:
+            reports[-1]['model_reply'] = json.loads(response.output_text).get('reply')
+        except (ValueError, TypeError, AttributeError):
+            reports[-1]['model_reply'] = None
         metrics = yossi.api_usage_metrics(response)
         reports[-1].setdefault('api_calls', []).append(metrics)
         input_tokens, output_tokens = metrics['input_tokens'], metrics['output_tokens']
