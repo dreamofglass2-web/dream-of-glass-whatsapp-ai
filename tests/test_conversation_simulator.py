@@ -92,6 +92,46 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(captured[0]['input'][2]['content'], 'אני רוצה מקלחון')
         self.assertEqual(self.memory[self.phone][0][0]['at'], '2026-10-13T14:43:41Z')
 
+    def test_indirect_visual_request_sends_matching_catalog_example(self):
+        catalog = [dict(url='https://res.cloudinary.com/test/image/upload/front.jpg',
+                        glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]
+        self.memory[self.phone] = ([{'role':'user','content':'חזית קבוע ודלת רוחב 120'},
+                                   {'role':'assistant','content':'חלק אחד קבוע ואחד נפתח'}],
+                                  dict(product='מקלחון', configuration='חזית קבוע + דלת'))
+        with patch.object(yossi,'PHOTO_CATALOG',catalog):
+            answer = self.step('קשה לי לדמיין איך זה ייראה', self.model('דמיין את הפתח'))
+        self.assertIn('[TEST_IMAGE]', self.sent)
+        self.assertIn('חזית קבוע + דלת', answer)
+        self.assertIn('להמחשה', answer)
+        self.assertNotIn('דמיין את הפתח', answer)
+
+    def test_refusal_of_images_preserves_text_only_consultation(self):
+        catalog = [dict(url='https://res.cloudinary.com/test/image/upload/front.jpg',
+                        glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog):
+            answer = self.step('בלי תמונות, תסביר במילים', self.model('חלק אחד נשאר במקום והדלת נפתחת.'))
+        self.assertNotIn('[TEST_IMAGE]', self.sent)
+        self.assertIn('חלק אחד', answer)
+
+    def test_unavailable_visual_request_does_not_claim_sent_media(self):
+        with patch.object(yossi,'PHOTO_CATALOG',[]), patch.object(yossi,'GLASS_SAMPLE_IMAGES',{}), patch.object(yossi,'save_missing_photo_lead',return_value=True):
+            answer = self.step('קשה לי לדמיין איך זה ייראה', self.model('הנה התמונות'))
+        self.assertNotIn('[TEST_IMAGE]', self.sent)
+        self.assertIn('אין לי תמונה מתאימה', answer)
+        self.assertNotIn('הנה התמונות', answer)
+
+    def test_media_delivery_failure_never_claims_images_were_sent(self):
+        catalog = [dict(url='https://res.cloudinary.com/test/image/upload/front.jpg',
+                        glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]
+        def fail_image(phone, body=None, image_url=None, caption=None):
+            if image_url:
+                raise yossi.requests.RequestException('synthetic delivery failure')
+            self.send(phone,body=body)
+        with patch.object(yossi,'PHOTO_CATALOG',catalog), patch.object(yossi,'send_whatsapp',side_effect=fail_image):
+            answer = self.step('קשה לי לדמיין', self.model('אשלח דוגמה'))
+        self.assertIn('השליחה לא הצליחה', answer)
+        self.assertNotIn('הנה דוגמאות', answer)
+
     def test_compact_cache_prefix_excludes_private_customer_context(self):
         captured = []
         def capture(**kwargs):
