@@ -13,6 +13,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
+from sales_visuals import implicit_visual_request, consultation_photos, consultation_photo_intro
 from sales_dialogue import compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -850,6 +851,8 @@ def requests_catalog_samples(text):
     text = str(text or '').strip()
     if correcting_unrequested_photo(text):
         return False
+    if implicit_visual_request(text):
+        return True
     request_verb = r'(?:תשלח|שלח|לשלוח|אפשר\s+(?:לראות|לקבל)|רוצה\s+לראות|אשמח\s+לראות|תראה\s+לי|תראי\s+לי|יש\s+לכם|יש\s+לך|הצג|להראות)'
     photo_object = r'(?:תמונ\w*|דוגמ\w*|סוגי\s+זכוכית|סוגי\s+הזכוכית|דוגמאות|הזכוכיות)'
     return bool(re.search(r'אפשר\s+תמונ\w*', text, re.I) or re.search(request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
@@ -1286,6 +1289,8 @@ def requests_portfolio_photos(text):
         return False
     if re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I) and not re.search(r'עבוד|פרויקט|מקלחונים\s+שעשיתם', text, re.I):
         return False
+    if implicit_visual_request(text):
+        return True
     ask = r'(?:תשלח|שלח|לשלוח|אפשר|יש\s+לכם|יש\s+לך|רוצה|אשמח|תראה|לראות|הרא|אפשרות)'
     obj = r'(?:תמונ\w*|דוגמא\w*|דוגמ\w*|עבוד\w*|פרויקטי\w*|מקלחונים)'
     portfolio = r'(?:עבוד\w*|פרויקטי\w*|מקלחונים|דוגמ\w*|תמונ\w*)'
@@ -2547,7 +2552,12 @@ def process_message(phone, body, batch_rows=None):
                     reply = ('קיבלתי את הבקשה, אבל יש כרגע תקלה ברישום החזרה. '
                              'לא אוכל לאשר שהיא נשמרה. אפשר לנסות שוב בעוד כמה דקות?')
             # Decide which photos will be sent BEFORE writing the accompanying text.
-            photos = (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, data or prior))
+            photo_context = dict(prior or {})
+            photo_context.update({k:v for k,v in data.items() if v is not None})
+            consultation_visual = (implicit_visual_request(customer_request) or
+                                   (requests_portfolio_photos(customer_request) and bool(photo_context.get('configuration'))))
+            photos = (consultation_photos(PHOTO_CATALOG, photo_context) if consultation_visual
+                      else (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, photo_context)))
             if not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
                 if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
                     photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים')
@@ -2567,7 +2577,9 @@ def process_message(phone, body, batch_rows=None):
             if photos:
                 # The model must not claim absent catalog types are attached.
                 # Only the photo sender's captions identify the images sent.
-                if requests_portfolio_photos(customer_request):
+                if consultation_visual:
+                    reply = consultation_photo_intro(photos, photo_context)
+                elif requests_portfolio_photos(customer_request):
                     reply = 'בחרתי כמה דוגמאות מעבודות שלנו כדי שתוכל להתרשם מהסגנונות ומהגימור.'
                 elif requests_all_glass_types(customer_request):
                     reply = ('בשמחה, מצרף לך דוגמה אחת מכל סוג זכוכית שיש לנו '
