@@ -1283,3 +1283,14 @@ class MeasurementPlanningRegressionTests(ConversationSimulation):
             ('אפשר להגיע למדוד?',{'validated_quote':{'approved':True}}),
             ('כמה עולה ואפשר להגיע למדוד?',{})):
             self.assertIsNone(yossi.measurement_planning_reply(history,prior,text))
+
+
+class NaturalStyleRegressionTests(ConversationSimulation):
+    def test_prose_punctuation_is_plain_without_breaking_links_times_or_prices(self):
+        value=yossi.without_emojis('אפשר לבחור שתי דלתות — בלי קיפול. המחיר: ₪2,294. שעות 08:30. https://example.com/a-b?q=x:y')
+        self.assertNotIn('—',value)
+        self.assertNotIn('המחיר:',value)
+        self.assertIn('₪2,294',value)
+        self.assertIn('08:30',value)
+        self.assertIn('https://example.com/a-b?q=x:y',value)
+        self.assertEqual(yossi.without_emojis('7-10 ימים'),'7 עד 10 ימים')
