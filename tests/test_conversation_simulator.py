@@ -18,6 +18,10 @@ class FakeResponses:
         self.queue = []
 
     def create(self, **kwargs):
+        # Every offline journey validates the real conversation/API boundary.
+        for message in kwargs.get('input', [])[2:]:
+            if set(message) != {'role', 'content'} or message.get('role') not in ('user','assistant') or not isinstance(message.get('content'), str):
+                raise AssertionError('CRM metadata or unsupported message fields leaked to model input')
         if not self.queue:
             raise AssertionError("No scripted model response available")
         return types.SimpleNamespace(output_text=json.dumps(self.queue.pop(0), ensure_ascii=False))
