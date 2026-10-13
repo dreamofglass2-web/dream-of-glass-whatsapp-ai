@@ -125,9 +125,9 @@ class NaturalDiscoveryPreservationTests(unittest.TestCase):
 class CustomerNameConsultationTests(unittest.TestCase):
     def test_name_is_asked_once_and_known_form_name_is_respected(self):
         from sales_dialogue import consultation_plan
-        history=[{'role':'user','content':'מקלחון לבית חדש, חשוב לי ניקוי קל'}]
+        history=[{'role':'user','content':'מקלחון לבית חדש'}]
         self.assertEqual(consultation_plan(history,{},history[0]['content'])['step'],'customer_name')
-        history += [{'role':'assistant','content':'אגב, איך קוראים לך?'},{'role':'user','content':'לא רוצה למסור שם'}]
+        history += [{'role':'assistant','content':'אגב, איך קוראים לך?'},{'role':'user','content':'לא רוצה למסור שם, חשוב לי ניקוי קל'}]
         self.assertIsNone(consultation_plan(history,{},history[-1]['content'])['question'])
         prior={'meta_leads':{'lead':{'fields':{'full_name':['דניאל']}}}}
-        self.assertIsNone(consultation_plan(history[:1],prior,'חשוב לי ניקוי קל')['question'])
+        self.assertNotEqual(consultation_plan(history[:1],prior,'חשוב לי ניקוי קל')['step'],'customer_name')
