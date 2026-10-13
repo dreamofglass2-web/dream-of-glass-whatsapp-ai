@@ -76,6 +76,22 @@ class ConversationSimulation(unittest.TestCase):
         }, **fields)
 
 
+    def test_crm_message_metadata_never_reaches_model_input(self):
+        self.memory[self.phone] = ([
+            {'role':'user','content':'אני רוצה מקלחון','at':'2026-10-13T14:43:41Z','source':'crm'},
+            {'role':'assistant','content':'מה הרוחב?','id':'audit-only'},
+        ], {})
+        captured = []
+        def capture(**kwargs):
+            captured.append(kwargs)
+            for message in kwargs['input'][2:]:
+                self.assertEqual(set(message), {'role','content'})
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses,'create',side_effect=capture):
+            self.step('120', self.model('איזה גוון תרצה?'))
+        self.assertEqual(captured[0]['input'][2]['content'], 'אני רוצה מקלחון')
+        self.assertEqual(self.memory[self.phone][0][0]['at'], '2026-10-13T14:43:41Z')
+
     def test_compact_cache_prefix_excludes_private_customer_context(self):
         captured = []
         def capture(**kwargs):
