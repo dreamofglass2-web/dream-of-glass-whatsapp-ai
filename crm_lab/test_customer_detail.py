@@ -31,3 +31,13 @@ class CustomerDetailTests(unittest.TestCase):
             with self.assertRaises(LeadPreviewError):project_detail(row)
     def test_live_detail_disabled_before_any_connection(self):
         with self.assertRaises(LeadPreviewError):ReadOnlyLeadSource().detail(phone='972501234567')
+
+    def test_recorded_message_times_are_exported_and_missing_legacy_times_remain_missing(self):
+        row=self.row()
+        row['conversation'][0]['at']='2026-10-13T23:00:00+03:00'
+        result=project_detail(row)
+        self.assertEqual(result['conversation'][0]['sent_at'],'2026-10-13T20:00:00+00:00')
+        self.assertIsNone(result['conversation'][1]['sent_at'])
+        self.assertFalse(result['conversation_timestamps_available'])
+        for m in row['conversation']:m['at']='2026-10-13T20:00:00+00:00'
+        self.assertTrue(project_detail(row)['conversation_timestamps_available'])
