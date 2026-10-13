@@ -1986,6 +1986,28 @@ def pause_for_owner(phone, body, reason):
     return True
 
 
+def measurement_planning_reply(history, prior, customer):
+    """Ordinary shower planning can proceed before the owner measures on site."""
+    text=str(customer or '')
+    product=str(prior.get('product') or '')
+    users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
+    if not ('מקלחון' in product or 'אמבטיון' in product or re.search(r'מקלחון|אמבטיון',users)):
+        return None
+    if (prior.get('validated_quote') or {}).get('approved') or explicit_quote_approval(text):
+        return None
+    if is_callback_request(text) or escalation_reason(text) or requires_specialist_review(text):
+        return None
+    if re.search(r'אחריות|תמונה|שישי|כתובת|שעות|כמה|מחיר|מראה|מחיצה|מעקה',text):
+        return None
+    visiting=bool(re.search(r'(?:להגיע|לבוא|תגיע|תבוא|מגיעים|מגיע|אפשר|יכול).{0,20}(?:למדוד|מדידה)',text))
+    joint_planning=bool(re.search(r'(?:נחשוב|נתכנן).{0,12}(?:יחד|ביחד)',text) and re.search(r'לא מדדתי|אין לי מידות|לא יודע',text))
+    if not visiting and not joint_planning:
+        return None
+    return ('אפשר בהחלט לחשוב יחד על מה שיתאים לך, גם בלי מידות כרגע. '
+            'המדידה הסופית נעשית אחרי אישור ההצעה וכשהריצוף גמור; כרגע לא תואם ביקור. '
+            'בשינוי המידות, מה חשוב לך יותר — יותר מקום בתוך המקלחון או כניסה נוחה יותר?')
+
+
 def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
@@ -2184,6 +2206,16 @@ def process_message(phone, body, batch_rows=None):
             feedback_reply = 'תודה על ההערה' + (', ' + name if name else '') + '. נמשיך לפרטים הדרושים להצעת המחיר.'
             send_whatsapp(phone, body=feedback_reply)
             save_conversation(phone, history + [{'role':'assistant','content':feedback_reply}], feedback_context)
+            return True
+        planning_reply = measurement_planning_reply(history, prior, customer_request)
+        if planning_reply:
+            if has_new_messages(phone, batch_rows):
+                return False
+            planning_context = dict(prior or {})
+            planning_context['needs_human'] = False
+            planning_context.pop('callback_requested_day', None)
+            send_whatsapp(phone, body=planning_reply)
+            save_conversation(phone, history + [{'role':'assistant','content':planning_reply}], planning_context)
             return True
         compare_result = comparison_turn(history, prior, customer_request, calculate_quote, BOM, GLASS_COSTS, FINISH_MULTIPLIERS) if SEND_QUOTES else None
         if compare_result:

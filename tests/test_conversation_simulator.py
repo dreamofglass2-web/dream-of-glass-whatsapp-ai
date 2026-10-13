@@ -1252,3 +1252,34 @@ class PriceComparisonRegressionTests(ConversationSimulation):
                  {'role':'assistant','content':'איזו זכוכית?'},
                  {'role':'user','content':'שקופה'}]
         self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'שקופה')['question'])
+
+
+class MeasurementPlanningRegressionTests(ConversationSimulation):
+    def test_adva_can_plan_together_without_dimensions_or_model_escalation(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'היי אני מעוניינת במקלחון'},
+            {'role':'assistant','content':'בית חדש או שיפוץ?'},
+            {'role':'user','content':'חדר בשיפוץ'},
+            {'role':'user','content':'אדוה'},
+            {'role':'user','content':'אהבתי את העיצוב אבל הייתי רוצה לשנות מידות'},
+            {'role':'assistant','content':'מה המידות המתוכננות?'},
+        ],{'product':'מקלחון','customer_name':'אדוה','needs_human':True})
+        with patch.object(yossi,'pause_for_owner') as pause:
+            self.step('לא מדדתי האמת\nאתה יכןל להגיע למדוד?\nאולי נחשוב ביחד')
+        pause.assert_not_called()
+        self.assertIn('אפשר בהחלט לחשוב יחד',self.sent[-1])
+        self.assertIn('אחרי אישור ההצעה',self.sent[-1])
+        self.assertIn('כשהריצוף גמור',self.sent[-1])
+        self.assertFalse(self.memory[self.phone][1]['needs_human'])
+        self.assertEqual(self.ai.queue,[])
+
+    def test_planning_guard_does_not_override_explicit_human_or_safety_requests(self):
+        history=[{'role':'user','content':'מקלחון'}]
+        for text,prior in (
+            ('תגיע למדוד מעקה',{}),
+            ('אני רוצה נציג אנושי שיגיע למדוד',{}),
+            ('תתקשר אליי כדי לתאם מדידה',{}),
+            ('תגיע למדוד בשישי',{}),
+            ('אפשר להגיע למדוד?',{'validated_quote':{'approved':True}}),
+            ('כמה עולה ואפשר להגיע למדוד?',{})):
+            self.assertIsNone(yossi.measurement_planning_reply(history,prior,text))
