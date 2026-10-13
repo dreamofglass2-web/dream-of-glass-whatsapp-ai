@@ -431,7 +431,7 @@ def main():
         reports[-1].setdefault('api_calls', []).append(metrics)
         input_tokens, output_tokens = metrics['input_tokens'], metrics['output_tokens']
         if isinstance(input_tokens, int) and isinstance(output_tokens, int):
-            spent_upper += (input_tokens * 12.5 + output_tokens * 50) / 1_000_000
+            spent_upper += ((input_tokens * 0.4 + output_tokens * 1.6) if yossi.MODEL.startswith('gpt-4.1-mini') else (input_tokens * 12.5 + output_tokens * 50)) / 1_000_000
         else:
             spent_upper = max_budget
         write_report()
@@ -488,7 +488,7 @@ def main():
                 write_report()
                 if "הייתה תקלה רגעית" in answer:
                     write_report("failed")
-                    raise AssertionError("AI request failed or budget reached; inspect synthetic transcript")
+                    break  # Record runtime failure for this buyer; continue other profiles within the cap.
                 if answer == 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.' and scenario in ('discount_pressure','injection_price','busy_customer') and turn > 1:
                     raise AssertionError('Post-quote consultation was overwritten by calculator placeholder')
                 if scenario == 'busy_customer' and customer == 'לא רוצה שתחזרו אליי' and 'לא נתקשר' not in answer:
