@@ -47,3 +47,28 @@ def safe_quote_wording(reply, amount):
     if re.search(r'קבענו|תיאמתי|מחר|ביום|בשעה|אטימות\s+מלאה|כולל\s+מע[״"]?מ|הבעלים\s+אישר', text):
         return False
     return True
+
+
+def open_finish_question(reply, customer):
+    """Change an unrequested list question without deleting the surrounding advice."""
+    if re.search(r'איזה\s+(?:גוונים|צבעים).{0,15}(?:יש|קיימים)|אילו\s+(?:גוונים|צבעים)|במה\s+אפשר\s+לבחור', customer):
+        return reply
+    return re.sub(r'איזה\s+גוון\s+פרזול\s+(?:תרצו|תרצה|תרצי)[^.!?]{0,40}'
+                  r'(?:שחור\s+או\s+כרום|כרום\s+או\s+שחור|שחור\s+או\s+ניקל|ניקל\s+או\s+שחור)[?]',
+                  'איזה גוון פרזול תרצו?', reply)
+
+
+def grounded_price_comparison(reply, amount, customer):
+    """A customer-stated price gap is comparison evidence, never a new offer."""
+    gaps={int(v.replace(',','')) for v in re.findall(
+        r'זול(?:ה)?\s+ב[-־\s]*([\d,]+)\s*(?:שקל|ש[״"]ח|₪)', customer)}
+    money=list(re.finditer(r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)', reply))
+    if not money:
+        return False
+    for m in money:
+        value=int((m.group(1) or m.group(2)).replace(',',''))
+        if value == round(amount):
+            continue
+        if value not in gaps or not re.match(r'\s*(?:יותר|פחות)',reply[m.end():]):
+            return False
+    return True
