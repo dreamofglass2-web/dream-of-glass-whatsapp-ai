@@ -1472,8 +1472,9 @@ def calculate_quote(data):
             hardware += HARDWARE_COSTS[name] * count
         hardware *= FINISH_MULTIPLIERS[finish]
     area = total_width * height / 10000
-    amount = area * GLASS_COSTS[glass_type] + hardware + 1500 + 150
-    return round(max(2000, amount), 2)
+    amount = area * GLASS_COSTS[glass_type] + hardware + 1300
+    # Owner policy: whole ILS, half-up, with the existing minimum order.
+    return int(max(2000, amount) + 0.5)
 
 
 def quote_intent(text):

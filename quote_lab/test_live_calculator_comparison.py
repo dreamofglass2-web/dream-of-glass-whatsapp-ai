@@ -1,4 +1,7 @@
-"""Compare source-level production arithmetic offline, without importing app.py.
+"""Compare current production arithmetic with the frozen historical lab catalog.
+
+Production now uses 1300 instead of 1650, so base examples are 350 ILS lower.
+The lab catalog and its existing saved versions remain historical snapshots.
 
 This does not call the running service, create leads, or send customer messages.
 """
@@ -36,31 +39,31 @@ class ProductionArithmeticComparisonTests(unittest.TestCase):
                                  width_cm=90, second_width_cm=90, height_cm=200)
 
     def test_owner_benchmarks_match_current_source(self):
-        self.assertEqual(self.active(self.active_input), 2828)
+        self.assertEqual(self.active(self.active_input), 2478)
         new = price_proposed_layout("פינתי 2 דלתות", self.bronze, layout_confirmed=True)
         self.assertEqual(new["price_before_vat"], "2828.00")
         old_four = dict(self.active_input, configuration="פינתי 2 קבועים + 2 דלתות",
                         glass_type="שקופה", width_cm=80, second_width_cm=80)
         panels = [NamedPanel("fixed", 40, 200, "שקופה")] * 2 + [NamedPanel("door", 40, 200, "שקופה")] * 2
-        self.assertEqual(self.active(old_four), 2644)
+        self.assertEqual(self.active(old_four), 2294)
         self.assertEqual(price_proposed_layout(old_four["configuration"], panels,
                                               layout_confirmed=True)["price_before_vat"], "2644.00")
 
     def test_frosted_design_is_an_offline_addition(self):
         for design in ["frosted_stripes", "frosted_middle"]:
-            self.assertEqual(self.active(dict(self.active_input, decoration=design)), 2828)
+            self.assertEqual(self.active(dict(self.active_input, decoration=design)), 2478)
             new = price_proposed_layout("פינתי 2 דלתות", self.bronze,
                                         layout_confirmed=True, decoration=design)
             self.assertEqual(new["price_before_vat"], "3098.00")
 
     def test_explicit_removal_is_an_offline_addition(self):
-        self.assertEqual(self.active(dict(self.active_input, demolition_and_disposal=True)), 2828)
+        self.assertEqual(self.active(dict(self.active_input, demolition_and_disposal=True)), 2478)
         new = price_proposed_layout("פינתי 2 דלתות", self.bronze, layout_confirmed=True,
                                     demolition_and_disposal=True)
         self.assertEqual(new["price_before_vat"], "3078.00")
 
     def test_towel_handle_replacement_matches_current_source(self):
-        self.assertEqual(self.active(dict(self.active_input, handles=["ידית מגבת"] * 2)), 2928)
+        self.assertEqual(self.active(dict(self.active_input, handles=["ידית מגבת"] * 2)), 2578)
         new = price_proposed_layout("פינתי 2 דלתות", self.bronze, layout_confirmed=True,
                                     handle_style="ידית מגבת")
         self.assertEqual(new["price_before_vat"], "2928.00")
