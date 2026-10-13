@@ -1,5 +1,5 @@
 import unittest
-from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison
+from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 
 
 class QuoteGroundingTests(unittest.TestCase):
@@ -53,3 +53,10 @@ class ConsultationPreservationTests(unittest.TestCase):
         self.assertTrue(grounded_price_comparison('המחיר שלנו 700 שקל יותר',2595,'קיבלתי הצעה זולה ב-700 שקל'))
         self.assertFalse(grounded_price_comparison('המחיר שלנו 700 שקל',2595,'קיבלתי הצעה זולה ב-700 שקל'))
         self.assertFalse(grounded_price_comparison('אפשר 500 שקל פחות',2595,'תעשה לי ב500'))
+
+class KnownQuoteChoiceTests(unittest.TestCase):
+    def test_recalculation_keeps_choices_but_explicit_new_values_remain_allowed(self):
+        prior={'configuration':'חזית קבוע + דלת','width_cm':100,'finish':'שחור'}
+        self.assertEqual(retain_known_quote_choices(prior,{'configuration':'שם אחר','finish':'שם אחר'},'תחשב מחדש')['finish'],'שחור')
+        self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'120')['width_cm'],120)
+        self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'כמה עולה ברוחב 120')['width_cm'],120)
