@@ -120,7 +120,8 @@ class ConversationSimulation(unittest.TestCase):
         # Old formula: glass + hardware + 1650. Owner replaces 1650 with 1300.
         price=yossi.calculate_quote(specs)
         self.assertIsInstance(price,int)
-        specs['width_cm']=160.17
+        self.assertEqual(price,2084)
+        specs['width_cm']=160.5
         fractional=yossi.calculate_quote(specs)
         self.assertIsInstance(fractional,int)
         self.assertEqual(fractional,price+1)
