@@ -163,7 +163,10 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn('בית חדש',answer)
         self.assertNotIn('2294',answer)
         answer=self.step('להחליף מקלחון קיים',self.model('המחיר 2294 ש״ח',**specs))
+        self.assertIn('קוראים לך',answer)
+        answer=self.step('דניאל',self.model('בוא נחשב מחיר',**specs))
         self.assertIn('בשימוש',answer)
+        self.assertEqual(yossi.extract_customer_name(self.memory[self.phone][0]),'דניאל')
         answer=self.step('היה הזזה וקשה לנקות את המסילה',self.model('נחשב מחיר',**specs))
         self.assertIn('₪',answer)
 
