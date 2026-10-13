@@ -172,7 +172,7 @@ def extract_customer_name(history):
             continue
         previous=history[i-1]
         value=str(item.get('content') or '').strip().split('\n')[0].strip()
-        if (previous.get('role')=='assistant' and re.search(r'איך קוראים לך|מה השם שלך|באיזה שם לפנות',str(previous.get('content') or ''))
+        if (previous.get('role')=='assistant' and re.search(r'מה שמך|איך קוראים לך|מה השם שלך|באיזה שם לפנות',str(previous.get('content') or ''))
                 and re.fullmatch(r'[א-תA-Za-z]{2,30}(?:\s+[א-תA-Za-z]{2,30})?',value)
                 and value not in ('לא','לא רוצה','לא משנה','לא יודע','תודה','עזוב','שלום','היי','שיפוץ','מקלחון')):
             return value
@@ -2541,14 +2541,14 @@ def process_message(phone, body, batch_rows=None):
                              'לבדיקת תמחור אישית של אלירן דוד הכהן, בעל העסק. '
                              'אין לי כרגע מחיר מאומת לתצורה הזאת.')
                     if not known_customer_name:
-                        reply += ' איך קוראים לך?'
+                        reply += ' מה שמך?'
                 elif save_custom_quote_lead(phone):
                     custom_quote_lead_saved = True
                     reply = ('למקלחון פינתי עם דלתות הזזה נדרשת בדיקת מחיר אישית. '
                              'שמרתי את הפנייה שלך במערכת לטיפול של אלירן דוד הכהן, '
                              'בעל העסק, יחד עם מספר הוואטסאפ ופרטי השיחה.')
                     if not known_customer_name:
-                        reply += ' איך קוראים לך?'
+                        reply += ' מה שמך?'
                 else:
                     reply = ('לתצורה הזאת נדרשת בדיקת מחיר אישית. '
                              'כרגע לא הצלחתי לשמור את הפנייה, ולכן לא אאשר שהיא נרשמה. '
