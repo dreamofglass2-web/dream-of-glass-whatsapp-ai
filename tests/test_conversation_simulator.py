@@ -96,6 +96,27 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(captured[0]['input'][2]['content'], 'אני רוצה מקלחון')
         self.assertEqual(self.memory[self.phone][0][0]['at'], '2026-10-13T14:43:41Z')
 
+    def test_after_quote_hesitation_and_objection_keep_model_consultation(self):
+        specs = dict(product='מקלחון', configuration='חזית קבוע + דלת',
+                     width_cm=120, height_cm=200, glass_type='שקופה', finish='שחור',
+                     handles=['ידית מגבת'], solution_agreed=True, quote_requested=True)
+        self.step('תחשב מחיר', self.model('בודק', **specs))
+        for customer, answer in [('אני צריך לחשוב','קח את הזמן, אני כאן אם תרצה לברר משהו.'),
+                                 ('תעשה לי 30 אחוז הנחה','אין אפשרות להנחה של 30 אחוז. מה התקציב שלך?'),
+                                 ('אין צורך בתמונות או עוד הסברים','בסדר, אשאיר את הפרטים כאן.')]:
+            with self.subTest(customer=customer):
+                actual = self.step(customer, self.model(answer, quote_requested=True))
+                self.assertEqual(actual, answer)
+                self.assertFalse(self.memory[self.phone][1]['quote_requested'])
+
+    def test_customer_declines_callback_without_creating_one(self):
+        with patch.object(yossi,'save_callback') as callback, patch.object(yossi.client.responses,'create') as model:
+            answer = self.step('לא רוצה שתחזרו אליי')
+        callback.assert_not_called()
+        model.assert_not_called()
+        self.assertIn('לא נתקשר', answer)
+        self.assertTrue(self.memory[self.phone][1]['no_phone_calls'])
+
     def test_ready_quote_does_not_bypass_unknown_payment_policy_handoff(self):
         specs = dict(product='מקלחון', configuration='חזית קבוע + דלת',
                      width_cm=120, height_cm=200, glass_type='שקופה', finish='שחור',
