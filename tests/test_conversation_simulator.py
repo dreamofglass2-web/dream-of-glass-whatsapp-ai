@@ -1211,3 +1211,44 @@ class SecondWhatsAppSimulationRegression(unittest.TestCase):
     def test_no_previous_advice_is_not_assumed(self):
         history = [{'role': 'user', 'content': 'שלום, מחיר?'}]
         self.assertEqual(yossi.proposed_layout_guidance(history), '')
+
+
+class PriceComparisonRegressionTests(ConversationSimulation):
+    def test_requested_alternatives_are_calculated_not_aggregated_or_escalated(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון 80/80'},
+            {'role':'assistant','content':'מה הכי חשוב לך?'},
+            {'role':'user','content':'אתה שואל יותר מדי שאלות'},
+        ],{'product':'מקלחון','width_cm':80,'second_width_cm':80})
+        self.step('תן מחיר לכל האופציות: 2 דלתות, 2 קבועים 2 דלתות, הרמוניקה')
+        self.assertIn('איזה סוג זכוכית',self.sent[-1])
+        self.assertNotIn('אין לי כרגע מחיר',self.sent[-1])
+        self.step('שקופה')
+        self.assertIn('גוון פרזול',self.sent[-1])
+        self.step('ניקל')
+        self.assertIn('כפתור',self.sent[-1])
+        self.step('כפתור')
+        self.assertEqual(self.sent[-1].count('₪'),3)
+        state=self.memory[self.phone][1]
+        offers=state['quote_comparison']['offers']
+        self.assertEqual(len(offers),3)
+        self.assertFalse(state['quote_comparison']['pending'])
+        for offer in offers:
+            self.assertEqual(offer['amount_ils_pre_vat'],yossi.calculate_quote(offer))
+            self.assertEqual(offer['height_cm'],200)
+        self.assertNotIn('validated_quote',state)
+        self.assertNotIn('sales_items',state)
+
+    def test_feedback_is_not_an_identity_question_and_name_can_precede_feedback(self):
+        history=[{'role':'assistant','content':'אגב, איך קוראים לך?'},
+                 {'role':'user','content':'אבי\nשאלה לא טובה לשאול לקוח\nבמקום זה מה שמך?'}]
+        self.assertEqual(yossi.extract_customer_name(history),'אבי')
+        self.assertIsNone(yossi.identity_reply(history[-1]['content'],history))
+        self.assertIsNotNone(yossi.identity_reply('מה שמך?',[]))
+
+    def test_rejected_discovery_stays_skipped_on_next_turn(self):
+        from sales_dialogue import consultation_plan
+        history=[{'role':'user','content':'זה לא משנה למה זה, אני צריך מחיר'},
+                 {'role':'assistant','content':'איזו זכוכית?'},
+                 {'role':'user','content':'שקופה'}]
+        self.assertIsNone(consultation_plan(history,{'product':'מקלחון'},'שקופה')['question'])
