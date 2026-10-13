@@ -62,32 +62,32 @@ def open_finish_question(reply, customer):
 
 
 def grounded_price_comparison(reply, amount, customer):
-    """A customer-stated price gap is comparison evidence, never a new offer."""
+    """Allow only quoted total or a clearly relative customer-supplied gap."""
     gaps={int(v.replace(',','')) for v in re.findall(
-        r'זול(?:ה)?\s+ב[-־\s]*([\d,]+)\s*(?:שקל|ש[״"]ח|₪)', customer)}
+        r'זול(?:ה)?(?:\s+יותר)?\s+ב[-־\s]*([\d,]+)\s*(?:שקל|ש[״"]ח|₪)', customer)}
     money=list(re.finditer(r'₪\s*([\d,]+)|([\d,]+)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)', reply))
     if not money:
         return False
     for m in money:
         value=int((m.group(1) or m.group(2)).replace(',',''))
-        if value == round(amount):
+        if value==round(amount):
             continue
-        if value not in gaps or not re.match(r'\s*(?:יותר|פחות)',reply[m.end():]):
+        relative=(re.match(r'\s*(?:יותר|פחות|(?:זה\s+)?פער|(?:זה\s+)?הפרש)',reply[m.end():]) or
+                  re.search(r'(?:פער|הפרש)\s+(?:של\s+)?$',reply[max(0,m.start()-25):m.start()]))
+        if value not in gaps or not relative:
             return False
     return True
 
 def retain_known_quote_choices(prior, data, customer):
-    """Only explicit customer changes may replace already known quote choices."""
-    if not isinstance(data, dict):
+    """Keep current choices when discussing needs or a past product."""
+    if not isinstance(data,dict):
         return data
-    if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון', customer):
+    if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון',customer):
         return data
-    # Protect facts only on price/calculation turns, not answers to discovery
-    # questions such as a bare new measurement or a newly accepted proposal.
-    if not re.search(r'מחיר|כמה.*עול|תחשב|חשב|כולל.*(?:התקנה|מע)', customer):
+    if re.fullmatch(r'\s*\d+(?:[.,]\d+)?\s*',customer):
         return data
-    result = dict(data)
-    changes = {
+    result=dict(data)
+    changes={
         'configuration':r'דלת|קבוע|פינתי|חזית|הזזה|הרמוניקה|בין.*קירות',
         'glass_type':r'זכוכית|שקופ|קליר|חלבי|חלבית|אסיד|אנטיסן|פיפיטה|ברונזה',
         'finish':r'פרזול|גוון|צבע|שחור|ניקל|גרפיט|ברונזה|זהב|לבן|כרום',
@@ -96,7 +96,45 @@ def retain_known_quote_choices(prior, data, customer):
         'second_width_cm':r'רוחב|מידה|מידות|צלע|צד|\d+\s*[/×x]\s*\d+',
         'height_cm':r'גובה',
     }
-    for field, pattern in changes.items():
-        if (prior or {}).get(field) is not None and not re.search(pattern, customer):
-            result[field] = prior[field]
+    past=bool(re.search(r'היה לי|הקודם|בעבר|אהבתי',customer)) and not re.search(r'רוצה|בוחר|תשנה|תחליף|במקום',customer)
+    for field,pattern in changes.items():
+        if (prior or {}).get(field) is not None and (past or not re.search(pattern,customer)):
+            result[field]=prior[field]
     return result
+
+def normalize_sales_fields(data, configurations, glass_types, finishes):
+    """Normalize only exact wording aliases of catalog values, never a new design."""
+    if not isinstance(data,dict):
+        return data
+    result=dict(data)
+    for field,allowed in (('configuration',configurations),('glass_type',glass_types),('finish',finishes)):
+        value=result.get(field)
+        if not isinstance(value,str) or value in allowed:
+            continue
+        candidate=value.strip()
+        if field=='configuration':
+            candidate=re.sub(r'^מקלחון\s+','',candidate)
+            candidate=candidate.replace('חזיתי','חזית')
+            candidate=re.sub(r'קבוע\s+ודלת', 'קבוע + דלת', candidate)
+        elif field=='glass_type':
+            candidate=re.sub(r'^זכוכית\s+','',candidate)
+        else:
+            candidate=re.sub(r'^פרזול\s+','',candidate)
+        if candidate in allowed:
+            result[field]=candidate
+    return result
+
+def sales_output_format(configurations, glass_types, finishes):
+    """The API enforces catalog spelling and field types in the single model call."""
+    properties={}
+    for field in ('stage','action','next_missing_fact','reply','product'):
+        properties[field]={'type':['string','null']} if field not in ('reply','stage','action') else {'type':'string'}
+    for field,values in (('configuration',configurations),('glass_type',glass_types),('finish',finishes)):
+        properties[field]={'type':['string','null'],'enum':list(values)+[None]}
+    for field in ('width_cm','second_width_cm','height_cm'):
+        properties[field]={'type':['number','null']}
+    properties['handles']={'type':['array','null'],'items':{'type':'string','enum':['ידית כפתור','ידית מגבת']}}
+    for field in ('quote_requested','solution_agreed','needs_human','send_handle_images','send_glass_images'):
+        properties[field]={'type':'boolean'}
+    return {'type':'json_schema','name':'yossi_sales_turn','strict':True,
+            'schema':{'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}}

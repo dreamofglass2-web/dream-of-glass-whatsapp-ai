@@ -60,3 +60,19 @@ class KnownQuoteChoiceTests(unittest.TestCase):
         self.assertEqual(retain_known_quote_choices(prior,{'configuration':'שם אחר','finish':'שם אחר'},'תחשב מחדש')['finish'],'שחור')
         self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'120')['width_cm'],120)
         self.assertEqual(retain_known_quote_choices(prior,{'width_cm':120},'כמה עולה ברוחב 120')['width_cm'],120)
+
+class ConsultationFactRetentionTests(unittest.TestCase):
+    def test_past_experience_does_not_change_current_choice(self):
+        from sales_reply import retain_known_quote_choices, normalize_sales_fields
+        prior={'configuration':'חזית קבוע + דלת','finish':'שחור'}
+        result=retain_known_quote_choices(prior,{'configuration':'הזזה קבוע + דלת','finish':'ניקל'},'היה לי הזזה, אהבתי את הנוחות אבל קשה לנקות')
+        self.assertEqual(result,prior)
+        result=normalize_sales_fields({'configuration':'מקלחון חזיתי קבוע ודלת'},['חזית קבוע + דלת'],[],[])
+        self.assertEqual(result['configuration'],'חזית קבוע + דלת')
+        self.assertEqual(normalize_sales_fields({'configuration':'תכנון אחר'},['חזית קבוע + דלת'],[],[])['configuration'],'תכנון אחר')
+
+class PriceGapAcknowledgementTests(unittest.TestCase):
+    def test_customer_supplied_gap_is_not_a_new_price(self):
+        from sales_reply import grounded_price_comparison
+        self.assertTrue(grounded_price_comparison('מבין, 400 ש״ח זה פער ששווה להתייחס אליו.',1964,'קיבלתי הצעה זולה יותר ב-400 שקל'))
+        self.assertFalse(grounded_price_comparison('המחיר שלך 400 ש״ח',1964,'קיבלתי הצעה זולה ב-400 שקל'))

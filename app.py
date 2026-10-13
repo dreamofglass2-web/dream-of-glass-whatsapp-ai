@@ -15,8 +15,8 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_reply import sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
+from sales_dialogue import preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -1478,7 +1478,7 @@ def calculate_quote(data):
 
 
 def quote_intent(text):
-    return bool(re.search(r'מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
+    return bool(re.search(r'(?:תן|תני|תכין|תכיני|אפשר|אשמח|רוצה|מבקש)(?:\s+לי)?\s+(?:לקבל\s+)?(?:הצעה|הצעת\s+מחיר)|מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
 
 
 def closing_intent(text):
@@ -2181,7 +2181,7 @@ def process_message(phone, body, batch_rows=None):
         # Stable business policy is cached separately from private, changing context.
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
-        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), BOM.keys())
+        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote')
@@ -2220,7 +2220,7 @@ def process_message(phone, body, batch_rows=None):
                     'prompt_cache_breakpoint':{'mode':'explicit'}}]},
                     {'role':'developer','content':dynamic_context}] + model_history,
                 prompt_cache_options={'mode':'explicit','ttl':'30m'},
-                text={'format':{'type':'json_object'}},
+                text={'format':sales_output_format(list(BOM)+list(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS)},
             )
             usage = getattr(response, 'usage', None)
             app.logger.info('AI_RESPONSE model=%s input_tokens=%s output_tokens=%s phone_suffix=%s',
@@ -2232,7 +2232,9 @@ def process_message(phone, body, batch_rows=None):
                                  customer_turn=sum(m.get('role') == 'user' for m in history),
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
-            data = retain_known_quote_choices(prior, json.loads(response.output_text), customer_request)
+            data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(BOM) | set(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
+                data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
             reply = open_finish_question(reply, customer_request)
@@ -2256,6 +2258,11 @@ def process_message(phone, body, batch_rows=None):
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
             quote_already_issued = bool((prior.get('validated_quote') or {}).get('issued'))
+            if (not discovery_question and sales_plan.get('step') != 'respect_choice'
+                    and data.get('action') == 'quote' and contains_ils_amount(reply)):
+                # Model wording is an intent signal only; the calculator still
+                # authorizes the amount, specifications and actual issuance.
+                data['quote_requested'] = True
             quote_requested_now = (quote_intent(customer_request) or
                                    (not quote_already_issued and data.get('quote_requested') is True))
             quote_specs = dict(prior or {})
@@ -2648,11 +2655,14 @@ def process_message(phone, body, batch_rows=None):
                     reply = aggregate_reply
             direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
-                reply = discovery_question
-                if not any(m.get('role') == 'assistant' for m in history):
+                if not preserves_consultation_step(reply, sales_plan):
+                    reply = discovery_question
+                if not any(m.get('role') == 'assistant' for m in history) and not re.match(r'^\s*(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)', reply):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. ' + reply
                 data['quote_requested'] = bool(quote_intent(customer_request) or prior.get('quote_requested') or data.get('quote_requested'))
                 quote_record = {}
+            if re.search(r'רק מחיר|מחיר בלבד|בלי שאלות', customer_request):
+                reply = re.sub(r'\s*איך זה נשמע לך[?]\s*$', '', reply).strip()
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})

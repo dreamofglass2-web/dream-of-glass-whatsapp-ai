@@ -118,6 +118,35 @@ class ConversationSimulation(unittest.TestCase):
 
 
 
+
+    def test_natural_project_question_is_preserved(self):
+        self.memory[self.phone] = ([], {'sales_discovery_completed': False})
+        reply='היי, אני יוסי מחלומות מזכוכית. אשמח לעזור לבחור משהו שיהיה נוח לך. זה לשיפוץ או להחלפת מקלחון קיים?'
+        self.assertEqual(self.step('מחפש מקלחון',self.model(reply)),reply)
+
+
+    def test_offer_request_and_city_turn_do_not_discard_valid_model_quote(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,height_cm=200,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True,
+                   sales_discovery_completed=True)
+        for request in ('פתח תקווה','תן הצעה לפי מה שבחרתי'):
+            self.memory[self.phone]=([],dict(specs))
+            amount=yossi.calculate_quote(specs)
+            reply=f'ההצעה הראשונית היא {amount:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. המידות הסופיות ייבדקו בשטח ושינוי במידות עשוי לשנות את המחיר.'
+            answer=self.step(request,self.model(reply,action='quote',quote_requested=False,solution_agreed=True))
+            self.assertIn(f'{amount:,.0f}',answer)
+            self.assertNotIn('חסר עוד אימות',answer)
+            self.assertTrue(self.memory[self.phone][1]['validated_quote']['issued'])
+
+    def test_pending_price_survives_model_false_until_calculation(self):
+        specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,height_cm=200,
+                   glass_type='שקופה',finish='שחור',handles=['ידית מגבת'],solution_agreed=True,
+                   quote_requested=True,sales_discovery_completed=False)
+        self.memory[self.phone]=([{'role':'user','content':'כמה עולה מקלחון לשיפוץ?'},
+                                  {'role':'assistant','content':'מה הכי חשוב לך בתוצאה?'}],specs)
+        answer=self.step('חשוב לי ניקוי קל',self.model('נוכל להכין הצעה',quote_requested=False))
+        self.assertIn('₪',answer)
+
     def test_non_price_product_openings_use_consultation(self):
         for customer,product in [('מחפש מקלחון','מקלחון'),('צריך מראה','מראה'),('מחיצה למשרד','מחיצה')]:
             self.memory[self.phone] = ([], {'sales_discovery_completed': False})
@@ -437,7 +466,11 @@ class ConversationSimulation(unittest.TestCase):
         self.assertEqual(request['model'], yossi.MODEL)
         self.assertEqual(request['reasoning'], {'effort': 'medium'})
         self.assertEqual(request['timeout'], 90.0)
-        self.assertEqual(request['text']['format']['type'], 'json_object')
+        self.assertEqual(request['text']['format']['type'], 'json_schema')
+        self.assertTrue(request['text']['format']['strict'])
+        schema=request['text']['format']['schema']
+        self.assertFalse(schema['additionalProperties'])
+        self.assertIn('חזית קבוע + דלת',schema['properties']['configuration']['enum'])
         self.assertIn('ריצוף גמור אינו תנאי כללי למראה', request['instructions'])
         self.assertIn('החזר JSON בלבד', request['instructions'])
 

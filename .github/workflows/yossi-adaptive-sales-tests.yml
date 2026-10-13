@@ -1,0 +1,42 @@
+name: Yossi adaptive sales acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        type: choice
+        options: [gpt-6-astra, gpt-4.1-mini]
+        default: gpt-6-astra
+      budget_usd:
+        default: '2'
+        required: true
+jobs:
+  isolated-adaptive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.YOSSI_TEST_OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ inputs.model }}
+      RUN_LIVE_YOSSI_TESTS: "1"
+      YOSSI_TEST_MAX_CALLS: "24"
+      YOSSI_TEST_MAX_USD: ${{ inputs.budget_usd }}
+      YOSSI_TEST_SCENARIOS: adaptive_price,adaptive_beginner,adaptive_trust,adaptive_busy
+      HANDOFF_ENABLED: "false"
+      DATABASE_URL: ""
+      WHATSAPP_TOKEN: ""
+      SEND_QUOTES: "true"
+      TYPING_MIN_SECONDS: "0"
+      TYPING_MAX_SECONDS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: test -n "$OPENAI_API_KEY"
+      - run: pip install -r requirements.txt
+      - run: python tools/yossi_adaptive_sales_tests.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-sales-report
+          path: yossi_ai_test_report.json
+          if-no-files-found: ignore
