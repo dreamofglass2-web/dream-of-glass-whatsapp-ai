@@ -1469,7 +1469,7 @@ def calculate_quote(data):
 
 
 def quote_intent(text):
-    return bool(re.search(r'מחיר|כמה\s+(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+לפי', str(text or '')))
+    return bool(re.search(r'מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+לפי', str(text or '')))
 
 
 def closing_intent(text):
