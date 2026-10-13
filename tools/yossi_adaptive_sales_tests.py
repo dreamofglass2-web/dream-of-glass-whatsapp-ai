@@ -361,18 +361,20 @@ class AdaptiveCustomer:
         seen=set()
         for n in range(5):
             answer=ADAPTIVE_LAST.get(self.name,'')
-            if re.search(r'באיזו עיר|איזו עיר|איפה.*התקנה',answer):
-                value='פתח תקווה'
-            elif re.search(r'תרצה.*(?:הצעת מחיר|להכין.*הצעה)|להכין.*הצעת מחיר',answer):
-                value='כן, תכין בבקשה הצעת מחיר לפי המפרט שבחרתי'
-            elif re.search(r'בית חדש|שיפוץ|להחלפ',answer):
-                value=self.project
-            elif re.search(r'בשימוש|לשפר|הקודם|מה.{0,15}חשוב',answer):
-                value=self.experience
-            elif re.search(r'ש[״"]ח|₪',answer):
+            parts=[p.strip() for p in re.split(r'[.!?\n]',answer) if p.strip()]
+            question=parts[-1] if parts else answer
+            if re.search(r'ש[״"]ח|₪',answer):
                 value=self.objection if 'objection' not in seen else 'תודה, אני צריך לחשוב'
                 seen.add('objection')
-            elif re.search(r'בין שני קירות|פינתי|מה.{0,15}רוחב|מידות|תצור|גובה|זכוכית|פרזול|ידית|מרווח|פתיח',answer):
+            elif re.search(r'באיזו עיר|איזו עיר|איפה.*התקנה',question):
+                value='פתח תקווה'
+            elif re.search(r'תרצה.*(?:הצעת מחיר|להכין.*הצעה)|להכין.*הצעת מחיר',question):
+                value='כן, תכין בבקשה הצעת מחיר לפי המפרט שבחרתי'
+            elif re.search(r'בשימוש|לשפר|הקודם|מה.{0,15}חשוב',question):
+                value=self.experience
+            elif re.search(r'בית חדש|שיפוץ|להחלפ',question):
+                value=self.project
+            elif re.search(r'בין שני קירות|פינתי|מה.{0,15}רוחב|מידות|תצור|גובה|זכוכית|פרזול|ידית|מרווח|פתיח',question):
                 value='פתח בין שני קירות, רוחב 120 וגובה 200. יש מקום לפתיחה. אני בוחר חלק קבוע ודלת נפתחת, שקוף שחור וידית מגבת.'
             else:
                 value='הבנתי. תמליץ לפי מה שסיפרתי, ואם אפשר תן הצעה למקלחון חזית קבוע ודלת 120 גובה 200 שקוף שחור ידית מגבת.'
