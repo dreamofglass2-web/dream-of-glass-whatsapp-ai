@@ -1,27 +1,24 @@
 name: Yossi real AI conversation tests
 on:
-  workflow_dispatch:
-    inputs:
-      scenarios:
-        description: 'Synthetic customer scenarios to run (comma-separated)'
-        required: true
-        default: 'hello,price_only,full_quote,objection,closing,renovation,confused,competitor_exit,warranty,mirror,partition,plain_advice,joint_decision,trust_after_service,no_pressure,identity,correction,mirror_warranty'
-      budget_usd:
-        description: 'Conservative estimated API test budget in USD'
-        required: true
-        default: '5'
+  pull_request:
+    branches: [main]
 jobs:
   real-model-sales-conversations:
+    if: github.head_ref == 'test/yossi-adaptive-final-20261013'
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [gpt-6-astra, gpt-4.1-mini]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       OPENAI_API_KEY: ${{ secrets.YOSSI_TEST_OPENAI_API_KEY }}
       RUN_LIVE_YOSSI_TESTS: "1"
-      OPENAI_MODEL: gpt-6-astra
+      OPENAI_MODEL: ${{ matrix.model }}
       HANDOFF_ENABLED: "false"
-      YOSSI_TEST_MAX_CALLS: "90"
-      YOSSI_TEST_MAX_USD: ${{ inputs.budget_usd }}
-      YOSSI_TEST_SCENARIOS: ${{ inputs.scenarios }}
+      YOSSI_TEST_MAX_CALLS: "24"
+      YOSSI_TEST_MAX_USD: "2"
+      YOSSI_TEST_SCENARIOS: "adaptive_price,adaptive_beginner,adaptive_trust,adaptive_busy"
       DATABASE_URL: ""
       WHATSAPP_TOKEN: ""
       SEND_QUOTES: "true"
@@ -42,6 +39,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yossi-ai-test-transcripts
+          name: yossi-ai-test-${{ matrix.model }}
           path: yossi_ai_test_report.json
           if-no-files-found: ignore
