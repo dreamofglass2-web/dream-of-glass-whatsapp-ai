@@ -70,3 +70,9 @@ class ConsultationFactRetentionTests(unittest.TestCase):
         result=normalize_sales_fields({'configuration':'מקלחון חזיתי קבוע ודלת'},['חזית קבוע + דלת'],[],[])
         self.assertEqual(result['configuration'],'חזית קבוע + דלת')
         self.assertEqual(normalize_sales_fields({'configuration':'תכנון אחר'},['חזית קבוע + דלת'],[],[])['configuration'],'תכנון אחר')
+
+class PriceGapAcknowledgementTests(unittest.TestCase):
+    def test_customer_supplied_gap_is_not_a_new_price(self):
+        from sales_reply import grounded_price_comparison
+        self.assertTrue(grounded_price_comparison('מבין, 400 ש״ח זה פער ששווה להתייחס אליו.',1964,'קיבלתי הצעה זולה יותר ב-400 שקל'))
+        self.assertFalse(grounded_price_comparison('המחיר שלך 400 ש״ח',1964,'קיבלתי הצעה זולה ב-400 שקל'))
