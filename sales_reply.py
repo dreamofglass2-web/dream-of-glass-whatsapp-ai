@@ -75,3 +75,24 @@ def grounded_price_comparison(reply, amount, customer):
         if value not in gaps or not re.match(r'\s*(?:יותר|פחות)',reply[m.end():]):
             return False
     return True
+
+def retain_known_quote_choices(prior, data, customer):
+    """Only explicit customer changes may replace already known quote choices."""
+    if not isinstance(data, dict):
+        return data
+    if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון', customer):
+        return data
+    result = dict(data)
+    changes = {
+        'configuration':r'דלת|קבוע|פינתי|חזית|הזזה|הרמוניקה|בין.*קירות',
+        'glass_type':r'זכוכית|שקופ|קליר|חלבי|חלבית|אסיד|אנטיסן|פיפיטה|ברונזה',
+        'finish':r'פרזול|גוון|צבע|שחור|ניקל|גרפיט|ברונזה|זהב|לבן|כרום',
+        'handles':r'ידית|ידיות|כפתור|מגבת',
+        'width_cm':r'רוחב|מידה|מידות|\d+\s*[/×x]\s*\d+',
+        'second_width_cm':r'רוחב|מידה|מידות|צלע|צד|\d+\s*[/×x]\s*\d+',
+        'height_cm':r'גובה',
+    }
+    for field, pattern in changes.items():
+        if (prior or {}).get(field) is not None and not re.search(pattern, customer):
+            result[field] = prior[field]
+    return result
