@@ -27,6 +27,9 @@ jobs:
       - name: Focused regression checks
         run: python -m unittest discover -s tests -p "test_quote_flow.py" -v
 
+      - name: Separate shower items and handle picture requests
+        run: python -m unittest discover -s tests -p "test_sales_items.py" -v
+
       - name: Grounded consultant quote preservation
         run: python -m unittest discover -s tests -p "test_sales_reply.py" -v
 
