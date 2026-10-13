@@ -62,3 +62,9 @@ jobs:
           DATABASE_URL: ""
           WHATSAPP_TOKEN: ""
         run: python -m unittest discover -s tests -p "test_service_health.py" -v
+
+
+      - name: CRM message times and progress
+        run: |
+          python -m unittest discover -s tests -p "test_crm_records.py" -v
+          python -m unittest crm_lab.test_customer_detail -v
