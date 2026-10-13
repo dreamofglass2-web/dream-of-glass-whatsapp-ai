@@ -3,7 +3,6 @@ on:
   pull_request:
     branches: [main]
 jobs:
-jobs:
   real-model-sales-conversations:
     if: github.head_ref == 'test/yossi-adaptive-comparison-20261013'
     strategy:
