@@ -113,7 +113,7 @@ class ConversationSimulation(unittest.TestCase):
         catalog = [dict(url='https://res.cloudinary.com/test/image/upload/front.jpg',
                         glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]
         with patch.object(yossi,'PHOTO_CATALOG',catalog):
-            answer = self.step('בלי תמונות, תסביר במילים', self.model('חלק אחד נשאר במקום והדלת נפתחת.'))
+            answer = self.step('לא רוצה תמונות, תסביר במילים', self.model('חלק אחד נשאר במקום והדלת נפתחת.'))
         self.assertNotIn('[TEST_IMAGE]', self.sent)
         self.assertIn('חלק אחד', answer)
 
