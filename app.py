@@ -17,7 +17,7 @@ from sales_dialogue import compact_instructions, dialogue_context, sales_turn_co
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
-from contextlib import nullcontext
+from contextlib import nullcontext, closing
 HANDOFF_ENABLED = os.getenv('HANDOFF_ENABLED', 'false').lower() == 'true'
 HANDOFF_ECHO_ENABLED = os.getenv('HANDOFF_ECHO_ENABLED', 'false').lower() == 'true'
 import base64
@@ -96,10 +96,10 @@ TYPING_MIN = float(os.getenv('TYPING_MIN_SECONDS', '2'))
 TYPING_MAX = float(os.getenv('TYPING_MAX_SECONDS', '8'))
 
 
-def db_connection():
+def db_connection(connect_timeout=5):
     if not DATABASE_URL:
         raise RuntimeError('DATABASE_URL is missing')
-    return psycopg2.connect(DATABASE_URL, connect_timeout=5, sslmode='require')
+    return psycopg2.connect(DATABASE_URL, connect_timeout=connect_timeout, sslmode='require')
 
 
 def ensure_db():
@@ -2877,13 +2877,30 @@ def home():
 
 @app.route('/health', methods=['GET'])
 def health():
-    ensure_worker_started()
+    """Readiness requires the database and this process's message worker."""
+    database_ready = False
+    try:
+        with closing(db_connection(connect_timeout=2)) as conn, conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2000ms'")
+                cur.execute("SELECT 1")
+                database_ready = cur.fetchone() == (1,)
+    except Exception as exc:
+        app.logger.warning('HEALTH_DATABASE_UNAVAILABLE reason=%s', type(exc).__name__)
+    if database_ready:
+        try:
+            ensure_worker_started()
+        except Exception as exc:
+            app.logger.warning('HEALTH_WORKER_START_FAILED reason=%s', type(exc).__name__)
     with lock:
         queued = sum(len(items) for items in pending.values())
         active = len(processing)
-    return {'status':'ok','quotes_enabled':SEND_QUOTES,
-            'worker_alive':bool(worker_thread and worker_thread.is_alive()),
-            'queued_messages':queued,'processing_chats':active}, 200
+        worker_alive = bool(worker_pid == os.getpid()
+                            and worker_thread and worker_thread.is_alive())
+    ready = database_ready and worker_alive
+    return {'status':'ok' if ready else 'unavailable', 'quotes_enabled':SEND_QUOTES,
+            'database_ready':database_ready, 'worker_alive':worker_alive,
+            'queued_messages':queued, 'processing_chats':active}, 200 if ready else 503
 
 # Meta Page leadgen delivery is deliberately separate from the WhatsApp responder.
 # Only persist verified event identifiers; customer details are fetched in a later,
