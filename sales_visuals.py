@@ -2,9 +2,13 @@
 import re
 
 
+def declines_visuals(text):
+    return bool(re.search(r'לא\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת).{0,18}(?:תמונ|דוגמ)|בלי\s+תמונ|אין\s+צורך.{0,12}תמונ|אל\s+תשלח.{0,15}תמונ', str(text or '')))
+
+
 def implicit_visual_request(text):
     text = str(text or '')
-    if re.search(r'לא\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת).{0,18}(?:תמונ|דוגמ)|בלי\s+תמונ', text):
+    if declines_visuals(text):
         return False
     return bool(re.search(
         r'קשה\s+לי\s+לדמיין|לא\s+(?:מצליח|מצליחה|יכול|יכולה)\s+לדמיין'
