@@ -1478,7 +1478,7 @@ def calculate_quote(data):
 
 
 def quote_intent(text):
-    return bool(re.search(r'מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
+    return bool(re.search(r'(?:תן|תני|תכין|תכיני|אפשר|אשמח|רוצה|מבקש)(?:\s+לי)?\s+(?:לקבל\s+)?(?:הצעה|הצעת\s+מחיר)|מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
 
 
 def closing_intent(text):
@@ -2258,6 +2258,11 @@ def process_message(phone, body, batch_rows=None):
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
             quote_already_issued = bool((prior.get('validated_quote') or {}).get('issued'))
+            if (not discovery_question and sales_plan.get('step') != 'respect_choice'
+                    and data.get('action') == 'quote' and contains_ils_amount(reply)):
+                # Model wording is an intent signal only; the calculator still
+                # authorizes the amount, specifications and actual issuance.
+                data['quote_requested'] = True
             quote_requested_now = (quote_intent(customer_request) or
                                    (not quote_already_issued and data.get('quote_requested') is True))
             quote_specs = dict(prior or {})
