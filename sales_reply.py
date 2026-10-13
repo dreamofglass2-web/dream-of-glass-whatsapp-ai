@@ -47,7 +47,7 @@ def safe_quote_wording(reply, amount):
         return False
     if not re.search(r'שינוי.{0,90}מחיר|מחיר.{0,90}שינוי', text):
         return False
-    if re.search(r'קבענו|תיאמתי|מחר|ביום|בשעה|אטימות\s+מלאה|כולל\s+מע[״"]?מ|הבעלים\s+אישר', text):
+    if re.search(r'קבענו|תיאמתי|מחר|ביום|בשעה|הנחה|מקדמה|תשלומים|ציפוי|יש\s+אחריות\s+על\s+ה?זכוכית|אחריות\s+מלאה\s+לזכוכית|אטימות\s+מלאה|כולל\s+מע[״"]?מ|הבעלים\s+אישר', text):
         return False
     return True
 
