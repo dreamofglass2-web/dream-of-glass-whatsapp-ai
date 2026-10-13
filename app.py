@@ -2652,7 +2652,7 @@ def process_message(phone, body, batch_rows=None):
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
                     reply = discovery_question
-                if not any(m.get('role') == 'assistant' for m in history):
+                if not any(m.get('role') == 'assistant' for m in history) and not re.match(r'^\s*(?:היי|שלום|אהלן|בוקר טוב|ערב טוב)', reply):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. ' + reply
                 data['quote_requested'] = bool(quote_intent(customer_request) or prior.get('quote_requested') or data.get('quote_requested'))
                 quote_record = {}
