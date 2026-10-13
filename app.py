@@ -254,7 +254,11 @@ def callback_time_from_text(body):
 
 def save_conversation(phone, history, context):
     scope = getattr(_delivery_scope, 'current', None) or {}
-    history = stamp_new_messages(history, scope.get('existing_count', max(0, len(history)-1)))
+    existing_count = scope.get('existing_count', max(0, len(history)-1))
+    history = [dict(m, content=without_emojis(m['content']))
+               if i>=existing_count and m.get('role')=='assistant' and isinstance(m.get('content'),str)
+               else m for i,m in enumerate(history)]
+    history = stamp_new_messages(history, existing_count)
     progress_status = conversation_status(history, context)
     with lock:
         histories[phone] = list(history)
