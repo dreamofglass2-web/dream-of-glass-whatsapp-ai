@@ -82,6 +82,10 @@ def retain_known_quote_choices(prior, data, customer):
         return data
     if re.search(r'חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון', customer):
         return data
+    # Protect facts only on price/calculation turns, not answers to discovery
+    # questions such as a bare new measurement or a newly accepted proposal.
+    if not re.search(r'מחיר|כמה.*עול|תחשב|חשב|כולל.*(?:התקנה|מע)', customer):
+        return data
     result = dict(data)
     changes = {
         'configuration':r'דלת|קבוע|פינתי|חזית|הזזה|הרמוניקה|בין.*קירות',
