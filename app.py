@@ -1551,15 +1551,18 @@ def price_objection(text):
     return bool(re.search(r'יקר|זול|תקציב|יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות)',str(text or '')))
 
 
-def budget_answer(text, history):
+def budget_answer(text, history, prior=None):
     """Interpret the answer to our budget question as a constraint, never an offer."""
     previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
-    if not re.search(r'תקציב|כמה.{0,15}(?:תכננת|חשבת)|איזה סכום',previous):
-        return None
-    match=re.fullmatch(r'\s*(\d{3,6}(?:,\d{3})?)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)?\s*(כולל מע[״"]?מ|לפני מע[״"]?מ)?\s*[.!?]*\s*',str(text or ''))
+    budget_question=bool(re.search(r'תקציב|כמה.{0,15}(?:תכננת|חשבת)|איזה סכום',previous))
+    match=re.fullmatch(r'\s*(?:(?:אבל\s+)?(?:ביקשתי|אמרתי|חשבתי על)\s+)?(\d{3,6}(?:,\d{3})?)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)?\s*(כולל מע[״"]?מ|לפני מע[״"]?מ)?\s*[.!?]*\s*',str(text or ''))
     if not match:
         return None
-    return {'amount_ils':int(match.group(1).replace(',','')),
+    amount=int(match.group(1).replace(',',''))
+    repeat=(prior or {}).get('customer_budget') or {}
+    if not budget_question and not (repeat.get('amount_ils')==amount and re.search(r'ביקשתי|אמרתי|חשבתי על',str(text))):
+        return None
+    return {'amount_ils':amount,
             'vat_basis':'included' if match.group(2) and 'כולל' in match.group(2) else 'excluded' if match.group(2) else 'unknown'}
 
 
@@ -2196,8 +2199,12 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone,body=answer)
             save_conversation(phone,history+[{'role':'assistant','content':answer}],dict(prior,needs_human=False))
             return True
-        budget=budget_answer(body,history)
+        budget=budget_answer(body,history,prior)
         if budget and (prior.get('validated_quote') or {}).get('issued'):
+            if HANDOFF_ENABLED and prior.get('customer_budget')==budget:
+                if has_new_messages(phone,batch_rows):
+                    return False
+                return pause_for_owner(phone,body,'הלקוח חזר על התקציב לאחר המענה ונדרשת עזרת בעל העסק')
             if has_new_messages(phone,batch_rows):
                 return False
             answer=('הבנתי, זה התקציב שלך. ההצעה שלנו כוללת מדידה, הובלה והתקנה, זכוכית מחוסמת 8 מ״מ ופרזול פליז פרימיום. '
