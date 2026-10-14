@@ -33,7 +33,8 @@ def planning_clarification(customer, prior, history):
     # Interpret short answers in relation to the question we actually asked.
     readiness_question=bool(re.search(r'ריצוף|שיפוץ',previous) and re.search(r'גמור|מוכן|עובדים|הסתיים',previous))
     readiness_answer=bool(re.fullmatch(r'\s*(?:כן|לא|עוד לא|עדיין לא|גמור|מוכן|עוד כמה ימים יהיה מוכן|(?:עוד )?(?:כמה|\d+) ימים(?: יהיה מוכן)?|מחר(?: יהיה מוכן)?|בשבוע הבא(?: יהיה מוכן)?)\s*[.!?]*\s*',text))
-    if readiness_question and readiness_answer and int(prior.get('planning_clarification_count') or 0)<2:
+    shower_context=('מקלחון' in str(prior.get('product') or '') or any(m.get('role')=='user' and 'מקלחון' in str(m.get('content') or '') for m in history))
+    if shower_context and readiness_question and readiness_answer and int(prior.get('planning_clarification_count') or 0)<2:
         next_question=('איזה סוג זכוכית תרצי למקלחון?' if not prior.get('glass_type')
                        else 'איזה גוון פרזול תרצי?' if not prior.get('finish')
                        else 'אפשר בינתיים להמשיך בבחירת הפתיחה הנוחה לך.')
