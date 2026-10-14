@@ -1551,10 +1551,16 @@ class KnownNameReminderTests(ConversationSimulation):
     def test_known_name_is_in_model_context_and_not_requested_again(self):
         self.memory[self.phone]=([{'role':'user','content':'שמי יוסי'},
             {'role':'user','content':'מקלחון שני 100/100'}],{'product':'מקלחון','customer_name':'יוסי'})
-        self.step('כפתור',self.model('שתי ידיות כפתור. לפני שנמשיך להצעה, מה שמך?'))
+        captured=[]
+        def capture(**kwargs):
+            captured.append(kwargs)
+            return self.ai.create(**kwargs)
+        with patch.object(yossi.client.responses,'create',side_effect=capture):
+            self.step('כפתור',self.model('שתי ידיות כפתור. לפני שנמשיך להצעה, מה שמך?'))
         self.assertNotIn('מה שמך',self.sent[-1])
         self.assertEqual(self.memory[self.phone][1]['customer_name'],'יוסי')
-        self.assertIn('customer_name',str(yossi.process_message.__name__) if False else str(self.memory[self.phone][1]))
+        dynamic=json.loads(captured[-1]['input'][1]['content'].split('\n',1)[1])
+        self.assertEqual(dynamic['prior_state']['customer_name'],'יוסי')
 
     def test_exact_reminder_is_acknowledged_without_model_or_handoff(self):
         self.memory[self.phone]=([{'role':'user','content':'שמי יוסי'}],{'product':'מקלחון'})
