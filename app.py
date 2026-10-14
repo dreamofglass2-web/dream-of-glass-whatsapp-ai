@@ -857,7 +857,8 @@ def current_product_from_history(history):
         if item.get('role')!='user':
             continue
         text=customer_written_text(item.get('content') or '')
-        products=[p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה') if p in text]
+        products=[p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה')
+                  if p in text or (p=='מקלחון' and 'מקלחונים' in text) or (p=='מראה' and 'מראות' in text)]
         if len(products)==1:
             return products[0]
     return None
