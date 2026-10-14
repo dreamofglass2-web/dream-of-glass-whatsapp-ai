@@ -2424,7 +2424,7 @@ def process_message(phone, body, batch_rows=None):
                  and 'לאשר את ההצעה המלאה' in last_reply))
         bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
                           or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
-        if complete_order and bundle_requested and not escalation_reason(customer_request) and not is_callback_request(customer_request):
+        if complete_order and bundle_requested and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
             if has_new_messages(phone,batch_rows):
                 return False
             safe_context=dict(prior)
