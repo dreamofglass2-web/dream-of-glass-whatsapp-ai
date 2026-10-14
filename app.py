@@ -1547,6 +1547,22 @@ def calculate_quote(data):
     return int(amount + 0.5)
 
 
+def price_objection(text):
+    return bool(re.search(r'יקר|זול|תקציב|יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות)',str(text or '')))
+
+
+def budget_answer(text, history):
+    """Interpret the answer to our budget question as a constraint, never an offer."""
+    previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+    if not re.search(r'תקציב|כמה.{0,15}(?:תכננת|חשבת)|איזה סכום',previous):
+        return None
+    match=re.fullmatch(r'\s*(\d{3,6}(?:,\d{3})?)\s*(?:₪|ש[״"]ח|שקל(?:ים)?)?\s*(כולל מע[״"]?מ|לפני מע[״"]?מ)?\s*[.!?]*\s*',str(text or ''))
+    if not match:
+        return None
+    return {'amount_ils':int(match.group(1).replace(',','')),
+            'vat_basis':'included' if match.group(2) and 'כולל' in match.group(2) else 'excluded' if match.group(2) else 'unknown'}
+
+
 def quote_intent(text):
     return bool(re.search(r'(?:תן|תני|תכין|תכיני|אפשר|אשמח|רוצה|מבקש)(?:\s+לי)?\s+(?:לקבל\s+)?(?:הצעה|הצעת\s+מחיר)|מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
 
@@ -1958,6 +1974,8 @@ def identity_reply(body, history):
         return 'אלירן דוד הכהן הוא בעל העסק. אני יוסי דוד, סוכן המכירות'
     if re.search(r'(?:אתה|את|מדבר|מדברת).{0,12}אלירן', normalized):
         return 'אני יוסי דוד מצוות המכירות. אלירן הוא בעל העסק 😊'
+    if re.search(r'בוט|דיגיטלי|רובוט|בינה מלאכותית|אדם אמיתי',normalized):
+        return 'אני יוסי, הנציג הדיגיטלי של חלומות מזכוכית.'
     if any(x in normalized for x in ('שם משפחה', 'שם המשפחה', 'מה המשפחה שלך')):
         return 'דוד 😊'
     if any(x in normalized for x in ('שם מלא', 'השם המלא', 'איך קוראים לך במלא')):
@@ -2169,6 +2187,25 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 return False
             return pause_for_owner(phone, body, early_reason)
+        # Identity and budget replies outrank quote restatement.
+        if (re.search(r'בוט|דיגיטלי|רובוט|בינה מלאכותית|אדם אמיתי',body)
+                and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
+            if has_new_messages(phone,batch_rows):
+                return False
+            answer=identity_reply(body,history)
+            send_whatsapp(phone,body=answer)
+            save_conversation(phone,history+[{'role':'assistant','content':answer}],dict(prior,needs_human=False))
+            return True
+        budget=budget_answer(body,history)
+        if budget and (prior.get('validated_quote') or {}).get('issued'):
+            if has_new_messages(phone,batch_rows):
+                return False
+            answer=('הבנתי, זה התקציב שלך. ההצעה שלנו כוללת מדידה, הובלה והתקנה, זכוכית מחוסמת 8 מ״מ ופרזול פליז פרימיום. '
+                    'אפשר לבדוק התאמות במפרט, בלי להבטיח שנוכל להגיע לתקציב הזה. חשוב לך לשמור על הזכוכית והגימור שבחרת, או שאפשר לבדוק חלופה?')
+            safe_context=dict(prior,customer_budget=budget,quote_requested=False,needs_human=False)
+            send_whatsapp(phone,body=answer)
+            save_conversation(phone,history+[{'role':'assistant','content':answer}],safe_context)
+            return True
         # Explicit opt-outs win over stale sales/callback requests.
         if refuses_phone_calls(body) or refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
@@ -2415,7 +2452,7 @@ def process_message(phone, body, batch_rows=None):
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
-                      'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name')
+                      'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name', 'customer_budget')
         turn_context = {
             'facts': facts,
             'consultation_plan': sales_plan,
@@ -2647,7 +2684,7 @@ def process_message(phone, body, batch_rows=None):
                 if explicit_quote_approval(customer_request):
                     quote_record['approved'] = True
                 reply = close_validated_quote(quote_record, history, customer_request, merged_pricing.get('product') or 'מקלחון')
-            elif ordinary_turn and prior_quote and quote_intent(customer_request):
+            elif ordinary_turn and prior_quote and quote_intent(customer_request) and not price_objection(customer_request):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
                 if isinstance(saved_amount, (int, float)) and saved_amount > 0:
                     reply = (consultant_reply if safe_quote_wording(consultant_reply, saved_amount)
@@ -2773,7 +2810,7 @@ def process_message(phone, body, batch_rows=None):
             inclusions_question = bool(re.search(
                 r'(כולל|כלול|מחיר|עולה|תוספת).{0,45}(התקנה|מע[״"]?מ)|'
                 r'(התקנה|מע[״"]?מ).{0,20}(כולל|כלול|במחיר|בתשלום)', customer_request))
-            if ordinary_turn and is_shower and quote_record.get('issued') and inclusions_question:
+            if ordinary_turn and is_shower and quote_record.get('issued') and inclusions_question and not price_objection(customer_request):
                 amount = quote_record.get('amount_ils_pre_vat')
                 if isinstance(amount, (int, float)):
                     reply = f'המדידה, ההובלה וההתקנה כלולות במחיר. ₪{amount:,.0f} הוא הסכום לפני מע״מ; המע״מ מתווסף אליו.'
@@ -2926,7 +2963,22 @@ def process_message(phone, body, batch_rows=None):
                 reply=re.sub(r'(?:לפני שנמשיך להצעה,\s*)?(?:מה שמך|איך קוראים לך|מה השם שלך)\s*[?？]', '', reply).strip()
                 if not reply:
                     reply='נמשיך עם פרטי העבודה שסיכמנו.'
+            if ordinary_turn and is_shower and not quote_record.get('issued'):
+                users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
+                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון',users))
+                if not prior_shower and re.search(r'המקלחון הקודם|המקלחון שהשתמשת|מקלחון שהשתמשת',reply):
+                    reply='היה לך מקלחון עד היום, או שהמקלחת הייתה פתוחה או עם וילון?'
+                if (not merged_pricing.get('width_cm') and re.search(r'פינתי|בפינה|פינה',users)
+                        and re.search(r'חלק.{0,15}קבוע|זכוכית קבועה',reply) and re.search(r'דלת',reply)):
+                    reply='מה המידות המשוערות של שני צדי המקלחת? כך אוכל להציע חלוקה שתשאיר כניסה נוחה.'
             reply = omit_unasked_readiness(reply, history)
+            previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+            if (HANDOFF_ENABLED and without_emojis(reply)==without_emojis(previous_answer)
+                    and (not quote_intent(customer_request) or price_objection(customer_request))):
+                if has_new_messages(phone,batch_rows):
+                    return False
+                return pause_for_owner(phone,body,'התשובה הסופית חזרה ללא התקדמות בשיחה')
+
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
