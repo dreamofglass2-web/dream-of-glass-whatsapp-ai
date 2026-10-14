@@ -1372,3 +1372,19 @@ class FoldingExplanationRegressionTests(unittest.TestCase):
                      'איך יהיה בנוי, אני רוצה נציג אנושי', 'איך יהיה בנוי מעקה?'):
             self.assertIsNone(planning_explanation(text,prior,history))
         self.assertIsNone(planning_explanation('איך יהיה בנוי המקלחון',prior,[]))
+
+
+class FoldingExplanationConversationTests(ConversationSimulation):
+    def test_bounded_explanation_is_delivered_without_handoff_or_changing_choices(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון פינתי, אסלה וכיור קרובים'},
+            {'role':'assistant','content':'אפשר לבדוק דלתות מתקפלות'},
+        ],{'product':'מקלחון','planning_clarification_count':2,'width_cm':80})
+        with patch.object(yossi,'pause_for_owner') as pause:
+            self.step('לא צריך לקבוע מידות, פשוט תגיד איך יהיה בנוי המקלחון',
+                      self.model('צריך עזרה',needs_human=True,configuration='פינתי 2 דלתות',width_cm=120))
+        pause.assert_not_called()
+        self.assertIn('שני לוחות',self.sent[-1])
+        self.assertEqual(self.memory[self.phone][1]['width_cm'],80)
+        self.assertNotIn('configuration',self.memory[self.phone][1])
+        self.assertFalse(self.memory[self.phone][1]['needs_human'])
