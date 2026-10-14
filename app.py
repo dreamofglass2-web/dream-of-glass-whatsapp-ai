@@ -9,7 +9,7 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
-from owner_escalation import escalation_reason, planning_clarification
+from owner_escalation import escalation_reason, planning_clarification, planning_explanation
 from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
@@ -2415,13 +2415,14 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
             # A missing ordinary planning detail is recoverable by clarification.
             # Never reuse a possibly unsafe model answer or alter confirmed specifications.
-            clarification = planning_clarification(customer_request, prior, history) if data.get('needs_human') is True else None
+            explanation = planning_explanation(customer_request, prior, history) if data.get('needs_human') is True else None
+            clarification = explanation or (planning_clarification(customer_request, prior, history) if data.get('needs_human') is True else None)
             if clarification:
                 if has_new_messages(phone, batch_rows):
                     return False
                 clarification_context = dict(prior or {})
                 clarification_context['needs_human'] = False
-                clarification_context['planning_clarification_count'] = int(prior.get('planning_clarification_count') or 0) + 1
+                clarification_context['planning_clarification_count'] = 0 if explanation else int(prior.get('planning_clarification_count') or 0) + 1
                 send_whatsapp(phone, body=clarification)
                 save_conversation(phone, history + [{'role':'assistant','content':clarification}], clarification_context)
                 return True

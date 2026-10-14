@@ -55,3 +55,25 @@ def planning_clarification(customer, prior, history):
     if re.search(r'לא מדדתי|מידות',text):
         return 'אפשר להתחיל מהתכנון גם בלי מידות מדויקות. מה היית רוצה לשפר במקלחון?'
     return 'כדי להבין מה יתאים לך, תוכלי לתאר איך היית רוצה להיכנס למקלחון ומה מפריע כרגע?'
+
+
+def planning_explanation(customer, prior, history):
+    """Explain a previously discussed folding mechanism without certifying site fit."""
+    text=str(customer or '')
+    if not text.strip() or len(text)>350 or escalation_reason(text):
+        return None
+    if re.search(r'מחיר|כמה|אחריות|ביטול|תשלומ|אשראי|הנחה|תקן|בטיח|אטימות|עיגון|קידוח|לשבור|חשמל|קיר גבס|לתאם|תתקשר|נציג|אלירן',text):
+        return None
+    if not re.search(r'איך.{0,35}(?:בנוי|בנו[יי]|נפתח|יפתח|פותח|אכנס|נכנס|סוגר)|תסביר.{0,25}(?:מבנה|פתיח|קיפול)|תגיד.{0,25}(?:בנוי|מבנה)',text):
+        return None
+    recent=' '.join(str(m.get('content') or '') for m in history[-12:])
+    if 'מקלחון' not in str(prior.get('product') or '') and 'מקלחון' not in recent:
+        return None
+    if not re.search(r'מתקפל|מתקפלות|מתקפלת|הרמוניקה',recent):
+        return None
+    answer=('בדלת מתקפלת יש שני לוחות זכוכית שמתקפלים זה אל זה, במקום שדלת שלמה תיפתח בקשת רחבה. '
+            'פותחים את הקיפול כדי להיכנס ופורשים את הלוחות כדי לסגור. ')
+    if re.search(r'אסלה|כיור|ארון',recent):
+        answer+='המיקום ליד הכלים צריך להשאיר מקום גם לקיפול וגם לכניסה. '
+    answer+='זה הסבר על מנגנון הפתיחה, ואת החלוקה וכיוון הקיפול שמתאימים לחדר נבדוק בשטח.'
+    return answer
