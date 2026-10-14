@@ -1655,3 +1655,58 @@ class RepeatedBudgetCorrectionTests(unittest.TestCase):
         prior={'customer_budget':{'amount_ils':2000,'vat_basis':'included'}}
         self.assertEqual(yossi.budget_answer(history[-1]['content'],history,prior),prior['customer_budget'])
         self.assertIsNone(yossi.budget_answer('2000₪ כולל מע"מ',[{'role':'assistant','content':'מה רוחב הפתח?'}]))
+
+
+class CompleteOrderFlowTests(ConversationSimulation):
+    def items(self):
+        first=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=160,height_cm=200,
+                   glass_type='גלינה קליר',finish='ברונזה',handles=['ידית מגבת'],solution_agreed=True)
+        second=dict(product='מקלחון',configuration='פינתי 2 קבועים + 2 דלתות',width_cm=100,second_width_cm=100,
+                    height_cm=200,glass_type='אנטיסן ברונזה',finish='ניקל מוברש',handles=['ידית כפתור']*2,solution_agreed=True)
+        return {'1':first,'2':second}
+
+    def test_how_to_proceed_presents_both_specs_ordered_total_without_model(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items(),'active_sales_item':'1'})
+        with patch.object(yossi.client.responses,'create') as ai:
+            self.step('נשמע טוב, איך מתקדמים')
+        ai.assert_not_called()
+        self.assertLess(self.sent[-1].index('מקלחון הראשון'),self.sent[-1].index('מקלחון השני'))
+        total=sum(yossi.calculate_quote(x) for x in self.items().values())
+        self.assertIn(f'{total:,.0f}',self.sent[-1])
+        self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
+
+    def test_approval_registers_measurement_callback_once_after_full_offer(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items()})
+        self.step('תחשב')
+        with patch.object(yossi,'save_callback',return_value=True) as callback:
+            self.step('כן')
+        callback.assert_called_once()
+        self.assertIn('אלירן',self.sent[-1])
+        self.assertIn('פנייה',self.sent[-1])
+        state=self.memory[self.phone][1]
+        self.assertTrue(state['combined_offer']['approved'])
+        self.assertIn('מקלחון הראשון',state['approved_order_summary'])
+        self.assertIn('מקלחון השני',state['approved_order_summary'])
+
+    def test_failed_callback_storage_does_not_claim_successful_transfer(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items()})
+        self.step('תחשב')
+        with patch.object(yossi,'save_callback',return_value=False):
+            self.step('כן')
+        self.assertNotIn('רשמתי לאלירן',self.sent[-1])
+
+    def test_changed_offer_cannot_be_approved_using_old_offer_fingerprint(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items()})
+        self.step('תחשב')
+        history,state=self.memory[self.phone];state['sales_items']['2']['width_cm']=110
+        self.step('אני מאשר את ההצעה')
+        self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
+        self.assertIn('110',self.sent[-1])
+
+    def test_pdf_is_sent_as_document_with_followup_question(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items()})
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True),patch('quote_pdf.create_quote_pdf',return_value=(b'%PDF-test','quote.pdf')),patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message(self.phone,'תחשב'))
+        self.assertEqual(send.call_args.kwargs['document_bytes'],b'%PDF-test')
+        self.assertIn('לאשר את ההצעה המלאה',send.call_args.kwargs['caption'])
+        self.assertTrue(self.memory[self.phone][1]['quote_document'])
