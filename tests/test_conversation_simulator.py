@@ -1449,3 +1449,51 @@ class QuoteBlockerConversationTests(ConversationSimulation):
             configuration='חצי הרמוניקה + חצי קבוע + דלת',solution_agreed=True))
         self.assertNotIn('המחיר הקודם',self.sent[-1])
         self.assertIn('הרוחב',self.sent[-1])
+
+
+class CustomerBoundaryConversationTests(ConversationSimulation):
+    def test_departure_and_refusal_bypass_model_and_stale_quote(self):
+        for text in ('?\nביי ביי','לא רוצה להזמין מימך אתה לא יודע מה אתה מדבר בכלל'):
+            self.memory[self.phone]=([
+                {'role':'user','content':'אני רוצה מקלחון'},
+                {'role':'assistant','content':'איזו זכוכית?'},
+            ],{'product':'מקלחון','quote_requested':True})
+            with patch.object(yossi.client.responses,'create') as ai:
+                self.step(text)
+            ai.assert_not_called()
+            self.assertNotIn('זכוכית',self.sent[-1])
+            self.assertNotIn('?',self.sent[-1])
+            self.assertFalse(self.memory[self.phone][1]['quote_requested'])
+            self.assertTrue(self.memory[self.phone][1]['sales_closed'])
+
+    def test_complaint_acknowledges_without_sales_question(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','quote_requested':True})
+        with patch.object(yossi,'HANDOFF_ENABLED',False),patch.object(yossi.client.responses,'create') as ai:
+            self.step('מה אתה מפגר נ')
+        ai.assert_not_called()
+        self.assertIn('סליחה',self.sent[-1])
+        self.assertNotIn('?',self.sent[-1])
+
+    def test_specification_rejection_is_not_a_sales_exit(self):
+        for text in ('לא רוצה זכוכית שקופה','לא רוצה דלת מתקפלת','לא רוצה להזמין עכשיו, רק מחיר'):
+            self.assertIsNone(yossi.customer_boundary(text))
+
+    def test_legacy_restart_recovers_product_but_not_old_measurements(self):
+        history=[{'role':'user','content':'מקלחון 80/80'},
+                 {'role':'user','content':'התחל שיחה מחדש'},
+                 {'role':'user','content':'אני מעוניינת במקלחון בחדר בשיפוץ'},
+                 {'role':'user','content':'מה המחיר?'}]
+        scoped,prior=yossi.current_sales_scope(history,{'width_cm':80})
+        self.assertEqual(prior['product'],'מקלחון')
+        self.assertTrue(prior['quote_requested'])
+        self.assertNotIn('width_cm',prior)
+        self.assertNotIn('80/80',str(scoped))
+
+    def test_known_product_survives_null_model_product(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'אני מעוניינת במקלחון'},
+            {'role':'user','content':'שיפוץ, אהבתי את הקודם, חשובה לי נוחות'},
+        ],{'quote_requested':True,'sales_discovery_completed':True})
+        self.step('מה המחיר?',self.model('על איזה מוצר מדובר?',product=None,quote_requested=True))
+        self.assertEqual(self.memory[self.phone][1]['product'],'מקלחון')
+        self.assertNotIn('על איזה מוצר',self.sent[-1])

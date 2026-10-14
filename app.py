@@ -836,6 +836,33 @@ def starts_new_customer_conversation(text):
         str(text or ''), flags=re.IGNORECASE))
 
 
+def customer_boundary(text):
+    """Customer exit and complaint intent outranks every pending sales request."""
+    value=customer_written_text(text)
+    if (re.search(r'לא רוצה\s+(?:להזמין|לקנות|לסגור)\s+(?:עכשיו|כרגע)',value)
+            and quote_intent(value)):
+        return None
+    if re.search(r'לא רוצה\s+(?:להזמין|לקנות|להמשיך|לסגור)|לא מעוניי[ןנת]+(?:\s|$)|סגרתי עם (?:אחר|מישהו)|אלך עם אחר',value):
+        return 'decline'
+    if re.fullmatch(r'[\s?!.,]*(?:ביי(?:\s+ביי)?|להתראות|תודה ולהתראות|עזוב|עזבי)[\s?!.,]*',value):
+        return 'farewell'
+    if re.search(r'אתה לא יודע מה אתה מדבר|אתה לא יודע על מה אתה מדבר|מה אתה מפגר|אתה מפגר|מה אתה מדבר בכלל',value):
+        return 'complaint'
+    return None
+
+
+def current_product_from_history(history):
+    """Recover only an explicit customer product, never an assistant inference."""
+    for item in reversed(history):
+        if item.get('role')!='user':
+            continue
+        text=customer_written_text(item.get('content') or '')
+        products=[p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה') if p in text]
+        if len(products)==1:
+            return products[0]
+    return None
+
+
 def current_sales_scope(history, prior):
     """Honor a previously missed explicit restart once, without reusing old quote facts."""
     boundary=next((i for i in range(len(history)-1,-1,-1)
@@ -849,7 +876,12 @@ def current_sales_scope(history, prior):
     protected=('simulation_recipient_id','meta_leads','whatsapp_referral','no_followups','no_phone_calls')
     clean={k:prior[k] for k in protected if k in prior}
     clean['sales_scope_boundary']=marker
-    return history[boundary+1:],clean
+    scoped=history[boundary+1:]
+    product=current_product_from_history(scoped)
+    if product:
+        clean['product']=product
+    clean['quote_requested']=any(m.get('role')=='user' and quote_intent(customer_written_text(m.get('content') or '')) for m in scoped)
+    return scoped,clean
 
 
 def reset_conversation_for_phone(phone):
@@ -2089,6 +2121,10 @@ def process_message(phone, body, batch_rows=None):
             return True
         history, prior = load_conversation(phone)
         history, prior = current_sales_scope(history, prior)
+        if not prior.get('product'):
+            product=current_product_from_history(history)
+            if product:
+                prior=dict(prior,product=product)
         scope = getattr(_delivery_scope, 'current', None)
         if scope is not None:
             scope['existing_count'] = len(history)
@@ -2097,6 +2133,22 @@ def process_message(phone, body, batch_rows=None):
             prior.pop('callback_requested_day', None)
             prior['_operator_generation_seen'] = handoff['handoff_generation']
         history.append({'role':'user','content':body,'at':datetime.now(timezone.utc).isoformat()})
+        boundary=customer_boundary(body)
+        if boundary:
+            if has_new_messages(phone, batch_rows):
+                return False
+            safe_context=dict(prior or {})
+            safe_context['quote_requested']=False
+            safe_context.pop('callback_requested_day',None)
+            safe_context['sales_closed']=boundary in ('decline','farewell')
+            answer={'decline':'אני מכבד את ההחלטה שלך. מצטער על הבלבול בשיחה.',
+                    'farewell':'להתראות, תודה שפנית.',
+                    'complaint':'סליחה על הבלבול. השיחה לא התקדמה כמו שצריך.'}[boundary]
+            send_whatsapp(phone,body=answer)
+            save_conversation(phone,history+[{'role':'assistant','content':answer}],safe_context)
+            if boundary=='complaint' and HANDOFF_ENABLED:
+                return pause_for_owner(phone,body,'הלקוח דיווח על בלבול וחוסר אמון בשיחה')
+            return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
@@ -2825,6 +2877,10 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'היי, אני יוסי מחלומות מזכוכית. ' + reply
                 data['quote_requested'] = bool(quote_intent(customer_request) or prior.get('quote_requested') or data.get('quote_requested'))
                 quote_record = {}
+            if (ordinary_turn and is_shower and not quote_record.get('issued')
+                    and (quote_intent(customer_request) or data.get('quote_requested'))
+                    and re.search(r'אין לי.{0,40}גישה.{0,30}חישוב|אין צורך.{0,20}מידע נוסף|לא חסר מידע',reply)):
+                reply = missing_quote_detail(merged_pricing)
             if re.search(r'רק מחיר|מחיר בלבד|בלי שאלות', customer_request):
                 reply = re.sub(r'\s*איך זה נשמע לך[?]\s*$', '', reply).strip()
             send_whatsapp(phone, body=reply)
