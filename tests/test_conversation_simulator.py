@@ -1497,3 +1497,17 @@ class CustomerBoundaryConversationTests(ConversationSimulation):
         self.step('מה המחיר?',self.model('על איזה מוצר מדובר?',product=None,quote_requested=True))
         self.assertEqual(self.memory[self.phone][1]['product'],'מקלחון')
         self.assertNotIn('על איזה מוצר',self.sent[-1])
+
+
+class OpeningProgressRegression(unittest.TestCase):
+    def test_completed_opening_invites_customer_request(self):
+        h=[{'role':'user','content':'היי מה קורה'},
+           {'role':'assistant','content':'הכול טוב, מה איתך?'},
+           {'role':'user','content':'בסדר גמור'}]
+        self.assertIn('במה אפשר לעזור לך?',yossi.simple_social_reply('בסדר גמור',h))
+
+    def test_small_talk_during_known_work_does_not_restart_discovery(self):
+        h=[{'role':'user','content':'אני רוצה מקלחון'},
+           {'role':'assistant','content':'מה נשמע?'},
+           {'role':'user','content':'בסדר גמור'}]
+        self.assertNotIn('במה אפשר לעזור',yossi.simple_social_reply('בסדר גמור',h))
