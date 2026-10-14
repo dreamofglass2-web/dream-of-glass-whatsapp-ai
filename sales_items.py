@@ -82,10 +82,10 @@ import hashlib
 import json
 
 
-def bundle_offer(state, calculator):
+def bundle_offer(state, calculator, allow_single=False):
     """Calculate every selected item; never issue an incomplete order total."""
     items=state.get('sales_items') or {}
-    if len(items)<2:
+    if len(items)<(1 if allow_single else 2):
         return None
     offers=[]
     for number, original in sorted(items.items(),key=lambda pair:int(pair[0])):
