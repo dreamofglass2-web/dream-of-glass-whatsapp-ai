@@ -2839,6 +2839,7 @@ def process_message(phone, body, batch_rows=None):
                     # Missing pricing fields must not erase useful advice answering this turn.
                     if (consultant_reply and not contains_ils_amount(consultant_reply)
                             and '?' in consultant_reply
+                            and re.search(r'זכוכית|חלבי|חלבית|אסיד|גלינה|אנטיסן|פרטיות|פתיחה|קבוע|דלת', consultant_reply)
                             and consultant_reply.strip() != missing.strip()):
                         reply = consultant_reply
                     else:
