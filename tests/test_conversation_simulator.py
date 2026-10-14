@@ -7,7 +7,7 @@ import json
 import os
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-offline-test-only")
 import app as yossi
@@ -90,7 +90,12 @@ class ConversationSimulation(unittest.TestCase):
             {"product": "מקלחון", "configuration": "חזית קבוע + דלת",
              "width_cm": 180, "height_cm": 200, "solution_agreed": True})
         replies = []
-        with patch.object(yossi, "HANDOFF_ENABLED", True), patch.object(yossi, "pause_for_owner") as pause:
+        with patch.object(yossi, "HANDOFF_ENABLED", True), patch.object(yossi, "ensure_db"), \
+                patch.object(yossi, "db_connection", return_value=MagicMock()), \
+                patch.object(yossi, "phone_lock"), \
+                patch.object(yossi, "read_handoff_state", return_value={"owner": "bot", "revision": 1}), \
+                patch.object(yossi, "automatic_reply_allowed", return_value=True), \
+                patch.object(yossi, "pause_for_owner") as pause:
             for customer in ["מעדיף שלא יהיה שקוף ממש מה האופציות שיש וכמה אמור לעלות",
                              "ראיתי זכוכית כמו בגוון לבן לא שקוף"]:
                 replies.append(self.step(customer, self.model(
@@ -104,6 +109,9 @@ class ConversationSimulation(unittest.TestCase):
         self.assertFalse(self.memory[self.phone][1].get("validated_quote", {}).get("issued"))
 
     def test_missing_price_data_keeps_relevant_consultant_answer(self):
+        self.memory[self.phone] = ([{"role": "user", "content": "מקלחון חזית 180"},
+                                   {"role": "assistant", "content": "מה חשוב לך בזכוכית?"}],
+                                  {"product": "מקלחון", "configuration": "חזית קבוע + דלת", "width_cm": 180})
         advice = "למראה פחות שקוף אפשר לבחור זכוכית חלבית. חשוב לך בעיקר פרטיות או המראה?"
         reply = self.step("מעדיף שלא יהיה שקוף ממש מה האופציות וכמה יעלה",
                           self.model(advice, configuration="חזית קבוע + דלת",
