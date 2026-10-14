@@ -1677,10 +1677,38 @@ def confirmed_corner_two_door_specs(history, data):
 
 
 
+def glass_consultation_reply(customer_request, data):
+    """Explain a requested appearance before demanding a catalogue selection."""
+    text = str(customer_request or '')
+    if re.search(r'ידית|פרזול|ציר', text) and not re.search(r'זכוכית|שקוף|שקופה|פרטיות', text):
+        return None
+    white = bool(re.search(r'לבן|לבנה|חלבי|חלבית|אסיד', text))
+    privacy = bool(re.search(r'לא.{0,18}שקו[ףפ]|שלא.{0,18}שקו[ףפ]|פרטיות|אטו[םמה]', text))
+    options = bool(re.search(r'אופציות|אפשרויות|סוגי.{0,10}זכוכית', text))
+    if not (white or privacy or options):
+        return None
+    if data.get('glass_type') and not options and not re.search(r'ראיתי|מה|הבדל|לא.{0,18}שקו[ףפ]|שלא.{0,18}שקו[ףפ]', text):
+        return None
+    if white:
+        return ('לפי התיאור שלך, יכול להיות שראית זכוכית חלבית או אסיד, עם מראה בהיר שמטשטש את הראות. '
+                'בלי תמונה לא אוכל לזהות בדיוק איזו זו. '
+                'אתה מחפש בעיקר פרטיות, או שאהבת את המראה הבהיר?')
+    if privacy:
+        return ('אם חשוב לך שלא יראו בבירור דרך הזכוכית, אפשר לשקול חלבי או אסיד שמטשטשים את הראות. '
+                'יש גם זכוכית עם דוגמה כמו גלינה, אבל היא לא מבטיחה הסתרה מלאה. '
+                'חשוב לך בעיקר לטשטש את הראות או גם מראה בהיר?')
+    return ('יש זכוכית שקופה ואקסטרה קליר למראה פתוח, חלבי ואסיד לטשטוש הראות, '
+            'וגם גוונים ודוגמאות כמו אנטיסן וגלינה. '
+            'מה חשוב לך יותר, פרטיות או המראה של הזכוכית?')
+
+
 def helpful_quote_followup(data, customer_request, first_message=False):
     """Respond like a consultant, without asking to repeat a configuration already supplied."""
     text = str(customer_request or '')
     greeting = 'היי, ' if first_message else ''
+    glass_advice = glass_consultation_reply(text, data)
+    if glass_advice:
+        return greeting + glass_advice
     explicit_corner_two_doors = (
         'פינתי' in text and
         bool(re.search(r'(?:שתי|2)\s+דלתות|דלתות\s+פתיחה', text))
@@ -2808,7 +2836,13 @@ def process_message(phone, body, batch_rows=None):
                         if has_new_messages(phone, batch_rows):
                             return False
                         return pause_for_owner(phone, body, 'נדרשת בדיקת תמחור למפרט שאינו עובר את בדיקות המחשבון')
-                    reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
+                    # Missing pricing fields must not erase useful advice answering this turn.
+                    if (consultant_reply and not contains_ils_amount(consultant_reply)
+                            and '?' in consultant_reply
+                            and consultant_reply.strip() != missing.strip()):
+                        reply = consultant_reply
+                    else:
+                        reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             if quote_changed and had_current_offer and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
@@ -3071,6 +3105,10 @@ def process_message(phone, body, batch_rows=None):
                 if (not merged_pricing.get('width_cm') and re.search(r'פינתי|בפינה|פינה',users)
                         and re.search(r'חלק.{0,15}קבוע|זכוכית קבועה',reply) and re.search(r'דלת',reply)):
                     reply='מה המידות המשוערות של שני צדי המקלחת? כך אוכל להציע חלוקה שתשאיר כניסה נוחה.'
+            if ordinary_turn and is_shower and not quote_record.get('issued'):
+                glass_advice = glass_consultation_reply(customer_request, merged_pricing)
+                if glass_advice and re.search(r'איזה סוג זכוכית|איזו זכוכית|איזה זכוכית', reply) and not re.search(r'חלבי|אסיד|גלינה|אנטיסן', reply):
+                    reply = glass_advice
             reply = omit_unasked_readiness(reply, history)
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             if (HANDOFF_ENABLED and without_emojis(reply)==without_emojis(previous_answer)
