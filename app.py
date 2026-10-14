@@ -9,7 +9,7 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
-from owner_escalation import escalation_reason, planning_clarification, planning_explanation
+from owner_escalation import escalation_reason, planning_clarification, planning_explanation, simple_name_correction
 from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
@@ -2153,6 +2153,17 @@ def process_message(phone, body, batch_rows=None):
             if boundary=='complaint' and HANDOFF_ENABLED:
                 return pause_for_owner(phone,body,'הלקוח דיווח על בלבול וחוסר אמון בשיחה')
             return True
+        known_name=extract_customer_name(history) or prior.get('customer_name')
+        if known_name:
+            prior=dict(prior,customer_name=known_name)
+        if simple_name_correction(body) and re.search(r'כבר אמרתי לך',body):
+            if has_new_messages(phone,batch_rows):
+                return False
+            reply=f'סליחה {known_name}, השם כבר נמסר. נמשיך עם פרטי העבודה שסיכמנו.'
+            safe_context=dict(prior,needs_human=False)
+            send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
@@ -2404,7 +2415,7 @@ def process_message(phone, body, batch_rows=None):
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
-                      'handles', 'quote_requested', 'solution_agreed', 'validated_quote')
+                      'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name')
         turn_context = {
             'facts': facts,
             'consultation_plan': sales_plan,
@@ -2911,6 +2922,10 @@ def process_message(phone, body, batch_rows=None):
                 reply = missing_quote_detail(merged_pricing)
             if re.search(r'רק מחיר|מחיר בלבד|בלי שאלות', customer_request):
                 reply = re.sub(r'\s*איך זה נשמע לך[?]\s*$', '', reply).strip()
+            if prior.get('customer_name'):
+                reply=re.sub(r'(?:לפני שנמשיך להצעה,\s*)?(?:מה שמך|איך קוראים לך|מה השם שלך)\s*[?？]', '', reply).strip()
+                if not reply:
+                    reply='נמשיך עם פרטי העבודה שסיכמנו.'
             reply = omit_unasked_readiness(reply, history)
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
