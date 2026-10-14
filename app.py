@@ -1581,7 +1581,7 @@ def explicit_quote_approval(text):
     return bool(re.search(r'מאשר\s+(?:את\s+)?(?:הצעת\s+המחיר|ההצעה|המחיר)|סגור\s+מבחינתי|אני\s+סוגר\s+איתכם', str(text or '')))
 
 
-def tiling_completed(history):
+def tiling_status(history):
     """Use the latest explicit renovation update, not an older completed status."""
     for item in reversed(history):
         if item.get('role') != 'user':
@@ -1593,10 +1593,14 @@ def tiling_completed(history):
                          r'אחרי\s+(?:שנסיים|שיסתיים)', text):
                 return False
             if re.search(r'הריצוף\s+(?:כבר\s+)?(?:הסתיים|נגמר|הושלם)|'
-                         r'סיימנו\s+(?:את\s+)?הריצוף|'
+                         r'סיימנו\s+(?:את\s+)?הריצוף|יש\s+(?:כבר\s+)?ריצוף|כבר\s+ריצפנו|הריצוף\s+(?:כבר\s+)?מוכן|'
                          r'החדר\s+(?:כבר\s+)?מוכן', text):
                 return True
-    return False
+    return None
+
+
+def tiling_completed(history):
+    return tiling_status(history) is True
 
 
 def contains_ils_amount(reply):
@@ -2440,7 +2444,9 @@ def process_message(phone, body, batch_rows=None):
                         send_whatsapp(phone,body='ההצעה אושרה, אבל רישום הפנייה לתיאום לא הושלם. לא נקבעה מדידה עדיין.')
                         return True
                     safe_context['measurement_handoff_fingerprint']=complete_order['fingerprint']
-                reply='מעולה, סיכמתי את כל הפרטים ורשמתי לאלירן פנייה לתיאום המדידה. אלירן ייצור איתך קשר להמשך התיאום. המדידה הסופית תתבצע לאחר סיום הריצוף.'
+                reply='מעולה, סיכמתי את כל הפרטים ורשמתי לאלירן פנייה לתיאום המדידה. אלירן ייצור איתך קשר להמשך התיאום.'
+                if tiling_status(history) is False:
+                    reply+=' את המדידה הסופית נעשה אחרי שהריצוף יסתיים.'
             else:
                 safe_context['combined_offer']={**complete_order,'issued':True,'approved':False}
                 reply=deliver_order_offer(phone,complete_order,safe_context,history)
