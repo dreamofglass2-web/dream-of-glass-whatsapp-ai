@@ -1353,3 +1353,22 @@ class RenovationAnswerRegressionTests(ConversationSimulation):
         self.assertIsNone(planning_clarification('עוד כמה ימים יהיה מוכן',{'product':'מקלחון'},[{'role':'assistant','content':'מתי תרצי ביקור?'}]))
         h=[{'role':'assistant','content':'הריצוף גמור?'}]
         self.assertIsNone(planning_clarification('מחר, תגיע למדוד',{'product':'מקלחון'},h))
+
+
+class FoldingExplanationRegressionTests(unittest.TestCase):
+    def test_adva_explanation_does_not_turn_into_a_third_clarification(self):
+        from owner_escalation import planning_explanation
+        history=[
+            {'role':'user','content':'מקלחון פינתי, אסלה וכיור קרובים'},
+            {'role':'assistant','content':'אפשר לבדוק דלתות מתקפלות'},
+            {'role':'user','content':'אתה בעל מקצוע, תתכנן מה יהיה פרקטי'},
+        ]
+        prior={'product':'מקלחון','planning_clarification_count':2}
+        reply=planning_explanation('לא צריך לקבוע מידות, פשוט תגיד איך יהיה בנוי המקלחון',prior,history)
+        self.assertIn('שני לוחות',reply)
+        self.assertIn('נבדוק בשטח',reply)
+        self.assertNotIn('?',reply)
+        for text in ('איך יהיה בנוי עם קידוח בקיר גבס?', 'איך נפתח וכמה עולה?',
+                     'איך יהיה בנוי, אני רוצה נציג אנושי', 'איך יהיה בנוי מעקה?'):
+            self.assertIsNone(planning_explanation(text,prior,history))
+        self.assertIsNone(planning_explanation('איך יהיה בנוי המקלחון',prior,[]))
