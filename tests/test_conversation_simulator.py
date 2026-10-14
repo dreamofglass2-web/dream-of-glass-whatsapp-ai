@@ -1311,3 +1311,24 @@ class ReferencePhotoRegressionTests(ConversationSimulation):
         self.assertFalse(self.memory[self.phone][1]['needs_human'])
         for text in ('זו תמונה לדוגמה, רוצה לדבר עם בעל העסק','זו תמונה לדוגמה של מעקה','זה דומה למה שיהיה לי, כמה עולה?'):
             self.assertIsNone(yossi.reference_photo_reply(self.memory[self.phone][0],{'product':'מקלחון'},text))
+
+
+class PlanningUncertaintyRegressionTests(ConversationSimulation):
+    def test_old_shower_shape_uncertainty_gets_clarification_not_escalation(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון בשיפוץ, כניסה נוחה'},
+            {'role':'assistant','content':'איך נפתח המקלחון הקודם שלך?'},
+        ],{'product':'מקלחון'})
+        with patch.object(yossi,'pause_for_owner') as pause:
+            self.step('הייה לי צורה שונה במקלחון הקודם',self.model('אין לי תשובה בטוחה',needs_human=True))
+        pause.assert_not_called()
+        self.assertIn('מה היה שונה',self.sent[-1])
+        self.assertNotIn('אין לי תשובה',self.sent[-1])
+        self.assertEqual(self.memory[self.phone][1]['planning_clarification_count'],1)
+
+    def test_policy_safety_human_requests_and_repeated_failure_still_escalate(self):
+        from owner_escalation import planning_clarification
+        history=[{'role':'user','content':'מקלחון'}]
+        for text in ('צורה אחרת, מה האחריות?', 'דלת עם קידוח', 'אני רוצה נציג אנושי', 'כמה עולה דלת?', 'מעקה בצורה אחרת'):
+            self.assertIsNone(planning_clarification(text,{'product':'מקלחון'},history))
+        self.assertIsNone(planning_clarification('צורה שונה',{'product':'מקלחון','planning_clarification_count':2},history))
