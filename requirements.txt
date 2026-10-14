@@ -5,4 +5,4 @@ openai
 psycopg2-binary
 Pillow
 reportlab==4.4.9
-python-bidi==0.6.7
+python-bidi==0.4.2
