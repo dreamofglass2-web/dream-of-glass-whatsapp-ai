@@ -1388,3 +1388,52 @@ class FoldingExplanationConversationTests(ConversationSimulation):
         self.assertEqual(self.memory[self.phone][1]['width_cm'],80)
         self.assertNotIn('configuration',self.memory[self.phone][1])
         self.assertFalse(self.memory[self.phone][1]['needs_human'])
+
+
+class QuoteScopeAndBlockerTests(unittest.TestCase):
+    def test_restart_alias_discards_legacy_dimensions_and_offer_once(self):
+        h=[{'role':'user','content':'מקלחון 80/80'},
+           {'role':'assistant','content':'המחיר 2294'},
+           {'role':'user','content':'התחל שיחה מחדש'},
+           {'role':'assistant','content':'במה אפשר לעזור?'},
+           {'role':'user','content':'מקלחון בחדר בשיפוץ'}]
+        scoped,prior=yossi.current_sales_scope(h,{'width_cm':80,'validated_quote':{'issued':True},
+            'simulation_recipient_id':'test','no_phone_calls':True})
+        self.assertEqual(len(scoped),2)
+        self.assertNotIn('width_cm',prior);self.assertNotIn('validated_quote',prior)
+        self.assertEqual(prior['simulation_recipient_id'],'test')
+        self.assertTrue(prior['no_phone_calls'])
+        prior['width_cm']=95
+        self.assertEqual(yossi.current_sales_scope(h,prior)[1]['width_cm'],95)
+        for message in ('התחל שיחה חדשה','התחל שיחה מחדש'):
+            self.assertTrue(yossi.starts_new_customer_conversation(message))
+        self.assertFalse(yossi.starts_new_customer_conversation('אני רוצה לדבר מחדש על המחיר'))
+
+    def test_hybrid_layout_requires_both_sides_and_sums_their_glass_area(self):
+        data={'configuration':'חצי הרמוניקה + חצי קבוע + דלת','width_cm':80,
+              'height_cm':200,'glass_type':'שקופה','finish':'ניקל',
+              'handles':['ידית כפתור','ידית כפתור','ידית מגבת']}
+        self.assertIsNone(yossi.calculate_quote(data))
+        self.assertIn('הצלע השנייה',yossi.missing_quote_detail(data))
+        data['second_width_cm']=80
+        first=yossi.calculate_quote(data);self.assertIsNotNone(first)
+        data['second_width_cm']=100
+        self.assertGreater(yossi.calculate_quote(data),first)
+        data['second_width_cm']=125
+        self.assertIsNone(yossi.calculate_quote(data))
+
+
+class QuoteBlockerConversationTests(ConversationSimulation):
+    def test_withheld_price_asks_for_missing_handle_choice_instead_of_model_limbo(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון בשיפוץ. אהבתי את המקלחון הקודם. רוצה כניסה נוחה'},
+            {'role':'assistant','content':'אפשר הרמוניקה וקבוע עם דלת'},
+            {'role':'user','content':'זה מה שאני רוצה'},
+        ],{'product':'מקלחון','configuration':'חצי הרמוניקה + חצי קבוע + דלת',
+            'width_cm':80,'second_width_cm':80,'height_cm':200,'glass_type':'שקופה',
+            'finish':'ניקל','handles':['ידית כפתור','ידית כפתור'],'solution_agreed':True})
+        self.step('אוקי אז מה המחיר',self.model('אין לי סכום מחושב, אין צורך במידע נוסף',
+            configuration='חצי הרמוניקה + חצי קבוע + דלת',handles=['ידית כפתור','ידית כפתור']))
+        self.assertIn('ידית',self.sent[-1])
+        self.assertNotIn('אין צורך במידע',self.sent[-1])
+        self.assertNotIn('מחיר קודם',self.sent[-1])
