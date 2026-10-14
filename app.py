@@ -329,7 +329,7 @@ def save_missing_photo_lead(phone, request_text):
         return False
 
 
-def save_callback(phone, preferred_time=None):
+def save_callback(phone, preferred_time=None, summary=None):
     try:
         ensure_db()
         with db_connection() as conn:
@@ -341,6 +341,9 @@ def save_callback(phone, preferred_time=None):
                     if state['owner'] == 'operator' or not scope or scope.get('handoff_revision') != state['revision']:
                         return False
                 save_callback_record(cur, phone, preferred_time)
+                if summary:
+                    cur.execute("UPDATE glass_leads SET notes=left(COALESCE(notes,'') || %s,12000) WHERE phone=%s",
+                                ('\nהצעת מחיר מאושרת\n'+str(summary)[:6000],phone))
         return True
     except Exception:
         app.logger.exception('Callback lead could not be stored')
@@ -2428,7 +2431,7 @@ def process_message(phone, body, batch_rows=None):
                 safe_context['approved_order_summary']=bundle_offer_reply(complete_order).rsplit('\n\n',1)[0]
                 if safe_context.get('measurement_handoff_fingerprint')!=complete_order['fingerprint']:
                     save_conversation(phone,history,safe_context)
-                    if not save_callback(phone,'תיאום מדידה עבור ההצעה המלאה שאושרה'):
+                    if not save_callback(phone,'תיאום מדידה עבור ההצעה המלאה שאושרה',summary=safe_context['approved_order_summary']):
                         if HANDOFF_ENABLED:
                             return pause_for_owner(phone,body,'ההצעה אושרה אך פנית תיאום המדידה לא נשמרה')
                         send_whatsapp(phone,body='ההצעה אושרה, אבל רישום הפנייה לתיאום לא הושלם. לא נקבעה מדידה עדיין.')
