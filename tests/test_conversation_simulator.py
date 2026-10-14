@@ -1476,8 +1476,7 @@ class CustomerBoundaryConversationTests(ConversationSimulation):
 
     def test_specification_rejection_is_not_a_sales_exit(self):
         for text in ('לא רוצה זכוכית שקופה','לא רוצה דלת מתקפלת','לא רוצה להזמין עכשיו, רק מחיר'):
-            if 'להזמין' not in text:
-                self.assertIsNone(yossi.customer_boundary(text))
+            self.assertIsNone(yossi.customer_boundary(text))
 
     def test_legacy_restart_recovers_product_but_not_old_measurements(self):
         history=[{'role':'user','content':'מקלחון 80/80'},
