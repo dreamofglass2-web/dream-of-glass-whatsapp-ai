@@ -1545,3 +1545,25 @@ class RoomReadinessEvidenceTests(unittest.TestCase):
         self.assertEqual(omit_unasked_readiness(answer,[{'role':'user','content':'החדרים לא גמורים'}]),answer)
         question='החדרים כבר מוכנים להתקנה?'
         self.assertEqual(omit_unasked_readiness(question,[{'role':'user','content':'דירה חדשה'}]),question)
+
+
+class KnownNameReminderTests(ConversationSimulation):
+    def test_known_name_is_in_model_context_and_not_requested_again(self):
+        self.memory[self.phone]=([{'role':'user','content':'שמי יוסי'},
+            {'role':'user','content':'מקלחון שני 100/100'}],{'product':'מקלחון','customer_name':'יוסי'})
+        self.step('כפתור',self.model('שתי ידיות כפתור. לפני שנמשיך להצעה, מה שמך?'))
+        self.assertNotIn('מה שמך',self.sent[-1])
+        self.assertEqual(self.memory[self.phone][1]['customer_name'],'יוסי')
+        self.assertIn('customer_name',str(yossi.process_message.__name__) if False else str(self.memory[self.phone][1]))
+
+    def test_exact_reminder_is_acknowledged_without_model_or_handoff(self):
+        self.memory[self.phone]=([{'role':'user','content':'שמי יוסי'}],{'product':'מקלחון'})
+        with patch.object(yossi,'pause_for_owner') as pause,patch.object(yossi.client.responses,'create') as ai:
+            self.step('כבר אמרתי לך בהתחלה קוראים לי יוסי')
+        pause.assert_not_called();ai.assert_not_called()
+        self.assertIn('סליחה יוסי',self.sent[-1])
+        self.assertEqual(self.memory[self.phone][1]['customer_name'],'יוסי')
+
+    def test_combined_human_request_is_not_exempted(self):
+        from owner_escalation import escalation_reason
+        self.assertIsNotNone(escalation_reason('כבר אמרתי לך קוראים לי יוסי, אני רוצה נציג אנושי'))
