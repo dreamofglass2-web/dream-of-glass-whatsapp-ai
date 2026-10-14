@@ -138,3 +138,19 @@ class EscalationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ApprovedOrderAlertTests(unittest.TestCase):
+    def test_owner_gets_approved_offer_alert_without_customer_details(self):
+        state=new_state()
+        state['escalation']={'id':'b'*32,'active':True,'reason':'הצעת מחיר מאושרת','customerText':'פרטי הלקוח','notificationStatus':'not_configured'}
+        db=MagicMock();db.__enter__.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value=[('972501234567',)]
+        http=Mock();http.post.return_value.ok=True
+        http.post.return_value.json.return_value={'ok':True,'result':{'message_id':45,'chat':{'id':123456}}}
+        config={'OWNER_ALERT_ENABLED':'true','OWNER_ALERT_CHANNEL':'telegram','OWNER_TELEGRAM_BOT_TOKEN':'123456789:'+'a'*35,'OWNER_TELEGRAM_CHAT_ID':'123456'}
+        with patch.dict('os.environ',config,clear=True),patch('owner_notifications.read_state',return_value=state),patch('owner_notifications.write_state'):
+            dispatch_owner_alerts(lambda:db,http,'','unused',Mock())
+        payload=http.post.call_args.kwargs['json']
+        self.assertIn('הצעת מחיר מאושרת',payload['text'])
+        self.assertNotIn('972501234567',str(payload))
+        self.assertNotIn('פרטי הלקוח',str(payload))

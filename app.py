@@ -14,7 +14,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_items import item_context, save_item, combined_quote
+from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
@@ -329,7 +329,7 @@ def save_missing_photo_lead(phone, request_text):
         return False
 
 
-def save_callback(phone, preferred_time=None):
+def save_callback(phone, preferred_time=None, summary=None):
     try:
         ensure_db()
         with db_connection() as conn:
@@ -341,6 +341,9 @@ def save_callback(phone, preferred_time=None):
                     if state['owner'] == 'operator' or not scope or scope.get('handoff_revision') != state['revision']:
                         return False
                 save_callback_record(cur, phone, preferred_time)
+                if summary:
+                    cur.execute("UPDATE glass_leads SET notes=left(COALESCE(notes,'') || %s,12000) WHERE phone=%s",
+                                ('\nהצעת מחיר מאושרת\n'+str(summary)[:6000],phone))
         return True
     except Exception:
         app.logger.exception('Callback lead could not be stored')
@@ -1781,7 +1784,7 @@ def customer_freeform_send_allowed(phone):
         return False
 
 
-def send_whatsapp(phone, body=None, image_url=None, caption=None):
+def send_whatsapp(phone, body=None, image_url=None, caption=None, document_bytes=None, filename=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
     if not is_simulation_contact(phone) and not business_auto_reply_allowed(phone):
@@ -1813,13 +1816,27 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     recipient_id = SIMULATION_PHONE_NUMBER_ID if is_simulation_contact(phone) else PHONE_NUMBER_ID
     url = f'https://graph.facebook.com/v26.0/{recipient_id}/messages'
     payload = {'messaging_product':'whatsapp','to':phone}
-    if image_url:
+    if document_bytes is not None:
+        if not isinstance(document_bytes,bytes) or not document_bytes.startswith(b'%PDF') or len(document_bytes)>5_000_000:
+            raise ValueError('Invalid quote PDF')
+        payload.update({'type':'document','document':{'filename':filename or 'quote.pdf','caption':caption or ''}})
+    elif image_url:
         payload.update({'type':'image','image':{'link':image_url,'caption':caption or ''}})
     else:
         payload.update({'type':'text','text':{'body':body}})
     try:
         gate = authorized_send(db_connection, phone, scope.get('handoff_revision')) if HANDOFF_ENABLED else nullcontext()
         with gate:
+            if document_bytes is not None:
+                media=requests.post(f'https://graph.facebook.com/v26.0/{recipient_id}/media',
+                    headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'},
+                    data={'messaging_product':'whatsapp','type':'application/pdf'},
+                    files={'file':(filename or 'quote.pdf',document_bytes,'application/pdf')},timeout=30)
+                media.raise_for_status()
+                media_id=media.json().get('id')
+                if not isinstance(media_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,128}',media_id):
+                    raise ValueError('Invalid uploaded document ID')
+                payload['document']['id']=media_id
             result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
         app.logger.info('WhatsApp send status: %s', result.status_code)
         result.raise_for_status()
@@ -1838,8 +1855,25 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         # A successful send must NOT be retried because journal write failed.
         app.logger.exception('Outbound sent; journal completion update failed')
     # Store a candidate followup time. No followup message is ever sent here.
-    if not image_url:
+    if not image_url and document_bytes is None:
         schedule_followup_dry_run(phone)
+
+
+PDF_QUOTES_ENABLED=os.getenv('PDF_QUOTES_ENABLED','false').lower()=='true'
+
+def deliver_order_offer(phone,offer,state,history):
+    reply=bundle_offer_reply(offer)
+    if not PDF_QUOTES_ENABLED:
+        send_whatsapp(phone,body=reply)
+        return reply
+    from quote_pdf import create_quote_pdf
+    data,filename=create_quote_pdf(offer,{'name':extract_customer_name(history) or state.get('customer_name') or 'לקוח','phone':phone})
+    if len(reply)>1000:
+        reply='\n'.join('מקלחון '+item['number']+' במחיר '+f"{item['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ' for item in offer['items'])
+        reply+='\\nסך הכול '+f"{offer['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ. המפרטים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
+    send_whatsapp(phone,document_bytes=data,filename=filename,caption=reply)
+    state['quote_document']={'filename':filename,'offer_fingerprint':offer['fingerprint'],'sent_at':datetime.now(timezone.utc).isoformat()}
+    return reply
 
 def ensure_followup_table():
     """Durable planning only. No automated sending is enabled."""
@@ -2379,6 +2413,46 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
+        order_state=prior
+        if not prior.get('sales_items') and (prior.get('combined_offer') or {}).get('issued'):
+            order_state={'sales_items':{'1':dict(prior,solution_agreed=True)}}
+        complete_order=bundle_offer(order_state,calculate_quote,allow_single=not prior.get('sales_items')) if SEND_QUOTES else None
+        offered_order=prior.get('combined_offer') or {}
+        last_reply=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+        approving_order=(explicit_quote_approval(customer_request) or
+            bool(re.fullmatch(r'\s*(?:כן|כן תודה|מאשר|מאשרת|מתאים)\s*[.!?]*\s*',customer_request)
+                 and 'לאשר את ההצעה המלאה' in last_reply))
+        bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
+                          or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
+        if complete_order and bundle_requested and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
+            if has_new_messages(phone,batch_rows):
+                return False
+            safe_context=dict(prior)
+            same_offer=offered_order.get('issued') and offered_order.get('fingerprint')==complete_order['fingerprint']
+            if approving_order and same_offer:
+                safe_context['combined_offer']={**complete_order,'issued':True,'approved':True}
+                safe_context['approved_order_summary']=bundle_offer_reply(complete_order).rsplit('\n\n',1)[0]
+                if safe_context.get('measurement_handoff_fingerprint')!=complete_order['fingerprint']:
+                    save_conversation(phone,history,safe_context)
+                    if not save_callback(phone,'תיאום מדידה עבור ההצעה המלאה שאושרה',summary=safe_context['approved_order_summary']):
+                        if HANDOFF_ENABLED:
+                            return pause_for_owner(phone,body,'ההצעה אושרה אך פנית תיאום המדידה לא נשמרה')
+                        send_whatsapp(phone,body='ההצעה אושרה, אבל רישום הפנייה לתיאום לא הושלם. לא נקבעה מדידה עדיין.')
+                        return True
+                    safe_context['measurement_handoff_fingerprint']=complete_order['fingerprint']
+                reply='מעולה, סיכמתי את כל הפרטים ורשמתי לאלירן פנייה לתיאום המדידה. אלירן ייצור איתך קשר להמשך התיאום. המדידה הסופית תתבצע לאחר סיום הריצוף.'
+            else:
+                safe_context['combined_offer']={**complete_order,'issued':True,'approved':False}
+                reply=deliver_order_offer(phone,complete_order,safe_context,history)
+            safe_context['needs_human']=False
+            safe_context['quote_requested']=False
+            if approving_order and same_offer:
+                send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            if approving_order and same_offer and HANDOFF_ENABLED:
+                return pause_for_owner(phone,body,'הצעת מחיר מאושרת')
+            return True
+
         if re.search(r'שאלה לא טובה|מציע לך לשאול|במקום זה',customer_request) and re.search(r'מה שמך|איך קוראים לך',customer_request):
             if has_new_messages(phone, batch_rows):
                 return False
@@ -2948,10 +3022,23 @@ def process_message(phone, body, batch_rows=None):
             quote_state.update({k:v for k,v in merged_pricing.items() if v is not None})
             quote_state['solution_agreed'] = data.get('solution_agreed') or quote_state.get('solution_agreed')
             save_item(quote_state)
+            complete_order=None
             if ordinary_turn and SEND_QUOTES and not discovery_question:
-                aggregate_reply = combined_quote(quote_state, history, customer_request, calculate_quote)
-                if aggregate_reply:
-                    reply = aggregate_reply
+                complete_order=bundle_offer(quote_state,calculate_quote)
+                if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
+                    reply=bundle_offer_reply(complete_order)
+                elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested')):
+                    missing=next((number for number,specs in sorted(quote_state['sales_items'].items())
+                                  if not specs.get('solution_agreed') or calculate_quote(dict(specs,height_cm=specs.get('height_cm') or 200)) is None),None)
+                    if missing:
+                        reply='כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])
+                        quote_record={}
+            if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and quote_record.get('issued')
+                    and not quote_state.get('sales_items') and not price_objection(customer_request)
+                    and (quote_intent(customer_request) or not prior_quote)):
+                complete_order=bundle_offer({'sales_items':{'1':dict(merged_pricing,solution_agreed=True)}},calculate_quote,allow_single=True)
+                if complete_order:
+                    reply=bundle_offer_reply(complete_order)
             direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
@@ -2986,11 +3073,19 @@ def process_message(phone, body, batch_rows=None):
                     return False
                 return pause_for_owner(phone,body,'התשובה הסופית חזרה ללא התקדמות בשיחה')
 
-            send_whatsapp(phone, body=reply)
+            document_state={}
+            if complete_order and 'הצעה המלאה' in reply:
+                reply=deliver_order_offer(phone,complete_order,document_state,history)
+            else:
+                send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
+            next_context.update(document_state)
             if data.get('needs_human') is not True:
                 next_context['planning_clarification_count'] = 0
+            if complete_order and 'הצעה המלאה' in reply:
+                next_context['combined_offer']={**complete_order,'issued':True,'approved':False}
+                next_context['quote_requested']=False
             if custom_quote_lead_saved:
                 next_context['custom_quote_lead_saved'] = True
             for key in ('stage','action','next_missing_fact','product','configuration',

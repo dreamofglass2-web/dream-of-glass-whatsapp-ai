@@ -18,7 +18,7 @@ def item_context(prior, history, customer):
     last_reply = next((str(m.get('content') or '') for m in reversed(history[:-1])
                        if m.get('role') == 'assistant'), '')
     target = numbered_item(str(customer))
-    if not target and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
+    if not target and len(set(re.findall(r'מקלחון (?:ה)?(?:ראשון|שני|שלישי)',last_reply)))<2 and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
         target = numbered_item(last_reply)
     multiple = bool(state.get('sales_items') or target or re.search(
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
@@ -26,7 +26,8 @@ def item_context(prior, history, customer):
         return state
     active = str(state.get('active_sales_item') or '1')
     items = state.setdefault('sales_items', {})
-    items[active] = {k: deepcopy(state[k]) for k in FIELDS if k in state}
+    if active not in items or any(key in state for key in ('configuration','width_cm','glass_type')):
+        items[active] = {k: deepcopy(state[k]) for k in FIELDS if k in state}
     target = target or active
     if target != active:
         for key in FIELDS:
@@ -76,3 +77,42 @@ def combined_quote(state, history, customer, calculator):
             f'. יחד {total:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. '
             'גובה שלא נמדד חושב לפי 200 ס״מ לצורך תמחור בלבד. המידות הסופיות ייבדקו בשטח, '
             'ושינוי במידות או במפרט עשוי לשנות את המחיר.')
+
+import hashlib
+import json
+
+
+def bundle_offer(state, calculator, allow_single=False):
+    """Calculate every selected item; never issue an incomplete order total."""
+    items=state.get('sales_items') or {}
+    if len(items)<(1 if allow_single else 2):
+        return None
+    offers=[]
+    for number, original in sorted(items.items(),key=lambda pair:int(pair[0])):
+        specs=deepcopy(original)
+        if not specs.get('solution_agreed'):
+            return None
+        specs['height_cm']=specs.get('height_cm') or 200
+        amount=calculator(specs)
+        if amount is None:
+            return None
+        offers.append({'number':number,'amount_ils_pre_vat':amount,
+                       'specification':{k:deepcopy(specs.get(k)) for k in FIELDS
+                         if k in ('configuration','width_cm','second_width_cm','height_cm','glass_type','finish','handles')}})
+    fingerprint=hashlib.sha256(json.dumps(offers,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    return {'fingerprint':fingerprint,'items':offers,
+            'amount_ils_pre_vat':sum(o['amount_ils_pre_vat'] for o in offers)}
+
+
+def bundle_offer_reply(offer):
+    lines=[]
+    for item in offer['items']:
+        s=item['specification']
+        size=str(s['width_cm'])+((' על '+str(s['second_width_cm'])) if s.get('second_width_cm') else '')
+        handles=', '.join(s.get('handles') or [])
+        label={'1':'הראשון','2':'השני','3':'השלישי'}.get(item['number'],item['number'])
+        lines.append(f"מקלחון {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ, זכוכית {s['glass_type']}, פרזול {s['finish']}, {handles}. המחיר {item['amount_ils_pre_vat']:,.0f} ש״ח לפני מע״מ.")
+    lines.append(f"סך הכול לכל המקלחונים {offer['amount_ils_pre_vat']:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה.")
+    lines.append('זו הצעה ראשונית, והמידות הסופיות ייבדקו בשטח. גובה שלא נמדד חושב לפי 200 ס״מ לצורך ההצעה, ושינוי במידות או במפרט עשוי לשנות את המחיר.')
+    lines.append('מתאים לך לאשר את ההצעה המלאה?')
+    return '\n\n'.join(lines)

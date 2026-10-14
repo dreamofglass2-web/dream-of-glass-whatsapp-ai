@@ -64,7 +64,7 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
                 # External alerts contain no customer identity, excerpt, reason or deep link.
                 # The signed-in CRM remains the only place to inspect private details.
                 payload = {'chat_id':chat_id,
-                    'text':'יוסי צריך את עזרתך. היכנס ל־CRM כדי לבדוק את הפנייה. השיחה עצורה עד לטיפול שלך.',
+                    'text':('הצעת מחיר מאושרת. הסיכום והמפרטים שמורים ב־CRM. יש ליצור קשר עם הלקוח לתיאום המדידה.' if reason=='הצעת מחיר מאושרת' else 'יוסי צריך את עזרתך. היכנס ל־CRM כדי לבדוק את הפנייה. השיחה עצורה עד לטיפול שלך.'),
                     'link_preview_options':{'is_disabled':True},
                     'reply_markup':{'inline_keyboard':[
                         [{'text':'פתיחת ה־CRM','url':'https://yossi-david-crm-demo.abloompetal2.chatgpt.site'}]]}}
