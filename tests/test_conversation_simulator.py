@@ -1332,3 +1332,24 @@ class PlanningUncertaintyRegressionTests(ConversationSimulation):
         for text in ('צורה אחרת, מה האחריות?', 'דלת עם קידוח', 'אני רוצה נציג אנושי', 'כמה עולה דלת?', 'מעקה בצורה אחרת'):
             self.assertIsNone(planning_clarification(text,{'product':'מקלחון'},history))
         self.assertIsNone(planning_clarification('צורה שונה',{'product':'מקלחון','planning_clarification_count':2},history))
+
+
+class RenovationAnswerRegressionTests(ConversationSimulation):
+    def test_ready_later_answer_to_our_floor_question_does_not_escalate(self):
+        for answer in ('עוד כמה ימים יהיה מוכן','מחר יהיה מוכן','עוד לא','כן'):
+            self.memory[self.phone]=([
+                {'role':'user','content':'מקלחון בשיפוץ'},
+                {'role':'assistant','content':'הריצוף בחדר כבר גמור או שעוד עובדים עליו?'},
+            ],{'product':'מקלחון'})
+            with patch.object(yossi,'pause_for_owner') as pause:
+                self.step(answer,self.model('צריך לבדוק עם בעל העסק',needs_human=True))
+            pause.assert_not_called()
+            self.assertIn('סיום הריצוף',self.sent[-1])
+            self.assertIn('זכוכית',self.sent[-1])
+            self.assertNotIn('ביקור הכנה',self.sent[-1])
+
+    def test_readiness_recovery_requires_matching_question_and_preserves_booking(self):
+        from owner_escalation import planning_clarification
+        self.assertIsNone(planning_clarification('עוד כמה ימים יהיה מוכן',{'product':'מקלחון'},[{'role':'assistant','content':'מתי תרצי ביקור?'}]))
+        h=[{'role':'assistant','content':'הריצוף גמור?'}]
+        self.assertIsNone(planning_clarification('מחר, תגיע למדוד',{'product':'מקלחון'},h))
