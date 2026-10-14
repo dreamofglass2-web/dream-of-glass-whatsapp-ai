@@ -2443,8 +2443,11 @@ def process_message(phone, body, batch_rows=None):
                 reply=deliver_order_offer(phone,complete_order,safe_context,history)
             safe_context['needs_human']=False
             safe_context['quote_requested']=False
-            send_whatsapp(phone,body=reply)
+            if approving_order and same_offer:
+                send_whatsapp(phone,body=reply)
             save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            if approving_order and same_offer and HANDOFF_ENABLED:
+                return pause_for_owner(phone,body,'הצעת מחיר מאושרת')
             return True
 
         if re.search(r'שאלה לא טובה|מציע לך לשאול|במקום זה',customer_request) and re.search(r'מה שמך|איך קוראים לך',customer_request):
