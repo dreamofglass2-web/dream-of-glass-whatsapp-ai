@@ -832,8 +832,24 @@ def customer_written_text(body):
 def starts_new_customer_conversation(text):
     """Explicit opt-in reset for testing a new lead on an existing WhatsApp number."""
     return bool(re.fullmatch(
-        r'\s*(?:התחל|תתחיל|פתיחת|פתח|בוא נתחיל)\s+(?:שיחה|שיחת לקוח)\s+חדשה\s*[!?.]*\s*',
+        r'\s*(?:התחל|תתחיל|פתיחת|פתח|בוא נתחיל)\s+(?:שיחה|שיחת לקוח)\s+(?:חדשה|מחדש)\s*[!?.]*\s*',
         str(text or ''), flags=re.IGNORECASE))
+
+
+def current_sales_scope(history, prior):
+    """Honor a previously missed explicit restart once, without reusing old quote facts."""
+    boundary=next((i for i in range(len(history)-1,-1,-1)
+                   if history[i].get('role')=='user'
+                   and starts_new_customer_conversation(history[i].get('content'))),None)
+    if boundary is None:
+        return history, prior
+    marker=hashlib.sha256(json.dumps(history[boundary],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    if prior.get('sales_scope_boundary')==marker:
+        return history, prior
+    protected=('simulation_recipient_id','meta_leads','whatsapp_referral','no_followups','no_phone_calls')
+    clean={k:prior[k] for k in protected if k in prior}
+    clean['sales_scope_boundary']=marker
+    return history[boundary+1:],clean
 
 
 def reset_conversation_for_phone(phone):
@@ -1468,7 +1484,7 @@ def calculate_quote(data):
         return None
     if width <= 0 or height <= 0 or height > 220:
         return None
-    is_corner = configuration.startswith('פינתי') or configuration == 'הזזה 2 קבועים + 2 דלתות'
+    is_corner = configuration.startswith('פינתי') or configuration in ('הזזה 2 קבועים + 2 דלתות','חצי הרמוניקה + חצי קבוע + דלת')
     if is_corner:
         if second is None or second <= 0 or width > 120 or second > 120:
             return None
@@ -1557,7 +1573,7 @@ def missing_quote_detail(data):
         return 'מה הרוחב המשוער של המקלחון?'
     if not data.get('height_cm'):
         return 'איזה גובה תרצו?'
-    if config.startswith('פינתי') and not data.get('second_width_cm'):
+    if (config.startswith('פינתי') or config in ('הזזה 2 קבועים + 2 דלתות','חצי הרמוניקה + חצי קבוע + דלת')) and not data.get('second_width_cm'):
         return 'מה המידה המשוערת של הצלע השנייה?'
     if config in BOM:
         expected = BOM[config].get('ידית כפתור', 0) + BOM[config].get('ידית מגבת', 0)
@@ -2072,6 +2088,7 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body='יש כרגע תקלה בפתיחת שיחה חדשה, אפשר לנסות שוב בעוד רגע?')
             return True
         history, prior = load_conversation(phone)
+        history, prior = current_sales_scope(history, prior)
         scope = getattr(_delivery_scope, 'current', None)
         if scope is not None:
             scope['existing_count'] = len(history)
@@ -2507,6 +2524,7 @@ def process_message(phone, body, batch_rows=None):
             # Only the calculator may authorize a numeric shower quote.
             quote_record = dict((prior or {}).get('validated_quote') or {})
             prior_quote = bool(quote_record.get('issued'))
+            had_current_offer = prior_quote
             merged_pricing = dict(prior or {})
             for key in ('product', 'configuration', 'width_cm', 'second_width_cm',
                         'height_cm', 'glass_type', 'finish', 'handles'):
@@ -2568,9 +2586,15 @@ def process_message(phone, body, batch_rows=None):
                     else:
                         reply = (f'לפי הפרטים שסיכמנו, המחיר המשוער הוא ₪{verified_price:,.0f} לפני מע״מ, כולל מדידה, הובלה והתקנה. '
                                  f"זו הצעה ראשונית לפי המפרט וגובה {merged_pricing.get('height_cm')} ס״מ; את המידות הסופיות נבדוק בשטח, ושינוי במפרט או במידות עשוי לשנות את המחיר. איך זה נשמע לך?")
-                elif contains_ils_amount(reply):
+                else:
+                    # Calculator failure must produce a concrete next step, not model limbo.
+                    missing = missing_quote_detail(merged_pricing)
+                    if missing.startswith('חסר עוד אימות') and HANDOFF_ENABLED:
+                        if has_new_messages(phone, batch_rows):
+                            return False
+                        return pause_for_owner(phone, body, 'נדרשת בדיקת תמחור למפרט שאינו עובר את בדיקות המחשבון')
                     reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
-            if quote_changed and not quote_intent(customer_request):
+            if quote_changed and had_current_offer and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
             custom_quote_lead_saved = False
