@@ -1646,3 +1646,12 @@ class PriceIntentEscalationTests(unittest.TestCase):
     def test_expected_cheaper_is_objection_not_fresh_quote(self):
         self.assertTrue(yossi.price_objection('חשבתי על מחיר יותר זול'))
         self.assertFalse(yossi.price_objection('מה המחיר?'))
+
+
+class RepeatedBudgetCorrectionTests(unittest.TestCase):
+    def test_budget_correction_is_not_a_vat_inclusion_question(self):
+        history=[{'role':'assistant','content':'אפשר לבדוק חלופה?'},
+                 {'role':'user','content':'אבל ביקשתי 2000₪ כולל מע"מ'}]
+        prior={'customer_budget':{'amount_ils':2000,'vat_basis':'included'}}
+        self.assertEqual(yossi.budget_answer(history[-1]['content'],history,prior),prior['customer_budget'])
+        self.assertIsNone(yossi.budget_answer('2000₪ כולל מע"מ',[{'role':'assistant','content':'מה רוחב הפתח?'}]))
