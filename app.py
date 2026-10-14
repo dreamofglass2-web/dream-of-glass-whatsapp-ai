@@ -2413,7 +2413,10 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
-        complete_order=bundle_offer(prior,calculate_quote) if SEND_QUOTES else None
+        order_state=prior
+        if not prior.get('sales_items') and (prior.get('combined_offer') or {}).get('issued'):
+            order_state={'sales_items':{'1':dict(prior,solution_agreed=True)}}
+        complete_order=bundle_offer(order_state,calculate_quote,allow_single=not prior.get('sales_items')) if SEND_QUOTES else None
         offered_order=prior.get('combined_offer') or {}
         last_reply=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
         approving_order=(explicit_quote_approval(customer_request) or
@@ -3030,6 +3033,12 @@ def process_message(phone, body, batch_rows=None):
                     if missing:
                         reply='כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])
                         quote_record={}
+            if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and quote_record.get('issued')
+                    and not quote_state.get('sales_items') and not price_objection(customer_request)
+                    and (quote_intent(customer_request) or not prior_quote)):
+                complete_order=bundle_offer({'sales_items':{'1':dict(merged_pricing,solution_agreed=True)}},calculate_quote,allow_single=True)
+                if complete_order:
+                    reply=bundle_offer_reply(complete_order)
             direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
