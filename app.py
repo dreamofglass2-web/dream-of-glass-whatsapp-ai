@@ -1781,7 +1781,7 @@ def customer_freeform_send_allowed(phone):
         return False
 
 
-def send_whatsapp(phone, body=None, image_url=None, caption=None):
+def send_whatsapp(phone, body=None, image_url=None, caption=None, document_bytes=None, filename=None):
     # Defense in depth: neither recovered jobs nor alternate code paths may
     # send a customer message without verified Meta business-lead provenance.
     if not is_simulation_contact(phone) and not business_auto_reply_allowed(phone):
@@ -1813,13 +1813,27 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
     recipient_id = SIMULATION_PHONE_NUMBER_ID if is_simulation_contact(phone) else PHONE_NUMBER_ID
     url = f'https://graph.facebook.com/v26.0/{recipient_id}/messages'
     payload = {'messaging_product':'whatsapp','to':phone}
-    if image_url:
+    if document_bytes is not None:
+        if not isinstance(document_bytes,bytes) or not document_bytes.startswith(b'%PDF') or len(document_bytes)>5_000_000:
+            raise ValueError('Invalid quote PDF')
+        payload.update({'type':'document','document':{'filename':filename or 'quote.pdf','caption':caption or ''}})
+    elif image_url:
         payload.update({'type':'image','image':{'link':image_url,'caption':caption or ''}})
     else:
         payload.update({'type':'text','text':{'body':body}})
     try:
         gate = authorized_send(db_connection, phone, scope.get('handoff_revision')) if HANDOFF_ENABLED else nullcontext()
         with gate:
+            if document_bytes is not None:
+                media=requests.post(f'https://graph.facebook.com/v26.0/{recipient_id}/media',
+                    headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'},
+                    data={'messaging_product':'whatsapp','type':'application/pdf'},
+                    files={'file':(filename or 'quote.pdf',document_bytes,'application/pdf')},timeout=30)
+                media.raise_for_status()
+                media_id=media.json().get('id')
+                if not isinstance(media_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,128}',media_id):
+                    raise ValueError('Invalid uploaded document ID')
+                payload['document']['id']=media_id
             result = requests.post(url, headers={'Authorization':f'Bearer {WHATSAPP_TOKEN}'}, json=payload, timeout=15)
         app.logger.info('WhatsApp send status: %s', result.status_code)
         result.raise_for_status()
@@ -1838,8 +1852,25 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None):
         # A successful send must NOT be retried because journal write failed.
         app.logger.exception('Outbound sent; journal completion update failed')
     # Store a candidate followup time. No followup message is ever sent here.
-    if not image_url:
+    if not image_url and document_bytes is None:
         schedule_followup_dry_run(phone)
+
+
+PDF_QUOTES_ENABLED=os.getenv('PDF_QUOTES_ENABLED','false').lower()=='true'
+
+def deliver_order_offer(phone,offer,state,history):
+    reply=bundle_offer_reply(offer)
+    if not PDF_QUOTES_ENABLED:
+        send_whatsapp(phone,body=reply)
+        return reply
+    from quote_pdf import create_quote_pdf
+    data,filename=create_quote_pdf(offer,{'name':extract_customer_name(history) or state.get('customer_name') or 'לקוח','phone':phone})
+    if len(reply)>1000:
+        reply='\n'.join('מקלחון '+item['number']+' במחיר '+f"{item['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ' for item in offer['items'])
+        reply+='\\nסך הכול '+f"{offer['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ. המפרטים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
+    send_whatsapp(phone,document_bytes=data,filename=filename,caption=reply)
+    state['quote_document']={'filename':filename,'offer_fingerprint':offer['fingerprint'],'sent_at':datetime.now(timezone.utc).isoformat()}
+    return reply
 
 def ensure_followup_table():
     """Durable planning only. No automated sending is enabled."""
@@ -2406,7 +2437,7 @@ def process_message(phone, body, batch_rows=None):
                 reply='מעולה, סיכמתי את כל הפרטים ורשמתי לאלירן פנייה לתיאום המדידה. אלירן ייצור איתך קשר להמשך התיאום. המדידה הסופית תתבצע לאחר סיום הריצוף.'
             else:
                 safe_context['combined_offer']={**complete_order,'issued':True,'approved':False}
-                reply=bundle_offer_reply(complete_order)
+                reply=deliver_order_offer(phone,complete_order,safe_context,history)
             safe_context['needs_human']=False
             safe_context['quote_requested']=False
             send_whatsapp(phone,body=reply)
@@ -3027,9 +3058,14 @@ def process_message(phone, body, batch_rows=None):
                     return False
                 return pause_for_owner(phone,body,'התשובה הסופית חזרה ללא התקדמות בשיחה')
 
-            send_whatsapp(phone, body=reply)
+            document_state={}
+            if complete_order and 'הצעה המלאה' in reply:
+                reply=deliver_order_offer(phone,complete_order,document_state,history)
+            else:
+                send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
+            next_context.update(document_state)
             if data.get('needs_human') is not True:
                 next_context['planning_clarification_count'] = 0
             if complete_order and 'הצעה המלאה' in reply:
