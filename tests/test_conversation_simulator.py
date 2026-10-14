@@ -1535,3 +1535,13 @@ class BriefOpeningIntroductionTests(ConversationSimulation):
         self.step('דוד',self.model('זה לבית חדש או לשיפוץ?'))
         self.assertEqual(self.memory[self.phone][1]['customer_name'],'דוד')
         self.assertNotIn('מה שמך',self.sent[-1])
+
+
+class RoomReadinessEvidenceTests(unittest.TestCase):
+    def test_new_apartment_does_not_imply_unfinished_rooms(self):
+        from sales_dialogue import omit_unasked_readiness
+        answer='אפשר להתחיל לתכנן את המקלחונים גם אם החדרים עדיין לא גמורים. מה שמך?'
+        self.assertEqual(omit_unasked_readiness(answer,[{'role':'user','content':'דירה חדשה'}]),'מה שמך?')
+        self.assertEqual(omit_unasked_readiness(answer,[{'role':'user','content':'החדרים לא גמורים'}]),answer)
+        question='החדרים כבר מוכנים להתקנה?'
+        self.assertEqual(omit_unasked_readiness(question,[{'role':'user','content':'דירה חדשה'}]),question)
