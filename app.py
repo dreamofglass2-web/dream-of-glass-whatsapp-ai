@@ -1986,7 +1986,10 @@ def simple_social_reply(body, history=None):
     if well_being or both or status:
         if any(phrase in normalized for phrase in ('איך אתה', 'מה שלומך', 'מה איתך', 'מה נשמע', 'מה קורה')):
             return 'הכול טוב, תודה ששאלת. מה איתך?'
-        return 'כיף לשמוע 😊'
+        business_started = current_product_from_history((history or [])[:-1]) is not None or any(
+            m.get('role') == 'user' and quote_intent(customer_written_text(m.get('content') or ''))
+            for m in (history or [])[:-1])
+        return 'כיף לשמוע.' if business_started else 'כיף לשמוע. במה אפשר לעזור לך?'
     return None
 
 
