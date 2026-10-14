@@ -2227,7 +2227,7 @@ def process_message(phone, body, batch_rows=None):
         asked_name=any(m.get('role')=='assistant' and re.search(r'מה שמך|איך קוראים לך|מה השם שלך',
                        str(m.get('content') or '')) for m in history)
         business_started=current_product_from_history(history[:-1]) is not None
-        if brief_request and not business_started and not known_name and not form_named and not asked_name:
+        if brief_request and not prior.get('sales_discovery_completed') and not business_started and not known_name and not form_named and not asked_name:
             if has_new_messages(phone,batch_rows):
                 return False
             introduced=any(m.get('role')=='assistant' and 'יוסי' in str(m.get('content') or '')
