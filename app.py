@@ -2215,6 +2215,30 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.exception('Failed to reply to simple social message')
                 return False
+        # Brief opening requests get an introduction and one name question first.
+        request_text=customer_written_text(body)
+        brief_request=bool(re.fullmatch(
+            r'(?:אני\s+)?(?:צריך|צריכה|רוצה|מעוניין|מעוניינת|מחפש|מחפשת)(?:\s+ב)?\s+'
+            r'(?:(?:\d+|שני|שתי)\s+)?(?:מקלחונים?|מראות|מראה|מחיצה|מחיצות|חיפוי|אמבטיון)\s*[.!?]*',
+            request_text))
+        known_name=extract_customer_name(history) or prior.get('customer_name')
+        form_named=any(bool((lead.get('fields') or {}).get('full_name'))
+                       for lead in (prior.get('meta_leads') or {}).values() if isinstance(lead,dict))
+        asked_name=any(m.get('role')=='assistant' and re.search(r'מה שמך|איך קוראים לך|מה השם שלך',
+                       str(m.get('content') or '')) for m in history)
+        business_started=current_product_from_history(history[:-1]) is not None
+        if brief_request and not business_started and not known_name and not form_named and not asked_name:
+            if has_new_messages(phone,batch_rows):
+                return False
+            introduced=any(m.get('role')=='assistant' and 'יוסי' in str(m.get('content') or '')
+                           and 'חלומות מזכוכית' in str(m.get('content') or '') for m in history)
+            reply='בכיף, מה שמך?' if introduced else 'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?'
+            safe_context=dict(prior or {})
+            safe_context['product']=current_product_from_history(history) or prior.get('product')
+            safe_context['needs_human']=False
+            send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            return True
         # The customer correcting an invented photo deserves an apology, not a gallery.
         if correcting_unrequested_photo(customer_written_text(body)):
             if has_new_messages(phone, batch_rows):
