@@ -21,3 +21,27 @@ def escalation_reason(customer, data=None, reply=None, history=()):
     if len(previous) >= 2 and answer == previous[-1] == previous[-2]:
         return 'השיחה נכנסה לחזרה ללא התקדמות'
     return None
+
+
+
+def planning_clarification(customer, prior, history):
+    """Recover missing ordinary planning detail with one question, not an unsafe answer."""
+    text=str(customer or '')
+    if not text.strip() or len(text)>350 or escalation_reason(text):
+        return None
+    if re.search(r'מחיר|כמה|אחריות|ביטול|תשלומ|אשראי|הנחה|תקן|בטיח|אטימות|עיגון|קידוח|לשבור|חשמל|קיר גבס|מחר|לתאם|תתקשר|נציג|אלירן',text):
+        return None
+    users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
+    if 'מקלחון' not in str(prior.get('product') or '') and 'מקלחון' not in users:
+        return None
+    if not re.search(r'קודם|צורה|דלת|פתיח|נוח|מידות|מקום|תמונה|דומה|אסלה|כיור|ארון|לא יודע|לא מדדתי',text):
+        return None
+    if int(prior.get('planning_clarification_count') or 0)>=2:
+        return None
+    if re.search(r'קודם|צורה',text):
+        return 'מה היה שונה במקלחון הקודם, המבנה שלו או הדרך שבה הדלת נפתחה?'
+    if re.search(r'תמונה|דומה',text):
+        return 'התמונה יכולה לעזור להבין את הכיוון, אבל לא לקבוע מידות. מה ממנה היית רוצה שיהיה גם אצלך?'
+    if re.search(r'לא מדדתי|מידות',text):
+        return 'אפשר להתחיל מהתכנון גם בלי מידות מדויקות. מה היית רוצה לשפר במקלחון?'
+    return 'כדי להבין מה יתאים לך, תוכלי לתאר איך היית רוצה להיכנס למקלחון ומה מפריע כרגע?'
