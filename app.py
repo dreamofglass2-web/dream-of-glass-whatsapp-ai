@@ -2218,8 +2218,8 @@ def process_message(phone, body, batch_rows=None):
         # Brief opening requests get an introduction and one name question first.
         request_text=customer_written_text(body)
         brief_request=bool(re.fullmatch(
-            r'(?:אני\s+)?(?:צריך|צריכה|רוצה|מעוניין|מעוניינת|מחפש|מחפשת)(?:\s+ב)?\s+'
-            r'(?:(?:\d+|שני|שתי)\s+)?(?:מקלחונים?|מראות|מראה|מחיצה|מחיצות|חיפוי|אמבטיון)\s*[.!?]*',
+            r'(?:אני\s+)?(?:צריך|צריכה|רוצה|מעוניין|מעוניינת|מחפש|מחפשת)\s+(?:ב)?'
+            r'(?:(?:\d+|שני|שתי)\s+)?(?:מקלחו(?:ן|נים)|מראות|מראה|מחיצה|מחיצות|חיפוי|אמבטיון)\s*[.!?]*',
             request_text))
         known_name=extract_customer_name(history) or prior.get('customer_name')
         form_named=any(bool((lead.get('fields') or {}).get('full_name'))
