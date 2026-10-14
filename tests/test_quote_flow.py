@@ -7,7 +7,7 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 TREE = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
 FUNCTIONS = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
 SELECTED = ("quote_intent", "closing_intent", "explicit_quote_approval",
-            "tiling_status", "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup", "confirmed_corner_two_door_specs")
+            "tiling_status", "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "glass_consultation_reply", "helpful_quote_followup", "confirmed_corner_two_door_specs")
 scope = {"re": re, "customer_written_text": lambda s: s, "BOM": {"פינתי 2 דלתות": {"ידית כפתור": 2}}, "SLIDING": {}}
 code = compile(ast.Module(body=[FUNCTIONS[n] for n in SELECTED], type_ignores=[]), "<extracted helpers>", "exec")
 exec(code, scope)
@@ -22,6 +22,20 @@ class QuoteFlowTests(unittest.TestCase):
             {"role": "user", "content": "הריצוף עוד לא הסתיים"},
             {"role": "user", "content": "סיימנו את הריצוף"},
         ]))
+
+    def test_glass_advice_instead_of_missing_glass_question(self):
+        for request in ["מעדיף שלא יהיה שקוף ממש מה האופציות וכמה עולה",
+                        "ראיתי זכוכית כמו בגוון לבן לא שקוף",
+                        "מה סוגי הזכוכית שיש לכם?"]:
+            reply = scope["helpful_quote_followup"]({"configuration": "פינתי 2 דלתות"}, request)
+            self.assertIn("אסיד", reply)
+            self.assertIn("חלבי", reply)
+            self.assertNotIn("איזה סוג זכוכית תרצו", reply)
+
+    def test_explicit_glass_choice_and_hardware_are_not_reinterpreted(self):
+        self.assertIsNone(scope["glass_consultation_reply"]("נלך על חלבי", {"glass_type": "חלבי"}))
+        self.assertIsNone(scope["glass_consultation_reply"]("פרזול לבן", {}))
+        self.assertIsNone(scope["glass_consultation_reply"]("כמה עולה המקלחון", {}))
 
     def test_source_syntax(self):
         self.assertGreater(len(TREE.body), 30)
