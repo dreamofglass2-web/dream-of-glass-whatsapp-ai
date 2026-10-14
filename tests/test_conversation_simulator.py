@@ -1437,3 +1437,15 @@ class QuoteBlockerConversationTests(ConversationSimulation):
         self.assertIn('ידית',self.sent[-1])
         self.assertNotIn('אין צורך במידע',self.sent[-1])
         self.assertNotIn('מחיר קודם',self.sent[-1])
+
+
+    def test_no_previous_offer_claim_when_only_layout_was_agreed(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון בשיפוץ, רוצה כניסה נוחה'},
+            {'role':'assistant','content':'איזה מבנה תרצה?'},
+        ],{'product':'מקלחון','glass_type':'שקופה','finish':'ניקל'})
+        self.step('נעשה קבוע ודלת ומתקפל בצד השני',self.model(
+            'המחיר הקודם אינו תקף למפרט החדש',
+            configuration='חצי הרמוניקה + חצי קבוע + דלת',solution_agreed=True))
+        self.assertNotIn('המחיר הקודם',self.sent[-1])
+        self.assertIn('הרוחב',self.sent[-1])
