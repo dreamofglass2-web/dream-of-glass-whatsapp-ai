@@ -1294,3 +1294,20 @@ class NaturalStyleRegressionTests(ConversationSimulation):
         self.assertIn('08:30',value)
         self.assertIn('https://example.com/a-b?q=x:y',value)
         self.assertEqual(yossi.without_emojis('7-10 ימים'),'7 עד 10 ימים')
+
+
+class ReferencePhotoRegressionTests(ConversationSimulation):
+    def test_adva_reference_confirmation_continues_without_model_or_handoff(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'מקלחון בשיפוץ, כניסה נוחה'},
+            {'role':'user','content':'[לקוח צירף תמונה שנותח בפועל. ממצאים חזותיים, לא מידות מאומתות: דוגמה לחדר]'},
+            {'role':'assistant','content':'זה החדר שלך או דוגמה?'},
+        ],{'product':'מקלחון','needs_human':True})
+        with patch.object(yossi,'pause_for_owner') as pause:
+            self.step('זה דומה למה שיהיה לי')
+        pause.assert_not_called()
+        self.assertIn('בלי לקבוע ממנה מידות',self.sent[-1])
+        self.assertIn('המקלחון הקודם',self.sent[-1])
+        self.assertFalse(self.memory[self.phone][1]['needs_human'])
+        for text in ('זו תמונה לדוגמה, רוצה לדבר עם בעל העסק','זו תמונה לדוגמה של מעקה','זה דומה למה שיהיה לי, כמה עולה?'):
+            self.assertIsNone(yossi.reference_photo_reply(self.memory[self.phone][0],{'product':'מקלחון'},text))
