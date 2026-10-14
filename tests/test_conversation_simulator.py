@@ -151,7 +151,7 @@ class ConversationSimulation(unittest.TestCase):
         for customer,product in [('מחפש מקלחון','מקלחון'),('צריך מראה','מראה'),('מחיצה למשרד','מחיצה')]:
             self.memory[self.phone] = ([], {'sales_discovery_completed': False})
             answer=self.step(customer,self.model('מה הרוחב?',product=product))
-            self.assertIn('שיפוץ',answer)
+            self.assertIn('שיפוץ' if customer=='מחיצה למשרד' else 'מה שמך?',answer)
             self.assertNotIn('מה הרוחב',answer)
 
     def test_price_first_discovers_project_and_experience(self):
