@@ -17,7 +17,7 @@ from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -857,7 +857,8 @@ def current_product_from_history(history):
         if item.get('role')!='user':
             continue
         text=customer_written_text(item.get('content') or '')
-        products=[p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה') if p in text]
+        products=[p for p in ('מקלחון','אמבטיון','מראה','מחיצה','חיפוי','מעקה')
+                  if p in text or (p=='מקלחון' and 'מקלחונים' in text) or (p=='מראה' and 'מראות' in text)]
         if len(products)==1:
             return products[0]
     return None
@@ -2215,6 +2216,30 @@ def process_message(phone, body, batch_rows=None):
             except Exception:
                 app.logger.exception('Failed to reply to simple social message')
                 return False
+        # Brief opening requests get an introduction and one name question first.
+        request_text=customer_written_text(body)
+        brief_request=bool(re.fullmatch(
+            r'(?:אני\s+)?(?:צריך|צריכה|רוצה|מעוניין|מעוניינת|מחפש|מחפשת)\s+(?:ב)?'
+            r'(?:(?:\d+|שני|שתי)\s+)?(?:מקלחו(?:ן|נים)|מראות|מראה|מחיצה|מחיצות|חיפוי|אמבטיון)\s*[.!?]*',
+            request_text))
+        known_name=extract_customer_name(history) or prior.get('customer_name')
+        form_named=any(bool((lead.get('fields') or {}).get('full_name'))
+                       for lead in (prior.get('meta_leads') or {}).values() if isinstance(lead,dict))
+        asked_name=any(m.get('role')=='assistant' and re.search(r'מה שמך|איך קוראים לך|מה השם שלך',
+                       str(m.get('content') or '')) for m in history)
+        business_started=current_product_from_history(history[:-1]) is not None
+        if brief_request and not prior.get('sales_discovery_completed') and not business_started and not known_name and not form_named and not asked_name:
+            if has_new_messages(phone,batch_rows):
+                return False
+            introduced=any(m.get('role')=='assistant' and 'יוסי' in str(m.get('content') or '')
+                           and 'חלומות מזכוכית' in str(m.get('content') or '') for m in history)
+            reply='בכיף, מה שמך?' if introduced else 'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?'
+            safe_context=dict(prior or {})
+            safe_context['product']=current_product_from_history(history) or prior.get('product')
+            safe_context['needs_human']=False
+            send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            return True
         # The customer correcting an invented photo deserves an apology, not a gallery.
         if correcting_unrequested_photo(customer_written_text(body)):
             if has_new_messages(phone, batch_rows):
@@ -2886,6 +2911,7 @@ def process_message(phone, body, batch_rows=None):
                 reply = missing_quote_detail(merged_pricing)
             if re.search(r'רק מחיר|מחיר בלבד|בלי שאלות', customer_request):
                 reply = re.sub(r'\s*איך זה נשמע לך[?]\s*$', '', reply).strip()
+            reply = omit_unasked_readiness(reply, history)
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})

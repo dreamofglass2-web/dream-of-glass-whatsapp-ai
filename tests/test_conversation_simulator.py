@@ -120,7 +120,7 @@ class ConversationSimulation(unittest.TestCase):
 
 
     def test_natural_project_question_is_preserved(self):
-        self.memory[self.phone] = ([], {'sales_discovery_completed': False})
+        self.memory[self.phone] = ([], {'sales_discovery_completed': False, 'customer_name':'דוד'})
         reply='היי, אני יוסי מחלומות מזכוכית. אשמח לעזור לבחור משהו שיהיה נוח לך. זה לשיפוץ או להחלפת מקלחון קיים?'
         self.assertEqual(self.step('מחפש מקלחון',self.model(reply)),reply)
 
@@ -151,7 +151,7 @@ class ConversationSimulation(unittest.TestCase):
         for customer,product in [('מחפש מקלחון','מקלחון'),('צריך מראה','מראה'),('מחיצה למשרד','מחיצה')]:
             self.memory[self.phone] = ([], {'sales_discovery_completed': False})
             answer=self.step(customer,self.model('מה הרוחב?',product=product))
-            self.assertIn('שיפוץ',answer)
+            self.assertIn('שיפוץ' if customer=='מחיצה למשרד' else 'מה שמך?',answer)
             self.assertNotIn('מה הרוחב',answer)
 
     def test_price_first_discovers_project_and_experience(self):
@@ -1511,3 +1511,37 @@ class OpeningProgressRegression(unittest.TestCase):
            {'role':'assistant','content':'מה נשמע?'},
            {'role':'user','content':'בסדר גמור'}]
         self.assertNotIn('במה אפשר לעזור',yossi.simple_social_reply('בסדר גמור',h))
+
+
+class BriefOpeningIntroductionTests(ConversationSimulation):
+    def test_two_showers_after_small_talk_get_intro_and_name_before_project_question(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'היי מה קורה'},
+            {'role':'assistant','content':'הכול טוב, מה איתך?'},
+            {'role':'user','content':'בסדר גמור'},
+            {'role':'assistant','content':'במה אפשר לעזור לך?'},
+        ],{'sales_discovery_completed':False})
+        with patch.object(yossi.client.responses,'create') as ai:
+            self.step('אני צריך 2 מקלחונים')
+        ai.assert_not_called()
+        self.assertEqual(self.sent[-1],'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?')
+        self.assertEqual(self.memory[self.phone][1]['product'],'מקלחון')
+
+    def test_name_answer_continues_discovery_without_asking_name_again(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'אני צריך 2 מקלחונים'},
+            {'role':'assistant','content':'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?'},
+        ],{'product':'מקלחון'})
+        self.step('דוד',self.model('זה לבית חדש או לשיפוץ?'))
+        self.assertEqual(self.memory[self.phone][1]['customer_name'],'דוד')
+        self.assertNotIn('מה שמך',self.sent[-1])
+
+
+class RoomReadinessEvidenceTests(unittest.TestCase):
+    def test_new_apartment_does_not_imply_unfinished_rooms(self):
+        from sales_dialogue import omit_unasked_readiness
+        answer='אפשר להתחיל לתכנן את המקלחונים גם אם החדרים עדיין לא גמורים. מה שמך?'
+        self.assertEqual(omit_unasked_readiness(answer,[{'role':'user','content':'דירה חדשה'}]),'מה שמך?')
+        self.assertEqual(omit_unasked_readiness(answer,[{'role':'user','content':'החדרים לא גמורים'}]),answer)
+        question='החדרים כבר מוכנים להתקנה?'
+        self.assertEqual(omit_unasked_readiness(question,[{'role':'user','content':'דירה חדשה'}]),question)
