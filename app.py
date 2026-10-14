@@ -9,7 +9,7 @@ import hmac
 import hashlib
 import secrets
 from callback_store import save_callback_record
-from owner_escalation import escalation_reason
+from owner_escalation import escalation_reason, planning_clarification
 from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
@@ -2413,6 +2413,18 @@ def process_message(phone, body, batch_rows=None):
                 data['quote_requested'] = True
                 if not safe_quote_wording(consultant_reply, calculate_quote(quote_specs)):
                     reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
+            # A missing ordinary planning detail is recoverable by clarification.
+            # Never reuse a possibly unsafe model answer or alter confirmed specifications.
+            clarification = planning_clarification(customer_request, prior, history) if data.get('needs_human') is True else None
+            if clarification:
+                if has_new_messages(phone, batch_rows):
+                    return False
+                clarification_context = dict(prior or {})
+                clarification_context['needs_human'] = False
+                clarification_context['planning_clarification_count'] = int(prior.get('planning_clarification_count') or 0) + 1
+                send_whatsapp(phone, body=clarification)
+                save_conversation(phone, history + [{'role':'assistant','content':clarification}], clarification_context)
+                return True
             reason = escalation_reason(customer_request, data, reply, history)
             if reason and HANDOFF_ENABLED:
                 if has_new_messages(phone, batch_rows):
@@ -2790,6 +2802,8 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
+            if data.get('needs_human') is not True:
+                next_context['planning_clarification_count'] = 0
             if custom_quote_lead_saved:
                 next_context['custom_quote_lead_saved'] = True
             for key in ('stage','action','next_missing_fact','product','configuration',
