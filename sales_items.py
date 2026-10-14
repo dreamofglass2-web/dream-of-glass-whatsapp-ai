@@ -18,7 +18,7 @@ def item_context(prior, history, customer):
     last_reply = next((str(m.get('content') or '') for m in reversed(history[:-1])
                        if m.get('role') == 'assistant'), '')
     target = numbered_item(str(customer))
-    if not target and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
+    if not target and len(set(re.findall(r'מקלחון (?:ה)?(?:ראשון|שני|שלישי)',last_reply)))<2 and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
         target = numbered_item(last_reply)
     multiple = bool(state.get('sales_items') or target or re.search(
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
@@ -26,7 +26,8 @@ def item_context(prior, history, customer):
         return state
     active = str(state.get('active_sales_item') or '1')
     items = state.setdefault('sales_items', {})
-    items[active] = {k: deepcopy(state[k]) for k in FIELDS if k in state}
+    if active not in items or any(key in state for key in ('configuration','width_cm','glass_type')):
+        items[active] = {k: deepcopy(state[k]) for k in FIELDS if k in state}
     target = target or active
     if target != active:
         for key in FIELDS:
