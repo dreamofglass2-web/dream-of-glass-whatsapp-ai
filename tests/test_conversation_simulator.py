@@ -1710,3 +1710,23 @@ class CompleteOrderFlowTests(ConversationSimulation):
         self.assertEqual(send.call_args.kwargs['document_bytes'],b'%PDF-test')
         self.assertIn('לאשר את ההצעה המלאה',send.call_args.kwargs['caption'])
         self.assertTrue(self.memory[self.phone][1]['quote_document'])
+
+
+class QuotePdfValidationTests(unittest.TestCase):
+    def test_pdf_renderer_rejects_inconsistent_total(self):
+        from quote_pdf import create_quote_pdf
+        with self.assertRaises(ValueError):
+            create_quote_pdf({'items':[{'amount_ils_pre_vat':100}],'amount_ils_pre_vat':200},{'name':'בדיקה'})
+
+    def test_document_upload_uses_guarded_media_id_message(self):
+        result=types.SimpleNamespace(status_code=200,raise_for_status=lambda:None)
+        media=types.SimpleNamespace(json=lambda:{'id':'MEDIA_TEST_123'},raise_for_status=lambda:None)
+        scope={'fingerprint':'offline-document-test','ordinal':0,'handoff_revision':0}
+        with patch.object(yossi,'is_simulation_contact',return_value=True),patch.object(yossi,'verified_business_lead',return_value=True),patch.object(yossi,'customer_freeform_send_allowed',return_value=True),patch.object(yossi,'HANDOFF_ENABLED',False),patch.object(yossi._delivery_scope,'current',scope,create=True),patch.object(yossi,'reserve_outbound_attempt',return_value=True),patch.object(yossi,'mark_outbound_attempt') as journal,patch.object(yossi.requests,'post',side_effect=[media,result]) as http:
+            yossi.send_whatsapp('OFFLINE_ONLY',document_bytes=b'%PDF-test',filename='quote.pdf',caption='הצעה לבדיקה')
+        self.assertEqual(http.call_count,2)
+        self.assertTrue(http.call_args_list[0].args[0].endswith('/media'))
+        payload=http.call_args_list[1].kwargs['json']
+        self.assertEqual(payload['type'],'document')
+        self.assertEqual(payload['document']['id'],'MEDIA_TEST_123')
+        journal.assert_called_once()
