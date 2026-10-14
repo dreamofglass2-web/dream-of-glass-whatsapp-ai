@@ -1511,3 +1511,27 @@ class OpeningProgressRegression(unittest.TestCase):
            {'role':'assistant','content':'מה נשמע?'},
            {'role':'user','content':'בסדר גמור'}]
         self.assertNotIn('במה אפשר לעזור',yossi.simple_social_reply('בסדר גמור',h))
+
+
+class BriefOpeningIntroductionTests(ConversationSimulation):
+    def test_two_showers_after_small_talk_get_intro_and_name_before_project_question(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'היי מה קורה'},
+            {'role':'assistant','content':'הכול טוב, מה איתך?'},
+            {'role':'user','content':'בסדר גמור'},
+            {'role':'assistant','content':'במה אפשר לעזור לך?'},
+        ],{})
+        with patch.object(yossi.client.responses,'create') as ai:
+            self.step('אני צריך 2 מקלחונים')
+        ai.assert_not_called()
+        self.assertEqual(self.sent[-1],'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?')
+        self.assertEqual(self.memory[self.phone][1]['product'],'מקלחון')
+
+    def test_name_answer_continues_discovery_without_asking_name_again(self):
+        self.memory[self.phone]=([
+            {'role':'user','content':'אני צריך 2 מקלחונים'},
+            {'role':'assistant','content':'בכיף, אני יוסי מחלומות מזכוכית. מה שמך?'},
+        ],{'product':'מקלחון'})
+        self.step('דוד',self.model('זה לבית חדש או לשיפוץ?'))
+        self.assertEqual(self.memory[self.phone][1]['customer_name'],'דוד')
+        self.assertNotIn('מה שמך',self.sent[-1])
