@@ -1573,3 +1573,85 @@ class KnownNameReminderTests(ConversationSimulation):
     def test_combined_human_request_is_not_exempted(self):
         from owner_escalation import escalation_reason
         self.assertIsNotNone(escalation_reason('כבר אמרתי לך קוראים לי יוסי, אני רוצה נציג אנושי'))
+
+
+class DavidPricePriorityTests(ConversationSimulation):
+    def offer(self):
+        specs=dict(product='מקלחון',configuration='פינתי 2 דלתות',width_cm=80,
+                   second_width_cm=80,height_cm=200,glass_type='חלבית',finish='ניקל מוברש',
+                   handles=['ידית כפתור']*2,solution_agreed=True)
+        # Use the current calculator's accepted glass spelling.
+        specs['glass_type']='חלבי'
+        specs['validated_quote']={**specs,'issued':True,'approved':False,
+                                 'amount_ils_pre_vat':yossi.calculate_quote(specs)}
+        return specs
+
+    def test_price_objection_preserves_value_answer_instead_of_repeating_offer(self):
+        prior=self.offer();self.memory[self.phone]=([
+            {'role':'user','content':'חשובה לי פרטיות'},
+            {'role':'assistant','content':'ההצעה הראשונית מוכנה'},
+        ],prior)
+        reply='הפרטיות חשובה לך ולכן בחרנו זכוכית חלבית. המחיר כולל מדידה והתקנה עם פרזול פליז. זה מעבר לתקציב שתכננת או שקיבלת הצעה נמוכה יותר?'
+        self.step('יש מה לעשות עם המחיר כי זה יקר לי',self.model(reply,quote_requested=True))
+        self.assertIn('הפרטיות',self.sent[-1])
+        self.assertIn('תקציב',self.sent[-1])
+        self.assertNotIn('לפי ההצעה שסיכמנו',self.sent[-1])
+
+    def test_budget_answer_is_saved_without_replacing_offer_or_making_discount(self):
+        prior=self.offer();before=prior['validated_quote'].copy()
+        self.memory[self.phone]=([{'role':'assistant','content':'מה התקציב שתכננת למקלחון?'}],prior)
+        with patch.object(yossi.client.responses,'create') as ai:
+            self.step('2000₪ כולל מע"מ')
+        ai.assert_not_called()
+        self.assertIn('התקציב',self.sent[-1]);self.assertIn('חלופה',self.sent[-1])
+        self.assertEqual(self.memory[self.phone][1]['customer_budget'],{'amount_ils':2000,'vat_basis':'included'})
+        self.assertEqual(self.memory[self.phone][1]['validated_quote'],before)
+
+    def test_bot_identity_after_offer_is_answered_directly_without_price(self):
+        self.memory[self.phone]=([],self.offer())
+        with patch.object(yossi.client.responses,'create') as ai:
+            self.step('אתה בוט או ...')
+        ai.assert_not_called()
+        self.assertIn('דיגיטלי',self.sent[-1]);self.assertNotIn('₪',self.sent[-1])
+
+    def test_final_quote_rewrite_loop_pauses_before_duplicate_is_sent(self):
+        prior=self.offer();amount=prior['validated_quote']['amount_ils_pre_vat']
+        previous=f'המחיר למפרט שסיכמנו הוא ₪{amount:,.0f} לפני מע״מ.'
+        self.memory[self.phone]=([{'role':'assistant','content':previous}],prior)
+        self.ai.queue.append(self.model('המחיר הוא ₪9999.'))
+        def capture(**kwargs):
+            yossi.HANDOFF_ENABLED=True
+            return self.ai.create(**kwargs)
+        with patch.object(yossi,'HANDOFF_ENABLED',False),patch.object(yossi.client.responses,'create',side_effect=capture),patch.object(yossi,'pause_for_owner',return_value=True) as pause:
+            self.assertTrue(yossi.process_message(self.phone,'זה לא מה ששאלתי'))
+        pause.assert_called_once();self.assertEqual(self.sent,[])
+
+    def test_prior_shower_is_not_assumed_from_new_home(self):
+        self.memory[self.phone]=([{'role':'user','content':'בית חדש'}],{'product':'מקלחון'})
+        self.step('מה אתה מציע?',self.model('מה היית רוצה לשפר לעומת המקלחון שהשתמשת בו?'))
+        self.assertIn('היה לך מקלחון',self.sent[-1])
+        self.assertNotIn('שהשתמשת',self.sent[-1])
+
+    def test_fixed_panel_layout_waits_for_widths(self):
+        self.memory[self.phone]=([{'role':'user','content':'פינה, יש מרווח לדלתות'}],{'product':'מקלחון'})
+        self.step('יש מרווח',self.model('אפשר חלק קבוע ודלת בכל צד. באיזו עיר?',configuration=None))
+        self.assertIn('מידות',self.sent[-1]);self.assertNotIn('חלק קבוע',self.sent[-1])
+
+
+class PriceIntentEscalationTests(unittest.TestCase):
+    def test_explicit_nonresponse_complaint_escalates(self):
+        from owner_escalation import escalation_reason
+        self.assertIsNotNone(escalation_reason('אתה לא עונה לעניין'))
+
+    def test_expected_cheaper_is_objection_not_fresh_quote(self):
+        self.assertTrue(yossi.price_objection('חשבתי על מחיר יותר זול'))
+        self.assertFalse(yossi.price_objection('מה המחיר?'))
+
+
+class RepeatedBudgetCorrectionTests(unittest.TestCase):
+    def test_budget_correction_is_not_a_vat_inclusion_question(self):
+        history=[{'role':'assistant','content':'אפשר לבדוק חלופה?'},
+                 {'role':'user','content':'אבל ביקשתי 2000₪ כולל מע"מ'}]
+        prior={'customer_budget':{'amount_ils':2000,'vat_basis':'included'}}
+        self.assertEqual(yossi.budget_answer(history[-1]['content'],history,prior),prior['customer_budget'])
+        self.assertIsNone(yossi.budget_answer('2000₪ כולל מע"מ',[{'role':'assistant','content':'מה רוחב הפתח?'}]))

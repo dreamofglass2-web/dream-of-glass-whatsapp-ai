@@ -11,7 +11,7 @@ def simple_name_correction(text):
 
 def escalation_reason(customer, data=None, reply=None, history=()):
     text = str(customer or '')
-    if not simple_name_correction(text) and re.search(r'נציג אנושי|לדבר עם בן אדם|רוצה לדבר עם (?:אלירן|בעל העסק)|אתה לא מבין|לא הבנת אותי|חוזר על עצמך|כבר אמרתי לך', text):
+    if not simple_name_correction(text) and re.search(r'נציג אנושי|לדבר עם בן אדם|רוצה לדבר עם (?:אלירן|בעל העסק)|אתה לא מבין|לא הבנת אותי|חוזר על עצמך|אתה לא עונה לעניין|את לא עונה לעניין|לא עונה לי לעניין|כבר אמרתי לך', text):
         return 'הלקוח ביקש אדם או דיווח שהשיחה אינה מתקדמת'
     if re.search(r'מעקה|קונסטרוקצי|חישוב עומס|אישור מהנדס|\bCNC\b|חיתוך מיוחד|זכוכית קונסטרוקטיבית', text, re.I):
         return 'נדרשת בדיקה מקצועית של בעל העסק'
