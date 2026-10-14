@@ -7,13 +7,22 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 TREE = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
 FUNCTIONS = {n.name: n for n in TREE.body if isinstance(n, ast.FunctionDef)}
 SELECTED = ("quote_intent", "closing_intent", "explicit_quote_approval",
-            "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup", "confirmed_corner_two_door_specs")
+            "tiling_status", "tiling_completed", "contains_ils_amount", "close_validated_quote", "missing_quote_detail", "helpful_quote_followup", "confirmed_corner_two_door_specs")
 scope = {"re": re, "customer_written_text": lambda s: s, "BOM": {"פינתי 2 דלתות": {"ידית כפתור": 2}}, "SLIDING": {}}
 code = compile(ast.Module(body=[FUNCTIONS[n] for n in SELECTED], type_ignores=[]), "<extracted helpers>", "exec")
 exec(code, scope)
 
 
 class QuoteFlowTests(unittest.TestCase):
+    def test_flooring_state_unknown_ready_and_latest_update(self):
+        self.assertIsNone(scope["tiling_status"]([]))
+        self.assertTrue(scope["tiling_status"]([{"role": "user", "content": "יש כבר ריצוף"}]))
+        self.assertFalse(scope["tiling_status"]([{"role": "user", "content": "הריצוף עוד לא הסתיים"}]))
+        self.assertTrue(scope["tiling_status"]([
+            {"role": "user", "content": "הריצוף עוד לא הסתיים"},
+            {"role": "user", "content": "סיימנו את הריצוף"},
+        ]))
+
     def test_source_syntax(self):
         self.assertGreater(len(TREE.body), 30)
 
