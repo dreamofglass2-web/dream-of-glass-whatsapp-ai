@@ -2550,7 +2550,7 @@ def process_message(phone, body, batch_rows=None):
                 data['height_cm'] = 200
                 quote_specs['height_cm'] = 200
                 height_basis = 'owner_approved_preliminary_200'
-            if (SEND_QUOTES and quote_is_shower and quote_requested_now and reply and calculate_quote(quote_specs) is not None
+            if (SEND_QUOTES and quote_is_shower and quote_requested_now and not price_objection(customer_request) and reply and calculate_quote(quote_specs) is not None
                     and not escalation_reason(customer_request)
                     and not re.search(r'אשראי|תשלומ|ביטול|תיקון|התחייב|הבטח|אטימות|מחר|אחריות', customer_request)
                     and (quote_specs.get('solution_agreed') is True or quote_intent(customer_request))):
@@ -2965,7 +2965,7 @@ def process_message(phone, body, batch_rows=None):
                     reply='נמשיך עם פרטי העבודה שסיכמנו.'
             if ordinary_turn and is_shower and not quote_record.get('issued'):
                 users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
-                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון',users))
+                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון|להחליף מקלחון|מקלחון קיים',users))
                 if not prior_shower and re.search(r'המקלחון הקודם|המקלחון שהשתמשת|מקלחון שהשתמשת',reply):
                     reply='היה לך מקלחון עד היום, או שהמקלחת הייתה פתוחה או עם וילון?'
                 if (not merged_pricing.get('width_cm') and re.search(r'פינתי|בפינה|פינה',users)
