@@ -83,6 +83,34 @@ class ConversationSimulation(unittest.TestCase):
 
 
 
+    def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
+        self.memory[self.phone] = (
+            [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},
+             {"role": "assistant", "content": "אתה מעדיף שקוף או פרטיות?"}],
+            {"product": "מקלחון", "configuration": "חזית קבוע + דלת",
+             "width_cm": 180, "height_cm": 200, "solution_agreed": True})
+        replies = []
+        with patch.object(yossi, "HANDOFF_ENABLED", True), patch.object(yossi, "pause_for_owner") as pause:
+            for customer in ["מעדיף שלא יהיה שקוף ממש מה האופציות שיש וכמה אמור לעלות",
+                             "ראיתי זכוכית כמו בגוון לבן לא שקוף"]:
+                replies.append(self.step(customer, self.model(
+                    "איזה סוג זכוכית תרצו למקלחון?", configuration="חזית קבוע + דלת",
+                    width_cm=180, height_cm=200, quote_requested=True, solution_agreed=True)))
+            pause.assert_not_called()
+        self.assertIn("חלבי", replies[0])
+        self.assertIn("אסיד", replies[1])
+        self.assertNotEqual(replies[0], replies[1])
+        self.assertFalse(self.memory[self.phone][1].get("glass_type"))
+        self.assertFalse(self.memory[self.phone][1].get("validated_quote", {}).get("issued"))
+
+    def test_missing_price_data_keeps_relevant_consultant_answer(self):
+        advice = "למראה פחות שקוף אפשר לבחור זכוכית חלבית. חשוב לך בעיקר פרטיות או המראה?"
+        reply = self.step("מעדיף שלא יהיה שקוף ממש מה האופציות וכמה יעלה",
+                          self.model(advice, configuration="חזית קבוע + דלת",
+                                     width_cm=180, height_cm=200, quote_requested=True))
+        self.assertIn("למראה פחות שקוף", reply)
+        self.assertNotIn("איזה סוג זכוכית תרצו", reply)
+
     def test_two_showers_keep_separate_specs_and_complete_total(self):
         first=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
                    height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית כפתור'],
