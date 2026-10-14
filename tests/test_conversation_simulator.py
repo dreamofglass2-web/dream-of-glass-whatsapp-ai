@@ -120,7 +120,7 @@ class ConversationSimulation(unittest.TestCase):
 
 
     def test_natural_project_question_is_preserved(self):
-        self.memory[self.phone] = ([], {'sales_discovery_completed': False})
+        self.memory[self.phone] = ([], {'sales_discovery_completed': False, 'customer_name':'דוד'})
         reply='היי, אני יוסי מחלומות מזכוכית. אשמח לעזור לבחור משהו שיהיה נוח לך. זה לשיפוץ או להחלפת מקלחון קיים?'
         self.assertEqual(self.step('מחפש מקלחון',self.model(reply)),reply)
 
@@ -1520,7 +1520,7 @@ class BriefOpeningIntroductionTests(ConversationSimulation):
             {'role':'assistant','content':'הכול טוב, מה איתך?'},
             {'role':'user','content':'בסדר גמור'},
             {'role':'assistant','content':'במה אפשר לעזור לך?'},
-        ],{})
+        ],{'sales_discovery_completed':False})
         with patch.object(yossi.client.responses,'create') as ai:
             self.step('אני צריך 2 מקלחונים')
         ai.assert_not_called()
