@@ -8,6 +8,7 @@ import os
 import types
 import unittest
 from unittest.mock import patch, MagicMock
+from handoff_state import new_state
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-offline-test-only")
 import app as yossi
@@ -93,7 +94,7 @@ class ConversationSimulation(unittest.TestCase):
         with patch.object(yossi, "HANDOFF_ENABLED", True), patch.object(yossi, "ensure_db"), \
                 patch.object(yossi, "db_connection", return_value=MagicMock()), \
                 patch.object(yossi, "phone_lock"), \
-                patch.object(yossi, "read_handoff_state", return_value={"owner": "bot", "revision": 1}), \
+                patch.object(yossi, "read_handoff_state", return_value=new_state()), \
                 patch.object(yossi, "automatic_reply_allowed", return_value=True), \
                 patch.object(yossi, "pause_for_owner") as pause:
             for customer in ["מעדיף שלא יהיה שקוף ממש מה האופציות שיש וכמה אמור לעלות",
