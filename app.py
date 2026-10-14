@@ -2597,6 +2597,9 @@ def process_message(phone, body, batch_rows=None):
             if quote_changed and had_current_offer and not quote_intent(customer_request):
                 reply = ('עדכנתי את המפרט לפי השינוי שביקשת. המחיר הקודם אינו תקף למפרט החדש; '
                          'אם תרצה, נחשב הצעה מעודכנת לפי הנתונים החדשים.')
+            if (ordinary_turn and is_shower and not had_current_offer and not quote_record.get('issued')
+                    and re.search(r'המחיר הקודם|מחיר קודם|ההצעה הקודמת', reply)):
+                reply = 'המפרט עודכן. כדי לחשב את ההצעה, ' + missing_quote_detail(merged_pricing)
             custom_quote_lead_saved = False
             # Corner sliding is not in the verified price catalogue. Do not trap the
             # customer in repeated layout questions once sliding was stated.
