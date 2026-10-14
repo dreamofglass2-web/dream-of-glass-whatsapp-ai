@@ -2019,6 +2019,26 @@ def measurement_planning_reply(history, prior, customer):
             'בשינוי המידות, מה חשוב לך יותר — יותר מקום בתוך המקלחון או כניסה נוחה יותר?')
 
 
+def reference_photo_reply(history, prior, customer):
+    """A reference image clarifies style, not dimensions or installation safety."""
+    text=str(customer or '')
+    if len(text)>220 or not re.search(r'דומה למה שיהיה|דומה למה שיש|תמונ.{0,15}דוגמ|זה.{0,12}(?:דוגמה|להמחשה)|רק.{0,8}(?:דוגמה|השראה)',text):
+        return None
+    if escalation_reason(text) or requires_specialist_review(text) or is_callback_request(text):
+        return None
+    if re.search(r'כמה|מחיר|אחריות|תשלום|מחר|מידה|\d',text):
+        return None
+    users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
+    if not ('מקלחון' in str(prior.get('product') or '') or 'מקלחון' in users):
+        return None
+    if not any('[לקוח צירף תמונה שנותח בפועל.' in str(m.get('content') or '') for m in history if m.get('role')=='user'):
+        return None
+    previous=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='assistant')
+    if re.search(r'איך.{0,20}נפת.{0,25}קודם|איזו פתיחה.{0,25}קודם',previous):
+        return 'נשתמש בתמונה להבנת הכיוון בלבד. לפני בחירת הדלתות צריך לבדוק את מרווח הפתיחה בחדר שלך, ואת המידות הסופיות נוודא במדידה.'
+    return 'נשתמש בתמונה להבנת הכיוון, בלי לקבוע ממנה מידות או התאמה לחדר שלך. איך נפתח המקלחון הקודם שלך?'
+
+
 def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
@@ -2217,6 +2237,15 @@ def process_message(phone, body, batch_rows=None):
             feedback_reply = 'תודה על ההערה' + (', ' + name if name else '') + '. נמשיך לפרטים הדרושים להצעת המחיר.'
             send_whatsapp(phone, body=feedback_reply)
             save_conversation(phone, history + [{'role':'assistant','content':feedback_reply}], feedback_context)
+            return True
+        reference_reply = reference_photo_reply(history, prior, customer_request)
+        if reference_reply:
+            if has_new_messages(phone, batch_rows):
+                return False
+            reference_context = dict(prior or {})
+            reference_context['needs_human'] = False
+            send_whatsapp(phone, body=reference_reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reference_reply}], reference_context)
             return True
         planning_reply = measurement_planning_reply(history, prior, customer_request)
         if planning_reply:
