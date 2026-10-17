@@ -120,6 +120,44 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn("למראה פחות שקוף", reply)
         self.assertNotIn("איזה סוג זכוכית תרצו", reply)
 
+    def test_named_glass_samples_and_missing_bronze_are_sent(self):
+        catalog = [
+            dict(url='https://example.test/galina', glass='גלינה קליר', product='מקלחון', configuration='חזית'),
+            dict(url='https://example.test/bronze', glass='אנטיסן ברונזה', product='מקלחון', configuration='חזית'),
+        ]
+        images = []
+        def capture(phone, body=None, image_url=None, caption=None):
+            if image_url:
+                images.append((image_url, caption))
+            self.sent.append(body or '[TEST_IMAGE]')
+        self.memory[self.phone] = ([{'role':'user','content':'אני בוחר זכוכית לאמבטיון'},
+                                    {'role':'assistant','content':'איזו דוגמה תרצה לראות?'}],
+                                   {'product':'אמבטיון'})
+        with patch.object(yossi, 'PHOTO_CATALOG', catalog), patch.object(yossi, 'send_whatsapp', side_effect=capture):
+            self.step('תשלח לי תמונה של גלינה וברונזה', self.model('הנה שתי דוגמאות להמחשה.'))
+            self.assertEqual({url for url, caption in images}, {p['url'] for p in catalog})
+            images.clear()
+            reply = self.step('לא שלחת ברונזה', self.model('סליחה, דוגמת הברונזה לא צורפה.'))
+        self.assertEqual([url for url, caption in images], ['https://example.test/bronze'])
+        self.assertIn('אנטיסן ברונזה', images[0][1])
+        self.assertNotIn('סליחה', reply)
+        self.assertIn('מה דעתך', reply)
+
+    def test_missing_photo_does_not_invent_an_unavailable_image(self):
+        self.memory[self.phone] = ([{'role':'assistant','content':'הנה דוגמאות של גלינה וברונזה.'}],
+                                   {'product':'מקלחון'})
+        with patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}):
+            reply = self.step('לא שלחת ברונזה', self.model('סליחה, לא צורפה.'))
+        self.assertNotIn('[TEST_IMAGE]', self.sent)
+        self.assertIn('אין לי כרגע תמונה זמינה', reply)
+        self.assertNotIn('שלחתי', reply)
+
+    def test_customer_denying_sending_or_requesting_image_is_not_a_resend_request(self):
+        history=[{'role':'assistant','content':'הנה דוגמאות של זכוכית.'}]
+        for text in ['לא שלחתי תמונה', 'לא ביקשתי תמונות', 'אל תשלח תמונות']:
+            self.assertFalse(yossi.missing_photo_request(text, history))
+        self.assertFalse(yossi.missing_photo_request('לא שלחת את ההצעה', []))
+
     def test_two_showers_keep_separate_specs_and_complete_total(self):
         first=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
                    height_cm=200,glass_type='שקופה',finish='שחור',handles=['ידית כפתור'],
