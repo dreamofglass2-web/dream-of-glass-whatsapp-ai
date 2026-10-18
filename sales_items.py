@@ -8,6 +8,13 @@ FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'pricing_height_basis')
 
 
+def preliminary_height(specs):
+    """Owner's pricing basis only; an explicit customer height takes precedence."""
+    if specs.get('height_cm') is not None:
+        return specs['height_cm']
+    return 140 if 'אמבטיון' in str(specs.get('product') or '') + str(specs.get('configuration') or '') else 200
+
+
 def numbered_item(text):
     matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|^(?:ה)?)(ראשון|שני|שלישי)\b', text)
     return {'ראשון': '1', 'שני': '2', 'שלישי': '3'}.get(matches[-1]) if matches else None
@@ -62,9 +69,7 @@ def combined_quote(state, history, customer, calculator):
         if not specs.get('solution_agreed'):
             missing.append(number)
             continue
-        specs.setdefault('height_cm', 200)
-        if specs.get('height_cm') is None:
-            specs['height_cm'] = 200
+        specs['height_cm'] = preliminary_height(specs)
         amount = calculator(specs)
         if amount is None:
             missing.append(number)
@@ -75,7 +80,7 @@ def combined_quote(state, history, customer, calculator):
         return ('; '.join(lines) + '. ' if lines else '') + 'עדיין חסרים פרטים לחישוב מקלחון ' + ', '.join(missing) + '; אין עדיין סכום כולל להזמנה.'
     return ('הצעת המחיר הראשונית לשני המקלחונים: ' + '; '.join(lines) +
             f'. יחד {total:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. '
-            'גובה שלא נמדד חושב לפי 200 ס״מ לצורך תמחור בלבד. המידות הסופיות ייבדקו בשטח, '
+            'גובה שלא נמדד חושב לפי 140 ס״מ לאמבטיון ו־200 ס״מ למקלחון לצורך תמחור בלבד. המידות הסופיות ייבדקו בשטח, '
             'ושינוי במידות או במפרט עשוי לשנות את המחיר.')
 
 import hashlib
@@ -92,7 +97,7 @@ def bundle_offer(state, calculator, allow_single=False):
         specs=deepcopy(original)
         if not specs.get('solution_agreed'):
             return None
-        specs['height_cm']=specs.get('height_cm') or 200
+        specs['height_cm']=preliminary_height(specs)
         amount=calculator(specs)
         if amount is None:
             return None
@@ -113,6 +118,6 @@ def bundle_offer_reply(offer):
         label={'1':'הראשון','2':'השני','3':'השלישי'}.get(item['number'],item['number'])
         lines.append(f"מקלחון {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ, זכוכית {s['glass_type']}, פרזול {s['finish']}, {handles}. המחיר {item['amount_ils_pre_vat']:,.0f} ש״ח לפני מע״מ.")
     lines.append(f"סך הכול לכל המקלחונים {offer['amount_ils_pre_vat']:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה.")
-    lines.append('זו הצעה ראשונית, והמידות הסופיות ייבדקו בשטח. גובה שלא נמדד חושב לפי 200 ס״מ לצורך ההצעה, ושינוי במידות או במפרט עשוי לשנות את המחיר.')
+    lines.append('זו הצעה ראשונית, והמידות הסופיות ייבדקו בשטח. גובה שלא נמדד חושב לפי 140 ס״מ לאמבטיון ו־200 ס״מ למקלחון לצורך ההצעה, ושינוי במידות או במפרט עשוי לשנות את המחיר.')
     lines.append('מתאים לך לאשר את ההצעה המלאה?')
     return '\n\n'.join(lines)

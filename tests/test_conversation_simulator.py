@@ -1888,3 +1888,61 @@ class MissingPhotoDeliveryRegressionTests(unittest.TestCase):
         self.assertEqual(send.call_args_list[0].kwargs['image_url'], 'https://example.test/bronze')
         self.assertIn('מה דעתך', self.sent[-1])
         self.assertNotIn('שמרתי פנייה', self.sent[-1])
+
+
+class CenterSlidingBathTests(unittest.TestCase):
+    setUp = ConversationSimulation.setUp
+    load = ConversationSimulation.load
+    save = ConversationSimulation.save
+    send = ConversationSimulation.send
+    reset = ConversationSimulation.reset
+    step = ConversationSimulation.step
+    model = ConversationSimulation.model
+
+    def specs(self, **extra):
+        return dict(product='אמבטיון', configuration='הזזה 2 קבועים + דלת',
+                    width_cm=181, glass_type='אנטיסן ברונזה', finish='ניקל',
+                    solution_agreed=True, **extra)
+
+    def test_center_sliding_configuration_is_allowed_and_saved_after_yes(self):
+        self.memory[self.phone] = ([{'role':'user','content':'קבוע בשני הצדדים ודלת באמצע'},
+                                    {'role':'assistant','content':'הדלת האמצעית עדיין תהיה בהזזה?'}],
+                                   dict(product='אמבטיון',width_cm=181,glass_type='אנטיסן ברונזה',finish='ניקל'))
+        fields = self.specs()
+        self.ai.queue.append(self.model('אפשר להמשיך עם הבחירה הזו, ואת החלוקה הסופית נבדוק בשטח.', **fields))
+        with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.object(yossi, 'ensure_db'), \
+             patch.object(yossi, 'db_connection', return_value=MagicMock()), \
+             patch.object(yossi, 'read_handoff_state', return_value=new_state()), \
+             patch.object(yossi, 'pause_for_owner') as pause:
+            self.assertTrue(yossi.process_message(self.phone, 'כן'))
+        pause.assert_not_called()
+        self.assertEqual(self.memory[self.phone][1]['configuration'], fields['configuration'])
+        schema=yossi.sales_output_format(yossi.SALES_CONFIGURATIONS,yossi.GLASS_COSTS,yossi.FINISH_MULTIPLIERS)
+        self.assertIn(fields['configuration'], schema['schema']['properties']['configuration']['enum'])
+        self.assertIsNone(yossi.calculate_quote(dict(fields,height_cm=140)))
+
+    def test_new_configuration_never_borrows_an_unapproved_hardware_price(self):
+        self.memory[self.phone] = ([{'role':'assistant','content':'נמשיך עם שני קבועים ודלת הזזה באמצע.'}], self.specs())
+        self.ai.queue.append(self.model('אפשר להכין הצעה לפי המפרט.', quote_requested=True, **self.specs()))
+        with patch.object(yossi, 'SEND_QUOTES', True), patch.object(yossi, 'HANDOFF_ENABLED', True), \
+             patch.object(yossi, 'ensure_db'), patch.object(yossi, 'db_connection', return_value=MagicMock()), \
+             patch.object(yossi, 'read_handoff_state', return_value=new_state()), \
+             patch.object(yossi, 'pause_for_owner', return_value=True) as pause:
+            self.assertTrue(yossi.process_message(self.phone, 'כמה זה עולה?'))
+        pause.assert_called_once()
+        self.assertEqual(self.sent, [])
+
+    def test_priced_bath_uses_140_height_and_retains_explicit_height(self):
+        for height, expected in [(None,140),(150,150)]:
+            with self.subTest(height=height):
+                self.memory.clear()
+                self.sent.clear()
+                specs=dict(product='אמבטיון',configuration='אמבטיון 2 קבועים + דלת',width_cm=181,
+                           glass_type='אנטיסן ברונזה',finish='ניקל',handles=['ידית כפתור'],
+                           solution_agreed=True,height_cm=height)
+                self.memory[self.phone]=([{'role':'assistant','content':'נמשיך עם האמבטיון שבחרת.'}],specs)
+                with patch.object(yossi,'SEND_QUOTES',True):
+                    self.step('כמה זה עולה?',self.model('נחשב את ההצעה.',quote_requested=True,**specs))
+                quote=self.memory[self.phone][1]['validated_quote']
+                self.assertEqual(quote['height_cm'],expected)
+                self.assertEqual(quote['amount_ils_pre_vat'],yossi.calculate_quote(dict(specs,height_cm=expected)))

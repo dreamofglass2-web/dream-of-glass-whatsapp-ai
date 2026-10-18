@@ -14,7 +14,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply
+from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
@@ -711,6 +711,9 @@ BOM = {
  'אמבטיון קבוע + 2 דלתות': {'ציר קיר זכוכית':2,'ציר זכוכית זכוכית':2,'זווית קיר זכוכית':2,'מגנט חזית':1,'מגב רצפה':1,'אטם בלון':2,'ידית כפתור':2},
 }
 SLIDING = {'הזזה קבוע + דלת':600,'הזזה 2 קבועים + 2 דלתות':1200}
+# Recognized for consultation; a hardware cost must be approved before pricing.
+ADVICE_CONFIGURATIONS = {'הזזה 2 קבועים + דלת'}
+SALES_CONFIGURATIONS = list(BOM) + list(SLIDING) + sorted(ADVICE_CONFIGURATIONS)
 
 # These images must be public HTTPS URLs for photos of your actual hardware.
 HANDLE_BUTTON_IMAGE_URL = os.getenv('HANDLE_BUTTON_IMAGE_URL', '')
@@ -1620,6 +1623,8 @@ def proposed_layout_guidance(history):
 
 def missing_quote_detail(data):
     config = data.get('configuration')
+    if config == 'הזזה 2 קבועים + דלת':
+        return 'נדרשת בדיקת מחיר לפרזול של שני קבועים ודלת הזזה אחת, לפני שאפשר למסור הצעה.'
     if config not in BOM and config not in SLIDING:
         return 'כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?'
     if not data.get('glass_type'):
@@ -1719,6 +1724,8 @@ def helpful_quote_followup(data, customer_request, first_message=False):
             return greeting + prefix + 'רק דבר אחד: הדלתות מחוברות ישירות לקירות, או שיש לצדן גם זכוכיות קבועות?'
         if not data.get('handles'):
             return greeting + prefix + 'איזה ידיות תרצה לדלתות — כפתור או מגבת?'
+    if data.get('configuration') == 'הזזה 2 קבועים + דלת':
+        return greeting + missing_quote_detail(data)
     if data.get('configuration') not in BOM and data.get('configuration') not in SLIDING:
         if 'פינתי' in text:
             return greeting + 'למקלחון פינתי אפשר להתאים פתיחה נוחה לפי המקום בחדר. יש לידו כיור או אסלה שצריך להתחשב בהם?'
@@ -2562,7 +2569,7 @@ def process_message(phone, body, batch_rows=None):
             prior['customer_name'] = extract_customer_name(history)
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
-        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), list(BOM)+list(SLIDING))
+        instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name', 'customer_budget')
@@ -2602,7 +2609,7 @@ def process_message(phone, body, batch_rows=None):
                     'prompt_cache_breakpoint':{'mode':'explicit'}}]},
                     {'role':'developer','content':dynamic_context}] + model_history,
                 prompt_cache_options={'mode':'explicit','ttl':'30m'},
-                text={'format':sales_output_format(list(BOM)+list(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS)},
+                text={'format':sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)},
             )
             usage = getattr(response, 'usage', None)
             app.logger.info('AI_RESPONSE model=%s input_tokens=%s output_tokens=%s phone_suffix=%s',
@@ -2614,7 +2621,7 @@ def process_message(phone, body, batch_rows=None):
                                  customer_turn=sum(m.get('role') == 'user' for m in history),
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
-            data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(BOM) | set(SLIDING), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
             if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
                 data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
@@ -2652,7 +2659,7 @@ def process_message(phone, body, batch_rows=None):
                         'height_cm','glass_type','finish','handles','solution_agreed'):
                 if data.get(key) is not None:
                     quote_specs[key] = data[key]
-            quote_is_shower = str(quote_specs.get('product') or '').startswith('מקלחון')
+            quote_is_shower = str(quote_specs.get('product') or '').startswith(('מקלחון', 'אמבטיון'))
             explicit_height = re.search(r'(?:לפי\s+)?גובה\s*(\d{2,3})(?:\s*ס[״"]?מ)?', customer_request)
             height_basis = None
             if quote_requested_now and quote_is_shower and explicit_height:
@@ -2660,9 +2667,9 @@ def process_message(phone, body, batch_rows=None):
                 quote_specs['height_cm'] = data['height_cm']
                 height_basis = 'customer_requested_quote_height'
             elif quote_requested_now and quote_is_shower and quote_specs.get('height_cm') is None:
-                data['height_cm'] = 200
-                quote_specs['height_cm'] = 200
-                height_basis = 'owner_approved_preliminary_200'
+                data['height_cm'] = preliminary_height(quote_specs)
+                quote_specs['height_cm'] = data['height_cm']
+                height_basis = 'owner_approved_preliminary_' + str(data['height_cm'])
             if (SEND_QUOTES and quote_is_shower and quote_requested_now and not price_objection(customer_request) and reply and calculate_quote(quote_specs) is not None
                     and not escalation_reason(customer_request)
                     and not re.search(r'אשראי|תשלומ|ביטול|תיקון|התחייב|הבטח|אטימות|מחר|אחריות', customer_request)
@@ -2788,7 +2795,7 @@ def process_message(phone, body, batch_rows=None):
                 quote_record = {}
                 prior_quote = False
             current_product = merged_pricing.get('product')
-            is_shower = (str(current_product).startswith('מקלחון') if current_product else
+            is_shower = (str(current_product).startswith(('מקלחון', 'אמבטיון')) if current_product else
                          'מקלחון' in ' '.join(customer_written_text(m.get('content', ''))
                                               for m in history[-12:] if m.get('role') == 'user'))
             ordinary_turn = not (direct_identity or showroom_question or competitor_exit or
@@ -2830,7 +2837,7 @@ def process_message(phone, body, batch_rows=None):
                 else:
                     # Calculator failure must produce a concrete next step, not model limbo.
                     missing = missing_quote_detail(merged_pricing)
-                    if missing.startswith('חסר עוד אימות') and HANDOFF_ENABLED:
+                    if missing.startswith(('חסר עוד אימות', 'נדרשת בדיקת מחיר')) and HANDOFF_ENABLED:
                         if has_new_messages(phone, batch_rows):
                             return False
                         return pause_for_owner(phone, body, 'נדרשת בדיקת תמחור למפרט שאינו עובר את בדיקות המחשבון')
@@ -3072,7 +3079,7 @@ def process_message(phone, body, batch_rows=None):
                     reply=bundle_offer_reply(complete_order)
                 elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested')):
                     missing=next((number for number,specs in sorted(quote_state['sales_items'].items())
-                                  if not specs.get('solution_agreed') or calculate_quote(dict(specs,height_cm=specs.get('height_cm') or 200)) is None),None)
+                                  if not specs.get('solution_agreed') or calculate_quote(dict(specs,height_cm=preliminary_height(specs))) is None),None)
                     if missing:
                         reply='כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])
                         quote_record={}

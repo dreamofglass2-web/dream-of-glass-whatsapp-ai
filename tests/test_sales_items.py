@@ -46,3 +46,16 @@ class SeparateItemsTests(unittest.TestCase):
         self.assertEqual([p['url'] for p in photos],['towel'])
         self.assertIn('ידית מגבת',photos[0]['caption'])
         self.assertEqual(handle_photos([catalog[-1]],'ידיות',{}),[])
+
+
+class BathHeightBasisTests(unittest.TestCase):
+    def test_mixed_order_uses_independent_bath_and_shower_heights(self):
+        from sales_items import bundle_offer, preliminary_height, bundle_offer_reply
+        specs={'1':dict(product='אמבטיון',configuration='אמבטיון 2 קבועים + דלת',solution_agreed=True,width_cm=181),
+               '2':dict(product='מקלחון',configuration='חזית קבוע + דלת',solution_agreed=True,width_cm=100)}
+        seen=[]
+        offer=bundle_offer({'sales_items':specs},lambda s:seen.append(s) or s['height_cm'])
+        self.assertEqual([s['height_cm'] for s in seen],[140,200])
+        self.assertEqual(preliminary_height(dict(product='אמבטיון',height_cm=155)),155)
+        self.assertNotIn('height_cm',specs['1'])
+        self.assertIn('140',bundle_offer_reply(offer))
