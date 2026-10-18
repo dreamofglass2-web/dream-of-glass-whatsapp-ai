@@ -5,7 +5,7 @@ from copy import deepcopy
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis')
+          'pricing_height_basis', 'bath_clearance_warned')
 
 
 def preliminary_height(specs):
@@ -16,6 +16,9 @@ def preliminary_height(specs):
 
 
 def numbered_item(text):
+    # A cardinal count of panels is not the ordinal second shower.
+    if re.match(r'^\s*שני\s+(?:קבועים|מקלחונים|חלקים|צדדים|לוחות|דלתות)\b', text):
+        return None
     matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|^(?:ה)?)(ראשון|שני|שלישי)\b', text)
     return {'ראשון': '1', 'שני': '2', 'שלישי': '3'}.get(matches[-1]) if matches else None
 

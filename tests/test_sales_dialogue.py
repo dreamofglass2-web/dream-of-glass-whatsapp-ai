@@ -166,3 +166,29 @@ class PreferredNameWordingTests(unittest.TestCase):
         for question in ('מה שמך?','אגב, איך קוראים לך?'):
             history=h+[{'role':'assistant','content':question},{'role':'user','content':'אדוה'}]
             self.assertNotEqual(consultation_plan(history,{},'אדוה')['step'],'customer_name')
+
+
+
+class BathEntryConstraintTests(unittest.TestCase):
+    def test_warning_requires_all_owner_conditions_and_respects_threshold(self):
+        from sales_dialogue import bath_entry_constraint
+        base=dict(product='אמבטיון',configuration='הזזה 2 קבועים + דלת')
+        history=[{'role':'user','content':'יש ארון בצד השני'}]
+        self.assertIn('מפתח כניסה קטן',bath_entry_constraint(history,dict(base,width_cm=169))['reply'])
+        for width in (170,181,None,0):
+            self.assertIsNone(bath_entry_constraint(history,dict(base,width_cm=width)))
+        self.assertIsNone(bath_entry_constraint([],dict(base,width_cm=160)))
+        self.assertIsNone(bath_entry_constraint(history+[{'role':'user','content':'אין ארון בצד'}],dict(base,width_cm=160)))
+        self.assertIsNone(bath_entry_constraint([{'role':'user','content':'[לקוח צירף תמונה שנותח בפועל. יש ארון בצד]'}],dict(base,width_cm=160)))
+        self.assertIsNone(bath_entry_constraint(history,dict(base,width_cm=160,product='מקלחון')))
+        self.assertIsNone(bath_entry_constraint(history,dict(base,width_cm=160,configuration='הזזה 2 קבועים + 2 דלתות')))
+
+    def test_warning_is_item_scoped_and_not_repeated(self):
+        from sales_dialogue import bath_entry_constraint
+        specs=dict(product='אמבטיון',configuration='הזזה 2 קבועים + דלת',width_cm=160)
+        h=[{'role':'user','content':'למקלחון הראשון יש ארון בצד'},
+           {'role':'user','content':'נעבור למקלחון השני'}]
+        self.assertIsNone(bath_entry_constraint(h,dict(specs,active_sales_item='2')))
+        result=bath_entry_constraint(h,dict(specs,active_sales_item='1'))
+        self.assertIsNotNone(result)
+        self.assertIsNone(bath_entry_constraint(h,dict(specs,active_sales_item='1',bath_clearance_warned=result['signature'])))

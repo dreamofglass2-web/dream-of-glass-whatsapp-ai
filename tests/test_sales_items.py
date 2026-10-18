@@ -59,3 +59,10 @@ class BathHeightBasisTests(unittest.TestCase):
         self.assertEqual(preliminary_height(dict(product='אמבטיון',height_cm=155)),155)
         self.assertNotIn('height_cm',specs['1'])
         self.assertIn('140',bundle_offer_reply(offer))
+
+
+    def test_panel_count_is_not_a_second_shower(self):
+        from sales_items import numbered_item
+        self.assertIsNone(numbered_item('שני קבועים ודלת באמצע'))
+        self.assertIsNone(numbered_item('שני מקלחונים'))
+        self.assertEqual(numbered_item('למקלחון השני'),'2')
