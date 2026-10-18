@@ -208,14 +208,35 @@ PERSONAL_SERVICE_VALUE = ('אלירן בעל העסק מגיע בעצמו למד
                           'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך.')
 
 
-def personal_service_value(reply, customer, history):
-    """Supplement price/value discussion once, without replacing existing advice."""
+def personal_service_value(reply, customer, history, product=None):
+    """Complete missing value facts, including when the model supplied only some."""
     text = str(customer or '')
     if not re.search(r'יקר|מחיר.{0,15}גבוה|הציעו לי|מתחר|להשוות|השוואה|הצעה אחרת|מישהו אחר.{0,15}זול', text):
         return reply
     if re.search(r'לא מעוניין|אל תפנ|אלך איתם|אסגור איתם|הולך איתם', text):
         return reply
     recent = [str(m.get('content') or '') for m in history[-7:] if m.get('role') == 'assistant']
-    if any('אלירן' in answer and re.search(r'קבלני משנה|מגיע בעצמו', answer) for answer in [str(reply or '')] + recent):
+    answers = [str(reply or '')] + recent
+    additions = []
+    facts = []
+    if str(product or '').startswith(('מקלחון', 'אמבטיון')):
+        if not any('פליז' in answer and 'פרימיום' in answer for answer in answers):
+            facts.append('פרזול מפליז פרימיום')
+        if not any(re.search(r'(?:7|שבע)\s*(?:שנות|שנים).{0,25}אחריות.{0,25}פרזול|אחריות.{0,25}פרזול.{0,25}(?:7|שבע)\s*(?:שנות|שנים)', answer) for answer in answers):
+            facts.append('7 שנות אחריות על הפרזול')
+        if not any(re.search(r'(?:שנה|שנת|1\s*שנ(?:ה|ת)).{0,20}אחריות.{0,20}התקנה|אחריות.{0,20}התקנה.{0,15}(?:שנה|שנת)|שנה.{0,10}(?:על\s+ההתקנה|ל?התקנה)', answer) for answer in answers):
+            facts.append('שנה אחריות על ההתקנה')
+    if facts:
+        additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
+    if not any('אלירן' in answer and re.search(r'קבלני משנה|מגיע בעצמו', answer) for answer in answers):
+        additions.append(PERSONAL_SERVICE_VALUE)
+    if not additions:
         return reply
-    return str(reply or '').rstrip() + ' ' + PERSONAL_SERVICE_VALUE
+    addition = ' '.join(additions)
+    # Keep the customer's next step last, rather than placing a pitch after it.
+    value = str(reply or '').strip()
+    question = re.search(r'(?:^|(?<=[.!?])\s+)([^.!?\n]+\?)\s*$', value)
+    if question:
+        prefix = value[:question.start()].rstrip()
+        return ' '.join(part for part in (prefix, addition, question.group(1).strip()) if part)
+    return value + ' ' + addition

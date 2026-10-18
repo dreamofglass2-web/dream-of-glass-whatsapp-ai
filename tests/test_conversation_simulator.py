@@ -2038,3 +2038,13 @@ class PartialBathOrderTests(unittest.TestCase):
         self.assertIn('בלי קבלני משנה',reply)
         self.assertNotIn('2,508',reply)
         self.assertEqual(self.memory[self.phone][1]['active_sales_item'],'1')
+
+
+    def test_bath_price_objection_includes_hardware_warranty_and_owner_service(self):
+        h=[{'role':'assistant','content':'המחיר הראשוני לאמבטיון הוא 2508 לפני מעמ.'}]
+        self.memory[self.phone]=(h,self.bath())
+        reply=self.step('וואו יקר, קיבלתי 2500 כולל מעמ',self.model(
+            'אצלנו אלירן מודד ומתקין בעצמו בלי קבלני משנה ומלווה גם בשירות לאחר ההתקנה. ההצעה האחרת לאותו מפרט?',**self.bath()))
+        for fact in ['פליז פרימיום','7 שנות אחריות על הפרזול','שנה אחריות על ההתקנה','בלי קבלני משנה']:
+            self.assertIn(fact,reply)
+        self.assertTrue(reply.endswith('ההצעה האחרת לאותו מפרט?'))
