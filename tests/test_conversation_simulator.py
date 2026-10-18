@@ -40,7 +40,6 @@ class ConversationSimulation(unittest.TestCase):
             patch.object(yossi, "reset_conversation_for_phone", side_effect=self.reset),
             patch.object(yossi, "save_callback", return_value=True),
             patch.object(yossi, "save_custom_quote_lead", return_value=True),
-            patch.object(yossi, "save_missing_photo_lead", return_value=True),
             patch.object(yossi, "has_new_messages", return_value=False),
             patch.object(yossi.time, "sleep", return_value=None),
             patch.object(yossi.client.responses, "create", side_effect=self.ai.create),
@@ -138,7 +137,7 @@ class ConversationSimulation(unittest.TestCase):
             self.step('תשלח לי תמונה של גלינה וברונזה', self.model('הנה שתי דוגמאות להמחשה.'))
             self.assertEqual({url for url, caption in images}, {p['url'] for p in catalog})
             images.clear()
-            reply = self.step('לא שלחת ברונזה', self.model('סליחה, דוגמת הברונזה לא צורפה.'))
+            reply = self.step('הברונזה לא נשלח', self.model('אין לי תמונה זמינה, שמרתי פנייה.'))
         self.assertEqual([url for url, caption in images], ['https://example.test/bronze'])
         self.assertIn('אנטיסן ברונזה', images[0][1])
         self.assertNotIn('סליחה', reply)
@@ -377,7 +376,7 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn('חלק אחד', answer)
 
     def test_unavailable_visual_request_does_not_claim_sent_media(self):
-        with patch.object(yossi,'PHOTO_CATALOG',[]), patch.object(yossi,'GLASS_SAMPLE_IMAGES',{}), patch.object(yossi,'save_missing_photo_lead',return_value=True):
+        with patch.object(yossi,'PHOTO_CATALOG',[]), patch.object(yossi,'GLASS_SAMPLE_IMAGES',{}):
             answer = self.step('קשה לי לדמיין איך זה ייראה', self.model('הנה התמונות'))
         self.assertNotIn('[TEST_IMAGE]', self.sent)
         self.assertIn('אין לי תמונה מתאימה', answer)
@@ -1828,11 +1827,11 @@ class MissingPhotoDeliveryRegressionTests(unittest.TestCase):
         self.assertIn('השליחה לא הצליחה', reply)
         self.assertNotIn('מה דעתך', reply)
 
-    def test_missing_image_task_failure_is_explicit(self):
+    def test_missing_image_without_handoff_does_not_claim_an_owner_task(self):
         self.memory[self.phone] = ([{'role': 'assistant', 'content': 'הנה תמונת ברונזה'}], {})
-        with patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}), patch.object(yossi, 'save_missing_photo_lead', return_value=False):
+        with patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}):
             reply = self.step('לא שלחת ברונזה', self.model('שלחתי את התמונה'))
-        self.assertIn('לא הצלחתי לשמור', reply)
+        self.assertIn('לא נפתחה פנייה', reply)
         self.assertNotIn('שלחתי', reply)
         self.assertNotIn('[TEST_IMAGE]', self.sent)
 
@@ -1848,3 +1847,44 @@ class MissingPhotoDeliveryRegressionTests(unittest.TestCase):
             self.assertEqual([p['glass'] for p in photos], ['גלינה קליר', 'אנטיסן אפור'])
             photos = yossi.pick_sample_photos('תשלח תמונה של גלינה ופרזול ברונזה', [], {})
             self.assertEqual([p['glass'] for p in photos], ['גלינה קליר'])
+
+
+    def test_definite_glass_name_resends_only_bronze_without_owner_task(self):
+        catalog = [dict(url='https://example.test/galina', glass='גלינה קליר', product='מקלחון', configuration='חזית'),
+                   dict(url='https://example.test/bronze', glass='אנטיסן ברונזה', product='מקלחון', configuration='חזית')]
+        history = [{'role': 'assistant', 'content': 'מצרף דוגמאות של גלינה וברונזה'}]
+        for text in ['הברונזה לא נשלח', 'לא קיבלתי את הברונזה', 'הברונזה לא הגיעה']:
+            with self.subTest(text=text), patch.object(yossi, 'PHOTO_CATALOG', catalog):
+                self.assertTrue(yossi.missing_photo_request(text, history))
+                photos = yossi.pick_sample_photos(text, history, {})
+                self.assertEqual([p['glass'] for p in photos], ['אנטיסן ברונזה'])
+
+    def test_unavailable_image_uses_existing_owner_handoff_before_any_claim(self):
+        self.memory[self.phone] = ([{'role': 'assistant', 'content': 'מצרף תמונת ברונזה'}], {})
+        self.ai.queue.append(self.model('שמרתי פנייה לאלירן'))
+        with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.object(yossi, 'ensure_db'), \
+             patch.object(yossi, 'db_connection', return_value=MagicMock()), \
+             patch.object(yossi, 'read_handoff_state', return_value=new_state()), \
+             patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}), \
+             patch.object(yossi, 'pause_for_owner', return_value=True) as pause:
+            self.assertTrue(yossi.process_message(self.phone, 'הברונזה לא נשלח'))
+        pause.assert_called_once_with(self.phone, 'הברונזה לא נשלח', 'תמונה מבוקשת אינה זמינה בקטלוג')
+        self.assertEqual(self.sent, [])
+
+
+    def test_real_wording_resends_with_handoff_enabled_and_does_not_escalate(self):
+        self.memory[self.phone] = ([{'role': 'assistant', 'content': 'מצרף דוגמאות של גלינה וברונזה'}], {})
+        self.ai.queue.append(self.model('אין לי תמונה זמינה, שמרתי פנייה'))
+        catalog = [dict(url='https://example.test/bronze', glass='אנטיסן ברונזה', product='מקלחון', configuration='חזית')]
+        with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.object(yossi, 'ensure_db'), \
+             patch.object(yossi, 'db_connection', return_value=MagicMock()), \
+             patch.object(yossi, 'read_handoff_state', return_value=new_state()), \
+             patch.object(yossi, 'PHOTO_CATALOG', catalog), \
+             patch.object(yossi, 'send_whatsapp', side_effect=self.send) as send, \
+             patch.object(yossi, 'pause_for_owner') as pause:
+            self.assertTrue(yossi.process_message(self.phone, 'הברונזה לא נשלח'))
+        pause.assert_not_called()
+        self.assertEqual(send.call_count, 2)
+        self.assertEqual(send.call_args_list[0].kwargs['image_url'], 'https://example.test/bronze')
+        self.assertIn('מה דעתך', self.sent[-1])
+        self.assertNotIn('שמרתי פנייה', self.sent[-1])
