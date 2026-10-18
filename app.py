@@ -965,7 +965,9 @@ def missing_photo_request(text, history):
     text = str(text or '')
     if declines_visuals(text) or correcting_unrequested_photo(text):
         return False
-    missing = re.search(r'לא\s+(?:שלחת|שלחתם|צירפת|צירפתם|קיבלתי|הגיע|הגיעה|נשלח|נשלחה)|חסר[ה]?\s+(?:לי\s+)?(?:תמונ|דוגמ)|לא\s+רואה', text)
+    if re.search(r'הצעה|מחיר|מסמך|חשבונית|פרזול|ידית|ידיות', text) and not re.search(r'תמונ|דוגמ|זכוכית', text):
+        return False
+    missing = re.search(r'לא\s+(?:שלחת|שלחתם|צירפת|צירפתם|קיבלתי|הגיע|הגיעה|נשלח|נשלחה)(?![\wא-ת])|\bחסר[ה]?\s+(?:לי\s+)?(?:תמונ|דוגמ)|לא\s+רואה', text)
     if not missing:
         return False
     recent = [str(m.get('content') or '') for m in history[-7:]
@@ -999,8 +1001,8 @@ def pick_sample_photos(body, history, context, max_photos=2):
         ('גלינה קליר', r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?'),
         ('אסיד קליר', r'אסיד\s*קליר'),
         ('אקסטרה קליר', r'אקסטרה\s*קליר|א\.\s*קליר|(?<![\wא-ת])א\s+קליר'),
-        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה|(?<![\wא-ת])ברונזה(?![\wא-ת])'),
-        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה|(?<![\wא-ת])אפור(?:ה)?(?![\wא-ת])'),
+        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה|(?<![\wא-ת])ו?ברונזה(?![\wא-ת])'),
+        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה|(?<![\wא-ת])ו?אפור(?:ה)?(?![\wא-ת])'),
         ('פיפיטה', r'פיפיטה|פפיטה'),
         ('חלבי', r'חלבית?|חלבי'),
         ('אסיד', r'אסיד(?!\s*קליר)'),
@@ -1012,6 +1014,8 @@ def pick_sample_photos(body, history, context, max_photos=2):
         spans = []
         for name, pattern in patterns:
             for match in re.finditer(pattern, customer_text, flags=re.IGNORECASE):
+                if re.search(r'(?:פרזול|ידית|ידיות|גימור)\s*$', customer_text[:match.start()]):
+                    continue
                 spans.append((match.start(), -len(match.group()), match.end(), name))
         spans.sort()
         selected = []
@@ -2658,11 +2662,6 @@ def process_message(phone, body, batch_rows=None):
                              'נוכל לבדוק זאת לפי צילום או מרווח משוער.')
                 else:
                     reply = 'סליחה, חזרתי על עצמי. מה שהעלית עכשיו חשוב, ואענה עליו לגופו.'
-            if missing_photo_request(customer_request, history):
-                if photos and not failed_photos:
-                    reply = 'מה דעתך על הגוון הזה?' if len(photos) == 1 else 'איזו מהדוגמאות יותר קרובה למה שחיפשת?'
-                elif not photos:
-                    reply = 'אין לי כרגע תמונה זמינה של הדוגמה שביקשת. אפשר להמשיך בבחירה, או שאבקש מאלירן להשלים את התמונה?'
             reply = guard_corner_shower_advice(reply, customer_request, history)
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
@@ -3051,7 +3050,8 @@ def process_message(phone, body, batch_rows=None):
                              'בינתיים אשמח לעזור לך להבין מה יתאים לחדר שלך.')
             # A requested picture which cannot actually be provided becomes
             # a visible owner task, not a promise to send it later.
-            asked_for_photo = (requested_handles or requests_catalog_samples(customer_request)
+            completing_photo = missing_photo_request(customer_request, history)
+            asked_for_photo = (completing_photo or requested_handles or requests_catalog_samples(customer_request)
                                or requests_portfolio_photos(customer_request))
             if asked_for_photo and not photos:
                 if save_missing_photo_lead(phone, customer_request):
@@ -3078,6 +3078,8 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'סליחה, ניסיתי לשלוח תמונות אבל השליחה לא הצליחה כרגע. לא אטען שהן נשלחו. אפשר לנסות שוב מעט מאוחר יותר.'
                 elif failed_photos:
                     reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
+            if completing_photo and photos and not failed_photos:
+                reply = 'מה דעתך על הגוון הזה?' if len(photos) == 1 else 'איזו מהדוגמאות יותר קרובה למה שחיפשת?'
             reply = guard_corner_shower_advice(reply, customer_request, history)
             # Guarantee a warm introduction for the first substantive customer turn.
             # Model-generated replies may bypass the quote fallback, so apply at send time.
