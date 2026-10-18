@@ -960,6 +960,22 @@ def requests_all_glass_types(text):
     ))
 
 
+def missing_photo_request(text, history):
+    """A customer report of a missing outgoing sample is a request to complete it."""
+    text = str(text or '')
+    if declines_visuals(text) or correcting_unrequested_photo(text):
+        return False
+    if re.search(r'הצעה|מחיר|מסמך|חשבונית|פרזול|ידית|ידיות', text) and not re.search(r'תמונ|דוגמ|זכוכית', text):
+        return False
+    missing = re.search(r'לא\s+(?:שלחת|שלחתם|צירפת|צירפתם|קיבלתי|הגיע|הגיעה|נשלח|נשלחה)(?![\wא-ת])|\bחסר[ה]?\s+(?:לי\s+)?(?:תמונ|דוגמ)|לא\s+רואה', text)
+    if not missing:
+        return False
+    recent = [str(m.get('content') or '') for m in history[-7:]
+              if m.get('role') == 'assistant']
+    return bool(re.search(r'תמונ|דוגמ', text) or
+                any(re.search(r'תמונ|דוגמ|מצרף|צירפתי', value) for value in recent))
+
+
 def pick_sample_photos(body, history, context, max_photos=2):
     """One actual catalog image per requested type; explicit 'all' overrides normal limit."""
     if not PHOTO_CATALOG:
@@ -970,17 +986,23 @@ def pick_sample_photos(body, history, context, max_photos=2):
     accepted = (customer_text.strip() in ('כן', 'כן תודה', 'בטח', 'שלח', 'אשמח', 'סבבה') and
                 any('תמונ' in str(m.get('content', '')) or 'דוגמא' in str(m.get('content', ''))
                     for m in history[-3:] if m.get('role') == 'assistant'))
-    if not requests_catalog_samples(customer_text) and not accepted:
+    if not requests_catalog_samples(customer_text) and not accepted and not missing_photo_request(customer_text, history):
         return []
 
+    # With no named missing type, recover the previous explicit customer photo request.
+    if missing_photo_request(customer_text, history) and not re.search(
+            r'גלינה|ברונזה|אפור|קליר|אסיד|חלבי|חלבית|פיפיטה|שקופ', customer_text):
+        previous_request = next((customer_written_text(m.get('content') or '') for m in reversed(history[:-1])
+                                 if m.get('role') == 'user' and requests_catalog_samples(customer_written_text(m.get('content') or ''))), '')
+        customer_text = previous_request or customer_text
     all_requested = requests_all_glass_types(customer_text)
     # Prefer matches with specific glass names over generic 'קליר' and avoid overlap.
     patterns = [
         ('גלינה קליר', r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?'),
         ('אסיד קליר', r'אסיד\s*קליר'),
         ('אקסטרה קליר', r'אקסטרה\s*קליר|א\.\s*קליר|(?<![\wא-ת])א\s+קליר'),
-        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה'),
-        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה'),
+        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה|(?<![\wא-ת])ו?ברונזה(?![\wא-ת])'),
+        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה|(?<![\wא-ת])ו?אפור(?:ה)?(?![\wא-ת])'),
         ('פיפיטה', r'פיפיטה|פפיטה'),
         ('חלבי', r'חלבית?|חלבי'),
         ('אסיד', r'אסיד(?!\s*קליר)'),
@@ -992,6 +1014,8 @@ def pick_sample_photos(body, history, context, max_photos=2):
         spans = []
         for name, pattern in patterns:
             for match in re.finditer(pattern, customer_text, flags=re.IGNORECASE):
+                if re.search(r'(?:פרזול|ידית|ידיות|גימור)\s*$', customer_text[:match.start()]):
+                    continue
                 spans.append((match.start(), -len(match.group()), match.end(), name))
         spans.sort()
         selected = []
@@ -2987,7 +3011,7 @@ def process_message(phone, body, batch_rows=None):
             if requested_handles:
                 photos = handle_photos(PHOTO_CATALOG, customer_request, photo_context,
                                        HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
-            if not requested_handles and not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
+            if not missing_photo_request(customer_request, history) and not requested_handles and not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
                 if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
                     photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים')
             if not requested_handles and not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
@@ -3026,7 +3050,8 @@ def process_message(phone, body, batch_rows=None):
                              'בינתיים אשמח לעזור לך להבין מה יתאים לחדר שלך.')
             # A requested picture which cannot actually be provided becomes
             # a visible owner task, not a promise to send it later.
-            asked_for_photo = (requested_handles or requests_catalog_samples(customer_request)
+            completing_photo = missing_photo_request(customer_request, history)
+            asked_for_photo = (completing_photo or requested_handles or requests_catalog_samples(customer_request)
                                or requests_portfolio_photos(customer_request))
             if asked_for_photo and not photos:
                 if save_missing_photo_lead(phone, customer_request):
@@ -3053,6 +3078,8 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'סליחה, ניסיתי לשלוח תמונות אבל השליחה לא הצליחה כרגע. לא אטען שהן נשלחו. אפשר לנסות שוב מעט מאוחר יותר.'
                 elif failed_photos:
                     reply = f'שלחתי {sent_count} דוגמאות, אבל חלק מהתמונות לא עברו. אם תרצה ננסה שוב את החסרות.'
+            if completing_photo and photos and not failed_photos:
+                reply = 'מה דעתך על הגוון הזה?' if len(photos) == 1 else 'איזו מהדוגמאות יותר קרובה למה שחיפשת?'
             reply = guard_corner_shower_advice(reply, customer_request, history)
             # Guarantee a warm introduction for the first substantive customer turn.
             # Model-generated replies may bypass the quote fallback, so apply at send time.
