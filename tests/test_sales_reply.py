@@ -94,3 +94,23 @@ class PersonalServiceValueTests(unittest.TestCase):
         from sales_reply import personal_service_value, PERSONAL_SERVICE_VALUE
         h=[{'role':'assistant','content':PERSONAL_SERVICE_VALUE}]
         self.assertEqual(personal_service_value('אפשר לבדוק חלופה.','עדיין יקר לי',h),'אפשר לבדוק חלופה.')
+
+
+    def test_model_personal_service_only_is_completed_with_material_and_warranty(self):
+        from sales_reply import personal_service_value
+        reply='אלירן מודד ומתקין בעצמו בלי קבלני משנה ומלווה גם בשירות אחר כך. ההצעה האחרת לאותו מפרט?'
+        answer=personal_service_value(reply,'וואו יקר, קיבלתי 2500 כולל מעמ',[],product='אמבטיון')
+        for fact in ['פליז פרימיום','7 שנות אחריות על הפרזול','שנה אחריות על ההתקנה','בלי קבלני משנה']:
+            self.assertIn(fact,answer)
+        self.assertEqual(answer.count('בלי קבלני משנה'),1)
+        self.assertTrue(answer.endswith('ההצעה האחרת לאותו מפרט?'))
+        self.assertNotIn('אחריות מלאה על הזכוכית',answer)
+
+    def test_full_recent_value_is_not_repeated_and_mirror_does_not_inherit_warranty(self):
+        from sales_reply import personal_service_value, PERSONAL_SERVICE_VALUE
+        full='פרזול פליז פרימיום עם 7 שנות אחריות על הפרזול ושנה על ההתקנה. '+PERSONAL_SERVICE_VALUE
+        history=[{'role':'assistant','content':full}]
+        self.assertEqual(personal_service_value('אפשר לבדוק חלופה.','עדיין יקר לי',history,product='מקלחון'),'אפשר לבדוק חלופה.')
+        answer=personal_service_value('נבחן חלופה.','יקר לי',[],product='מראה')
+        self.assertNotIn('7 שנות',answer)
+        self.assertNotIn('פליז',answer)

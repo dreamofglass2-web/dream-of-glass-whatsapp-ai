@@ -2548,7 +2548,7 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 return False
             compare_reply, compare_context = compare_result
-            compare_reply = personal_service_value(compare_reply, customer_request, history)
+            compare_reply = personal_service_value(compare_reply, customer_request, history, product='מקלחון')
             send_whatsapp(phone, body=compare_reply)
             save_conversation(phone, history + [{'role':'assistant','content':compare_reply}], compare_context)
             return True
@@ -3154,7 +3154,7 @@ def process_message(phone, body, batch_rows=None):
                     reply = glass_advice
             reply = omit_unasked_readiness(reply, history)
             if ordinary_turn:
-                reply = personal_service_value(reply, customer_request, history)
+                reply = personal_service_value(reply, customer_request, history, product=merged_pricing.get('product') or ('מקלחון' if is_shower else None))
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             if (HANDOFF_ENABLED and without_emojis(reply)==without_emojis(previous_answer)
                     and (not quote_intent(customer_request) or price_objection(customer_request))):
