@@ -14,7 +14,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height
+from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -2479,7 +2479,7 @@ def process_message(phone, body, batch_rows=None):
         last_reply=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
         approving_order=(explicit_quote_approval(customer_request) or
             bool(re.fullmatch(r'\s*(?:כן|כן תודה|מאשר|מאשרת|מתאים)\s*[.!?]*\s*',customer_request)
-                 and 'לאשר את ההצעה המלאה' in last_reply))
+                 and ('לאשר את ההצעה המלאה' in last_reply or 'לאשר את ההצעה לפריט הזה' in last_reply)))
         bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
                           or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
         if complete_order and bundle_requested and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
@@ -2841,7 +2841,7 @@ def process_message(phone, body, batch_rows=None):
                                    'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.'))
                 else:
                     reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
-            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and (
+            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and (
                     quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
                 if verified_price is not None and (data.get('solution_agreed') is True or
@@ -3102,15 +3102,18 @@ def process_message(phone, body, batch_rows=None):
             quote_state['solution_agreed'] = data.get('solution_agreed') or quote_state.get('solution_agreed')
             save_item(quote_state)
             complete_order=None
-            if ordinary_turn and SEND_QUOTES and not discovery_question:
+            issuing_order=False
+            if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request):
                 complete_order=bundle_offer(quote_state,calculate_quote)
                 if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
                     reply=bundle_offer_reply(complete_order)
+                    issuing_order=True
                 elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested')):
                     missing=next((number for number,specs in sorted(quote_state['sales_items'].items())
                                   if not specs.get('solution_agreed') or calculate_quote(dict(specs,height_cm=preliminary_height(specs))) is None),None)
                     if missing:
-                        reply='כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])
+                        reply=(partial_offer_reply(quote_state,calculate_quote,missing_quote_detail) or
+                               ('כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])))
                         quote_record={}
             if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and quote_record.get('issued')
                     and not quote_state.get('sales_items') and not price_objection(customer_request)
@@ -3118,6 +3121,7 @@ def process_message(phone, body, batch_rows=None):
                 complete_order=bundle_offer({'sales_items':{'1':dict(merged_pricing,solution_agreed=True)}},calculate_quote,allow_single=True)
                 if complete_order:
                     reply=bundle_offer_reply(complete_order)
+                    issuing_order=True
             direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
@@ -3159,7 +3163,7 @@ def process_message(phone, body, batch_rows=None):
                 return pause_for_owner(phone,body,'התשובה הסופית חזרה ללא התקדמות בשיחה')
 
             document_state={}
-            if complete_order and 'הצעה המלאה' in reply:
+            if issuing_order and complete_order:
                 reply=deliver_order_offer(phone,complete_order,document_state,history)
             else:
                 send_whatsapp(phone, body=reply)
@@ -3168,7 +3172,7 @@ def process_message(phone, body, batch_rows=None):
             next_context.update(document_state)
             if data.get('needs_human') is not True:
                 next_context['planning_clarification_count'] = 0
-            if complete_order and 'הצעה המלאה' in reply:
+            if issuing_order and complete_order:
                 next_context['combined_offer']={**complete_order,'issued':True,'approved':False}
                 next_context['quote_requested']=False
             if custom_quote_lead_saved:
