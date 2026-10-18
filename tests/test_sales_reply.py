@@ -76,3 +76,21 @@ class PriceGapAcknowledgementTests(unittest.TestCase):
         from sales_reply import grounded_price_comparison
         self.assertTrue(grounded_price_comparison('מבין, 400 ש״ח זה פער ששווה להתייחס אליו.',1964,'קיבלתי הצעה זולה יותר ב-400 שקל'))
         self.assertFalse(grounded_price_comparison('המחיר שלך 400 ש״ח',1964,'קיבלתי הצעה זולה ב-400 שקל'))
+
+
+
+class PersonalServiceValueTests(unittest.TestCase):
+    def test_value_is_added_without_replacing_other_benefits(self):
+        from sales_reply import personal_service_value
+        for text in ['יקר לי','רוצה להשוות להצעה אחרת','מתחרה הציע לי פחות']:
+            answer=personal_service_value('יש 7 שנות אחריות לפרזול.',text,[])
+            self.assertIn('7 שנות',answer)
+            self.assertIn('בלי קבלני משנה',answer)
+            self.assertIn('מההתחלה ועד הסוף',answer)
+        self.assertEqual(personal_service_value('תודה','מה השעות?',[]),'תודה')
+        self.assertEqual(personal_service_value('בהצלחה','יקר לי, אלך איתם',[]),'בהצלחה')
+
+    def test_value_is_not_repeated_in_the_same_exchange(self):
+        from sales_reply import personal_service_value, PERSONAL_SERVICE_VALUE
+        h=[{'role':'assistant','content':PERSONAL_SERVICE_VALUE}]
+        self.assertEqual(personal_service_value('אפשר לבדוק חלופה.','עדיין יקר לי',h),'אפשר לבדוק חלופה.')

@@ -1919,18 +1919,20 @@ class CenterSlidingBathTests(unittest.TestCase):
         self.assertEqual(self.memory[self.phone][1]['configuration'], fields['configuration'])
         schema=yossi.sales_output_format(yossi.SALES_CONFIGURATIONS,yossi.GLASS_COSTS,yossi.FINISH_MULTIPLIERS)
         self.assertIn(fields['configuration'], schema['schema']['properties']['configuration']['enum'])
-        self.assertIsNone(yossi.calculate_quote(dict(fields,height_cm=140)))
+        self.assertEqual(yossi.calculate_quote(dict(fields,height_cm=140)),
+                         yossi.calculate_quote(dict(fields,height_cm=140,configuration='הזזה קבוע + דלת')))
 
-    def test_new_configuration_never_borrows_an_unapproved_hardware_price(self):
+    def test_center_sliding_uses_owner_approved_hardware_price(self):
         self.memory[self.phone] = ([{'role':'assistant','content':'נמשיך עם שני קבועים ודלת הזזה באמצע.'}], self.specs())
         self.ai.queue.append(self.model('אפשר להכין הצעה לפי המפרט.', quote_requested=True, **self.specs()))
         with patch.object(yossi, 'SEND_QUOTES', True), patch.object(yossi, 'HANDOFF_ENABLED', True), \
              patch.object(yossi, 'ensure_db'), patch.object(yossi, 'db_connection', return_value=MagicMock()), \
              patch.object(yossi, 'read_handoff_state', return_value=new_state()), \
-             patch.object(yossi, 'pause_for_owner', return_value=True) as pause:
+             patch.object(yossi, 'pause_for_owner') as pause:
             self.assertTrue(yossi.process_message(self.phone, 'כמה זה עולה?'))
-        pause.assert_called_once()
-        self.assertEqual(self.sent, [])
+        pause.assert_not_called()
+        self.assertEqual(yossi.SLIDING['הזזה 2 קבועים + דלת'], yossi.SLIDING['הזזה קבוע + דלת'])
+        self.assertEqual(self.memory[self.phone][1]['validated_quote']['height_cm'], 140)
 
     def test_priced_bath_uses_140_height_and_retains_explicit_height(self):
         for height, expected in [(None,140),(150,150)]:
@@ -1946,3 +1948,32 @@ class CenterSlidingBathTests(unittest.TestCase):
                 quote=self.memory[self.phone][1]['validated_quote']
                 self.assertEqual(quote['height_cm'],expected)
                 self.assertEqual(quote['amount_ils_pre_vat'],yossi.calculate_quote(dict(specs,height_cm=expected)))
+
+
+    def test_narrow_bath_with_cabinet_gets_advice_before_price_or_fit_claim(self):
+        specs=self.specs()
+        specs['width_cm']=160
+        self.memory[self.phone] = ([{'role':'user','content':'יש ארון בצד השני'},
+                                    {'role':'assistant','content':'איזו חלוקה תרצה?'}], specs)
+        reply=self.step('שני קבועים ודלת באמצע, כמה יעלה?', self.model('מתאים בוודאות, אפשר לסגור.', quote_requested=True, **specs))
+        self.assertIn('מפתח כניסה קטן',reply)
+        self.assertIn('לא הייתי ממליץ',reply)
+        self.assertNotIn('מתאים בוודאות',reply)
+        self.assertFalse(self.memory[self.phone][1].get('validated_quote'))
+
+    def test_price_objection_keeps_existing_value_and_adds_personal_service(self):
+        self.memory[self.phone] = ([{'role':'assistant','content':'הנה ההצעה לפי הבחירות שלך.'}], self.specs())
+        reply=self.step('יקר לי, אני רוצה להשוות להצעה אחרת', self.model('אפשר לבדוק חלופה שמתאימה יותר לתקציב שלך.', **self.specs()))
+        self.assertIn('תקציב',reply)
+        self.assertIn('מגיע בעצמו למדידה ולהתקנה',reply)
+        self.assertIn('בלי קבלני משנה',reply)
+        self.assertIn('שירות אחר כך',reply)
+
+
+    def test_narrow_bath_rule_does_not_replace_unrelated_warranty_answer(self):
+        specs=self.specs()
+        specs['width_cm']=160
+        self.memory[self.phone]=([{'role':'user','content':'יש ארון בצד'}],specs)
+        reply=self.step('מה האחריות?',self.model('אין אחריות על הזכוכית.',**specs))
+        self.assertIn('אחריות',reply)
+        self.assertNotIn('מפתח כניסה קטן',reply)

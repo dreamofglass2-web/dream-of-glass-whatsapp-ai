@@ -202,3 +202,20 @@ def comparison_turn(history, prior, customer, calculate, bom, glass_types, finis
            '\n'.join(lines)+
            '\nהמחירים לפני מע״מ וכוללים מדידה, הובלה והתקנה. זו הצעה ראשונית; המידות וההתאמה לפתיחה ייבדקו בשטח, ושינוי מפרט או מידות עשוי לשנות את המחיר. אלה חלופות לאותו מקלחון, ולא סכום להזמנת כולן.')
     return reply,result
+
+
+PERSONAL_SERVICE_VALUE = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה, '
+                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך.')
+
+
+def personal_service_value(reply, customer, history):
+    """Supplement price/value discussion once, without replacing existing advice."""
+    text = str(customer or '')
+    if not re.search(r'יקר|מחיר.{0,15}גבוה|הציעו לי|מתחר|להשוות|השוואה|הצעה אחרת|מישהו אחר.{0,15}זול', text):
+        return reply
+    if re.search(r'לא מעוניין|אל תפנ|אלך איתם|אסגור איתם|הולך איתם', text):
+        return reply
+    recent = [str(m.get('content') or '') for m in history[-7:] if m.get('role') == 'assistant']
+    if any('אלירן' in answer and re.search(r'קבלני משנה|מגיע בעצמו', answer) for answer in [str(reply or '')] + recent):
+        return reply
+    return str(reply or '').rstrip() + ' ' + PERSONAL_SERVICE_VALUE

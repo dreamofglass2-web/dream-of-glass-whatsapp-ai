@@ -16,8 +16,8 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices
-from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply
+from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value
+from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
@@ -710,10 +710,9 @@ BOM = {
  'אמבטיון 2 קבועים + דלת': {'ציר זכוכית זכוכית':2,'זווית קיר זכוכית':4,'מגנט חזית':1,'מגב רצפה':1,'אטם בלון':1,'ידית כפתור':1},
  'אמבטיון קבוע + 2 דלתות': {'ציר קיר זכוכית':2,'ציר זכוכית זכוכית':2,'זווית קיר זכוכית':2,'מגנט חזית':1,'מגב רצפה':1,'אטם בלון':2,'ידית כפתור':2},
 }
-SLIDING = {'הזזה קבוע + דלת':600,'הזזה 2 קבועים + 2 דלתות':1200}
-# Recognized for consultation; a hardware cost must be approved before pricing.
-ADVICE_CONFIGURATIONS = {'הזזה 2 קבועים + דלת'}
-SALES_CONFIGURATIONS = list(BOM) + list(SLIDING) + sorted(ADVICE_CONFIGURATIONS)
+SLIDING = {'הזזה קבוע + דלת':600,'הזזה 2 קבועים + 2 דלתות':1200,
+           'הזזה 2 קבועים + דלת':600}
+SALES_CONFIGURATIONS = list(BOM) + list(SLIDING)
 
 # These images must be public HTTPS URLs for photos of your actual hardware.
 HANDLE_BUTTON_IMAGE_URL = os.getenv('HANDLE_BUTTON_IMAGE_URL', '')
@@ -1623,8 +1622,6 @@ def proposed_layout_guidance(history):
 
 def missing_quote_detail(data):
     config = data.get('configuration')
-    if config == 'הזזה 2 קבועים + דלת':
-        return 'נדרשת בדיקת מחיר לפרזול של שני קבועים ודלת הזזה אחת, לפני שאפשר למסור הצעה.'
     if config not in BOM and config not in SLIDING:
         return 'כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?'
     if not data.get('glass_type'):
@@ -2183,6 +2180,27 @@ def reference_photo_reply(history, prior, customer):
     return 'נשתמש בתמונה להבנת הכיוון, בלי לקבוע ממנה מידות או התאמה לחדר שלך. איך נפתח המקלחון הקודם שלך?'
 
 
+def respond_to_bath_entry_constraint(phone, body, history, specs, batch_rows):
+    text = customer_written_text(body)
+    # Do not replace an unrelated warranty/service answer with layout advice.
+    if not (quote_intent(text) or re.search(r'קבוע|דלת|הזזה|מפתח|כניסה|חלוק|רוחב|ארון', text)
+            or re.fullmatch(r'\s*(?:כן|נכון|מתאים|בסדר|\d{2,3})\s*[.!?]*\s*', text)):
+        return None
+    clearance = bath_entry_constraint(history, specs)
+    if not clearance or requires_specialist_review(body):
+        return None
+    if has_new_messages(phone, batch_rows):
+        return False
+    safe_context = dict(specs, needs_human=False, bath_clearance_warned=clearance['signature'],
+                        quote_requested=bool(specs.get('quote_requested') or quote_intent(body)))
+    safe_context.pop('validated_quote', None)
+    safe_context.pop('combined_offer', None)
+    save_item(safe_context)
+    send_whatsapp(phone, body=clearance['reply'])
+    save_conversation(phone, history + [{'role':'assistant','content':clearance['reply']}], safe_context)
+    return True
+
+
 def process_message(phone, body, batch_rows=None):
     with lock:
         personal_lock = phone_locks.setdefault(phone, threading.Lock())
@@ -2450,6 +2468,9 @@ def process_message(phone, body, batch_rows=None):
             return True
         customer_request = customer_written_text(body)
         prior = item_context(prior, history, customer_request)
+        clearance_result = respond_to_bath_entry_constraint(phone, body, history, prior, batch_rows)
+        if clearance_result is not None:
+            return clearance_result
         order_state=prior
         if not prior.get('sales_items') and (prior.get('combined_offer') or {}).get('issued'):
             order_state={'sales_items':{'1':dict(prior,solution_agreed=True)}}
@@ -2527,6 +2548,7 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 return False
             compare_reply, compare_context = compare_result
+            compare_reply = personal_service_value(compare_reply, customer_request, history)
             send_whatsapp(phone, body=compare_reply)
             save_conversation(phone, history + [{'role':'assistant','content':compare_reply}], compare_context)
             return True
@@ -2622,6 +2644,13 @@ def process_message(phone, body, batch_rows=None):
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
             data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            layout_specs = dict(prior)
+            layout_specs.update({k: data[k] for k in ('stage','action','next_missing_fact','product',
+                'configuration','width_cm','second_width_cm','height_cm','glass_type','finish',
+                'handles','quote_requested','solution_agreed') if data.get(k) is not None})
+            clearance_result = respond_to_bath_entry_constraint(phone, body, history, layout_specs, batch_rows)
+            if clearance_result is not None:
+                return clearance_result
             if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
                 data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
@@ -3120,6 +3149,8 @@ def process_message(phone, body, batch_rows=None):
                 if glass_advice and re.search(r'איזה סוג זכוכית|איזו זכוכית|איזה זכוכית', reply) and not re.search(r'חלבי|אסיד|גלינה|אנטיסן', reply):
                     reply = glass_advice
             reply = omit_unasked_readiness(reply, history)
+            if ordinary_turn:
+                reply = personal_service_value(reply, customer_request, history)
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             if (HANDOFF_ENABLED and without_emojis(reply)==without_emojis(previous_answer)
                     and (not quote_intent(customer_request) or price_objection(customer_request))):
