@@ -78,8 +78,11 @@ class FollowupPostgresIntegration(unittest.TestCase):
             canonical = '\n'.join(['GET', '/v1/handoff', stamp, nonce, hashlib.sha256(b'').hexdigest()]).encode()
             headers = {'X-CRM-Timestamp': stamp, 'X-CRM-Nonce': nonce,
                        'X-CRM-Signature': 'sha256=' + hmac.new(bytes.fromhex(key), canonical, hashlib.sha256).hexdigest()}
-            with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.dict(os.environ, {'CRM_CONTROL_KEY_HEX': key}):
-                result = yossi.app.test_client().get('/v1/handoff', headers=headers)
+            from flask import Flask
+            control_app = Flask('disposable-photo-handoff')
+            yossi.register_handoff_routes(control_app, connect=test_connection, ensure=yossi.ensure_db,
+                                          enabled=lambda: True, key_hex=lambda: key)
+            result = control_app.test_client().get('/v1/handoff', headers=headers)
             self.assertEqual(result.status_code, 200)
             control = next(c for c in result.json['controls'] if c['phone'] == phone)
             self.assertTrue(control['escalation']['active'])
