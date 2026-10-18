@@ -1968,3 +1968,12 @@ class CenterSlidingBathTests(unittest.TestCase):
         self.assertIn('מגיע בעצמו למדידה ולהתקנה',reply)
         self.assertIn('בלי קבלני משנה',reply)
         self.assertIn('שירות אחר כך',reply)
+
+
+    def test_narrow_bath_rule_does_not_replace_unrelated_warranty_answer(self):
+        specs=self.specs()
+        specs['width_cm']=160
+        self.memory[self.phone]=([{'role':'user','content':'יש ארון בצד'}],specs)
+        reply=self.step('מה האחריות?',self.model('אין אחריות על הזכוכית.',**specs))
+        self.assertIn('אחריות',reply)
+        self.assertNotIn('מפתח כניסה קטן',reply)

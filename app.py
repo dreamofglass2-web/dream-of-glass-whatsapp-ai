@@ -2181,6 +2181,11 @@ def reference_photo_reply(history, prior, customer):
 
 
 def respond_to_bath_entry_constraint(phone, body, history, specs, batch_rows):
+    text = customer_written_text(body)
+    # Do not replace an unrelated warranty/service answer with layout advice.
+    if not (quote_intent(text) or re.search(r'קבוע|דלת|הזזה|מפתח|כניסה|חלוק|רוחב|ארון', text)
+            or re.fullmatch(r'\s*(?:כן|נכון|מתאים|בסדר|\d{2,3})\s*[.!?]*\s*', text)):
+        return None
     clearance = bath_entry_constraint(history, specs)
     if not clearance or requires_specialist_review(body):
         return None
