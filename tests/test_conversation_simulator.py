@@ -40,6 +40,7 @@ class ConversationSimulation(unittest.TestCase):
             patch.object(yossi, "reset_conversation_for_phone", side_effect=self.reset),
             patch.object(yossi, "save_callback", return_value=True),
             patch.object(yossi, "save_custom_quote_lead", return_value=True),
+            patch.object(yossi, "save_missing_photo_lead", return_value=True),
             patch.object(yossi, "has_new_messages", return_value=False),
             patch.object(yossi.time, "sleep", return_value=None),
             patch.object(yossi.client.responses, "create", side_effect=self.ai.create),
@@ -149,7 +150,7 @@ class ConversationSimulation(unittest.TestCase):
         with patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}):
             reply = self.step('לא שלחת ברונזה', self.model('סליחה, לא צורפה.'))
         self.assertNotIn('[TEST_IMAGE]', self.sent)
-        self.assertIn('אין לי כרגע תמונה זמינה', reply)
+        self.assertIn('אין לי תמונה מתאימה וזמינה', reply)
         self.assertNotIn('שלחתי', reply)
 
     def test_customer_denying_sending_or_requesting_image_is_not_a_resend_request(self):
@@ -1805,3 +1806,45 @@ class QuotePdfValidationTests(unittest.TestCase):
         self.assertEqual(payload['type'],'document')
         self.assertEqual(payload['document']['id'],'MEDIA_TEST_123')
         journal.assert_called_once()
+
+
+class MissingPhotoDeliveryRegressionTests(unittest.TestCase):
+    setUp = ConversationSimulation.setUp
+    load = ConversationSimulation.load
+    save = ConversationSimulation.save
+    send = ConversationSimulation.send
+    reset = ConversationSimulation.reset
+    step = ConversationSimulation.step
+    model = ConversationSimulation.model
+
+    def test_failed_missing_image_does_not_ask_for_color_feedback(self):
+        self.memory[self.phone] = ([{'role': 'assistant', 'content': 'הנה תמונת ברונזה'}], {})
+        def fail_image(phone, body=None, image_url=None, caption=None):
+            if image_url:
+                raise yossi.requests.Timeout('synthetic media failure')
+            self.sent.append(body)
+        with patch.object(yossi, 'PHOTO_CATALOG', [dict(url='https://example.test/bronze', glass='אנטיסן ברונזה', product='מקלחון', configuration='חזית')]), patch.object(yossi, 'send_whatsapp', side_effect=fail_image):
+            reply = self.step('לא שלחת ברונזה', self.model('סליחה, לא צירפתי'))
+        self.assertIn('השליחה לא הצליחה', reply)
+        self.assertNotIn('מה דעתך', reply)
+
+    def test_missing_image_task_failure_is_explicit(self):
+        self.memory[self.phone] = ([{'role': 'assistant', 'content': 'הנה תמונת ברונזה'}], {})
+        with patch.object(yossi, 'PHOTO_CATALOG', []), patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}), patch.object(yossi, 'save_missing_photo_lead', return_value=False):
+            reply = self.step('לא שלחת ברונזה', self.model('שלחתי את התמונה'))
+        self.assertIn('לא הצלחתי לשמור', reply)
+        self.assertNotIn('שלחתי', reply)
+        self.assertNotIn('[TEST_IMAGE]', self.sent)
+
+    def test_missing_quote_and_customer_denial_are_not_media_requests(self):
+        history = [{'role': 'assistant', 'content': 'מצרף תמונות זכוכית'}]
+        for text in ['לא שלחת את ההצעה', 'לא שלחתי ברונזה', 'לא קיבלתי מחיר', 'לא שלחת פרזול ברונזה']:
+            self.assertFalse(yossi.missing_photo_request(text, history), text)
+
+    def test_conjoined_gray_and_bronze_match_but_hardware_does_not(self):
+        catalog = [dict(url='https://example.test/'+str(i), glass=glass, product='מקלחון', configuration='חזית') for i, glass in enumerate(['גלינה קליר', 'אנטיסן אפור', 'אנטיסן ברונזה'])]
+        with patch.object(yossi, 'PHOTO_CATALOG', catalog):
+            photos = yossi.pick_sample_photos('תשלח תמונה של גלינה ואפור', [], {})
+            self.assertEqual([p['glass'] for p in photos], ['גלינה קליר', 'אנטיסן אפור'])
+            photos = yossi.pick_sample_photos('תשלח תמונה של גלינה ופרזול ברונזה', [], {})
+            self.assertEqual([p['glass'] for p in photos], ['גלינה קליר'])
