@@ -1,10 +1,11 @@
 """Grounded facts for the consultant and bounded preservation of quote wording."""
 import re
+from sales_items import preliminary_height
 
 
 def quote_facts_for_turn(prior, customer, calculator):
     prior = prior or {}
-    if not str(prior.get('product') or '').startswith('מקלחון'):
+    if not str(prior.get('product') or '').startswith(('מקלחון', 'אמבטיון')):
         return None
     # Changed jobs/materials need model extraction and a fresh authoritative check.
     if re.search(r'בעצם|תיקון|במקום|תחליף|תשנה|לשנות|חדר אחר|מקלחון אחר|מראה|מחיצה|מעקה|חיפוי|אמבטיון', customer):
@@ -18,7 +19,7 @@ def quote_facts_for_turn(prior, customer, calculator):
     if width:
         specs['width_cm'] = int(width.group(1))
     if specs['height_cm'] is None:
-        specs['height_cm'] = 200
+        specs['height_cm'] = preliminary_height(dict(prior, **specs))
     try:
         amount = calculator(specs)
     except (TypeError, ValueError, KeyError):
