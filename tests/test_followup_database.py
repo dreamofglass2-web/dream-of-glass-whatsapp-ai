@@ -34,6 +34,77 @@ class FollowupPostgresIntegration(unittest.TestCase):
                 cur.execute("DELETE FROM glass_leads WHERE phone LIKE 'TEST_FOLLOWUP_%'")
         cls.connection_patcher.stop()
 
+    def test_missing_photo_creates_durable_owner_request_and_telegram_job(self):
+        import json
+        import types
+        from unittest.mock import Mock
+        from owner_notifications import dispatch_owner_alerts
+        phone = 'TEST_FOLLOWUP_MISSING_PHOTO'
+        history = [{'role': 'assistant', 'content': 'מצרף תמונת ברונזה'}]
+        context = {'product': 'אמבטיון', 'sales_discovery_completed': True}
+        with test_connection() as db:
+            with db.cursor() as cur:
+                yossi.ensure_handoff_tables(cur)
+                cur.execute("INSERT INTO glass_leads(phone, conversation, context, status) VALUES(%s,%s::jsonb,%s::jsonb,'ממתין לחזרה')",
+                            (phone, json.dumps(history), json.dumps(context)))
+        try:
+            response = types.SimpleNamespace(output_text=json.dumps({
+                'reply': 'שמרתי פנייה לאלירן', 'product': 'אמבטיון',
+                'needs_human': False, 'quote_requested': False, 'action': 'reply'}))
+            with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.object(yossi, 'PHOTO_CATALOG', []), \
+                 patch.object(yossi, 'GLASS_SAMPLE_IMAGES', {}), patch.object(yossi.time, 'sleep'), \
+                 patch.object(yossi, 'has_new_messages', return_value=False), \
+                 patch.object(yossi.client.responses, 'create', return_value=response), \
+                 patch.object(yossi, 'send_whatsapp') as customer_send, \
+                 patch.object(yossi, 'save_conversation') as stale_save:
+                self.assertTrue(yossi.process_message(phone, 'הברונזה לא נשלח'))
+                customer_send.assert_not_called()
+                stale_save.assert_not_called()
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    state = yossi.read_handoff_state(cur, phone)
+                    cur.execute('SELECT context,conversation FROM glass_leads WHERE phone=%s', (phone,))
+                    saved_context, conversation = cur.fetchone()
+            self.assertEqual(saved_context, context)
+            self.assertEqual(conversation[-1]['content'], 'הברונזה לא נשלח')
+            self.assertEqual(state['owner'], 'operator')
+            self.assertTrue(state['escalation']['active'])
+            self.assertEqual(state['escalation']['reason'], 'תמונה מבוקשת אינה זמינה בקטלוג')
+            self.assertEqual(state['escalation']['notificationStatus'], 'not_configured')
+            # This is the same signed control collection consumed by the CRM.
+            import time, hmac, hashlib
+            key = '19'*32
+            stamp, nonce = str(int(time.time())), 'd'*32
+            canonical = '\n'.join(['GET', '/v1/handoff', stamp, nonce, hashlib.sha256(b'').hexdigest()]).encode()
+            headers = {'X-CRM-Timestamp': stamp, 'X-CRM-Nonce': nonce,
+                       'X-CRM-Signature': 'sha256=' + hmac.new(bytes.fromhex(key), canonical, hashlib.sha256).hexdigest()}
+            with patch.object(yossi, 'HANDOFF_ENABLED', True), patch.dict(os.environ, {'CRM_CONTROL_KEY_HEX': key}):
+                result = yossi.app.test_client().get('/v1/handoff', headers=headers)
+            self.assertEqual(result.status_code, 200)
+            control = next(c for c in result.json['controls'] if c['phone'] == phone)
+            self.assertTrue(control['escalation']['active'])
+            self.assertEqual(control['owner'], 'operator')
+            http = Mock()
+            http.post.return_value.ok = True
+            http.post.return_value.json.return_value = {'ok': True, 'result': {'message_id': 44, 'chat': {'id': 123456}}}
+            config = {'OWNER_ALERT_ENABLED': 'true', 'OWNER_ALERT_CHANNEL': 'telegram',
+                      'OWNER_TELEGRAM_BOT_TOKEN': '123456789:' + 'a'*35, 'OWNER_TELEGRAM_CHAT_ID': '123456'}
+            with patch.dict(os.environ, config):
+                dispatch_owner_alerts(test_connection, http, '', 'unused', Mock())
+                dispatch_owner_alerts(test_connection, http, '', 'unused', Mock())
+            http.post.assert_called_once()
+            self.assertIn('CRM', http.post.call_args.kwargs['json']['text'])
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    self.assertEqual(yossi.read_handoff_state(cur, phone)['escalation']['notificationStatus'], 'accepted')
+        finally:
+            with test_connection() as db:
+                with db.cursor() as cur:
+                    cur.execute('DELETE FROM yossi_handoffs WHERE phone=%s', (phone,))
+                    cur.execute('DELETE FROM glass_leads WHERE phone=%s', (phone,))
+            yossi.histories.pop(phone, None)
+            yossi.customer_context.pop(phone, None)
+
     def test_dialog_reset_preserves_channel_provenance_and_optouts(self):
         import json
         phone = '972500000999'
@@ -200,35 +271,6 @@ class FollowupPostgresIntegration(unittest.TestCase):
             finally:
                 yossi._delivery_scope.current = None
             post.assert_not_called()
-
-    def test_missing_photo_task_keeps_original_lead_context_and_is_visible(self):
-        import json
-        phone = 'TEST_FOLLOWUP_MISSING_PHOTO'
-        with test_connection() as db:
-            with db.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO glass_leads(phone, status, context)
-                    VALUES (%s, 'בטיפול', '{"existing": true}'::jsonb)
-                    ON CONFLICT(phone) DO UPDATE SET
-                        status='בטיפול', context=EXCLUDED.context
-                """, (phone,))
-        with patch.object(yossi, 'send_whatsapp') as send:
-            self.assertTrue(yossi.save_missing_photo_lead(phone, 'אפשר תמונה של מחיצה מיוחדת?'))
-            with test_connection() as db:
-                with db.cursor() as cur:
-                    cur.execute("SELECT status, context FROM glass_leads WHERE phone=%s", (phone,))
-                    status, context = cur.fetchone()
-            self.assertEqual(status, 'ממתין לתמונה')
-            self.assertTrue(context['existing'])
-            self.assertIn('מחיצה', context['missing_photo_request'])
-            self.assertTrue(yossi.save_missing_photo_lead(phone, 'יש תמונה אחרת?'))
-            with test_connection() as db:
-                with db.cursor() as cur:
-                    cur.execute("SELECT count(*), max(context->>'missing_photo_request') FROM glass_leads WHERE phone=%s", (phone,))
-                    count, latest = cur.fetchone()
-            self.assertEqual(count, 1)
-            self.assertIn('אחרת', latest)
-            send.assert_not_called()
 
     def test_inbound_timestamp_in_disposable_database(self):
         """Verified inbound time persists, advances and does not send WhatsApp."""

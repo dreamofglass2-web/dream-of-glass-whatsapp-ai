@@ -423,7 +423,6 @@ def main():
     with patch.object(yossi.client.responses, "create", side_effect=measured_create), \
          patch.object(yossi.requests, "post", side_effect=AssertionError('Real customer HTTP delivery forbidden')), \
          patch.object(yossi, "PHOTO_CATALOG", [dict(url='https://res.cloudinary.com/synthetic/image/upload/front.jpg', glass='שקופה', product='מקלחון', configuration='חזית קבוע + דלת')]), \
-         patch.object(yossi, "save_missing_photo_lead", return_value=True), \
          patch.object(yossi, "load_conversation", side_effect=load), \
          patch.object(yossi, "save_conversation", side_effect=save), \
          patch.object(yossi, "reset_conversation_for_phone", side_effect=reset), \

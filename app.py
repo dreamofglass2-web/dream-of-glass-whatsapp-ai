@@ -303,32 +303,6 @@ def save_custom_quote_lead(phone):
         return False
 
 
-def save_missing_photo_lead(phone, request_text):
-    """Create an owner task only, preserving existing customer conversation and metadata."""
-    if not phone:
-        return False
-    try:
-        ensure_db()
-        with db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO glass_leads(phone, status, context)
-                    VALUES (%s, 'ממתין לתמונה', jsonb_build_object(
-                        'missing_photo_request', %s::text, 'missing_photo_at', now()::text))
-                    ON CONFLICT(phone) DO UPDATE SET
-                        context=glass_leads.context || jsonb_build_object(
-                            'missing_photo_request', %s::text, 'missing_photo_at', now()::text),
-                        status=CASE WHEN glass_leads.status IN
-                            ('נסגר', 'סגור', 'לא רלוונטי', 'ממתין לחזרה', 'ממתין לתמחור')
-                            THEN glass_leads.status ELSE 'ממתין לתמונה' END,
-                        updated_at=now()
-                """, (phone, str(request_text or '')[:1000], str(request_text or '')[:1000]))
-        return True
-    except Exception:
-        app.logger.exception('Missing-photo owner task could not be saved')
-        return False
-
-
 def save_callback(phone, preferred_time=None, summary=None):
     try:
         ensure_db()
@@ -1001,8 +975,8 @@ def pick_sample_photos(body, history, context, max_photos=2):
         ('גלינה קליר', r'גלינה\s*(?:א\.?\s*קליר|אקסטרה\s*קליר|קליר)?'),
         ('אסיד קליר', r'אסיד\s*קליר'),
         ('אקסטרה קליר', r'אקסטרה\s*קליר|א\.\s*קליר|(?<![\wא-ת])א\s+קליר'),
-        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה|(?<![\wא-ת])ו?ברונזה(?![\wא-ת])'),
-        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה|(?<![\wא-ת])ו?אפור(?:ה)?(?![\wא-ת])'),
+        ('אנטיסן ברונזה', r'אנטיסן\s*ברונזה|זכוכית\s*ברונזה|(?<![\wא-ת])ו?ה?ברונזה(?![\wא-ת])'),
+        ('אנטיסן אפור', r'אנטיסן\s*אפור|זכוכית\s*אפורה|(?<![\wא-ת])ו?ה?אפור(?:ה)?(?![\wא-ת])'),
         ('פיפיטה', r'פיפיטה|פפיטה'),
         ('חלבי', r'חלבית?|חלבי'),
         ('אסיד', r'אסיד(?!\s*קליר)'),
@@ -3054,12 +3028,13 @@ def process_message(phone, body, batch_rows=None):
             asked_for_photo = (completing_photo or requested_handles or requests_catalog_samples(customer_request)
                                or requests_portfolio_photos(customer_request))
             if asked_for_photo and not photos:
-                if save_missing_photo_lead(phone, customer_request):
-                    reply = ('כרגע אין לי תמונה מתאימה וזמינה לבקשה שלך. '
-                             'שמרתי פנייה לאלירן דוד הכהן כדי שיטפל בבקשת התמונה באופן אישי.')
-                else:
-                    reply = ('כרגע אין לי תמונה מתאימה וזמינה, ולא הצלחתי לשמור פנייה לטיפול. '
-                             'אפשר לנסות שוב מאוחר יותר.')
+                if HANDOFF_ENABLED:
+                    # The existing handoff persists the request atomically,
+                    # exposes it in CRM and queues the owner's notification.
+                    # Return before sending or saving stale conversation state.
+                    return pause_for_owner(phone, body, 'תמונה מבוקשת אינה זמינה בקטלוג')
+                reply = ('כרגע אין לי תמונה מתאימה וזמינה לבקשה שלך. '
+                         'לא נפתחה פנייה לטיפול אנושי.')
             app.logger.info("WHATSAPP_SEND_ATTEMPT phone_suffix=%s", phone[-4:])
             # Gallery captions follow only images successfully accepted by WhatsApp.
             # A send failure must never be described to the customer as a delivered image.
