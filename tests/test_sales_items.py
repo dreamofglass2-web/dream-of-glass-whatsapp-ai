@@ -66,3 +66,32 @@ class BathHeightBasisTests(unittest.TestCase):
         self.assertIsNone(numbered_item('שני קבועים ודלת באמצע'))
         self.assertIsNone(numbered_item('שני מקלחונים'))
         self.assertEqual(numbered_item('למקלחון השני'),'2')
+
+
+class OrderInventoryTests(unittest.TestCase):
+    def test_old_mixed_request_creates_unpriced_second_item(self):
+        history=[{'role':'user','content':'מקלחון באמבטיה עם הזזה ומקלחון שירותים עם צד קבוע וצד מתקפל'},
+                 {'role':'assistant','content':'איזה גוון תרצה לאמבטיון?'},
+                 {'role':'user','content':'ברונזה'}]
+        state=item_context(dict(product='אמבטיון',width_cm=181),history,'ברונזה')
+        self.assertEqual(set(state['sales_items']),{'1','2'})
+        self.assertEqual(state['sales_items']['2']['product'],'מקלחון')
+        self.assertFalse(state['sales_items']['2'].get('width_cm'))
+
+    def test_expected_count_blocks_a_truncated_single_offer(self):
+        from sales_items import bundle_offer
+        state={'expected_sales_item_count':2,'sales_items':{'1':{'solution_agreed':True}}}
+        self.assertIsNone(bundle_offer(state,lambda _:1000,allow_single=True))
+
+    def test_image_analysis_does_not_invent_another_order_item(self):
+        history=[{'role':'user','content':'מחפש אמבטיון [לקוח צירף תמונה שנותח בפועל. אמבטיון ומקלחון שירותים]'}]
+        state=item_context({'product':'אמבטיון'},history,'מחיר?')
+        self.assertFalse(state.get('sales_items'))
+
+
+    def test_mixed_product_order_follows_customer_wording(self):
+        h=[{'role':'user','content':'מקלחון שירותים ואמבטיון'}]
+        state=item_context({},h,'אמבטיון')
+        self.assertEqual(state['active_sales_item'],'2')
+        self.assertEqual(state['sales_items']['1']['product'],'מקלחון')
+        self.assertEqual(state['sales_items']['2']['product'],'אמבטיון')

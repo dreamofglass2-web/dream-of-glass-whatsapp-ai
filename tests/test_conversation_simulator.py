@@ -1977,3 +1977,64 @@ class CenterSlidingBathTests(unittest.TestCase):
         reply=self.step('מה האחריות?',self.model('אין אחריות על הזכוכית.',**specs))
         self.assertIn('אחריות',reply)
         self.assertNotIn('מפתח כניסה קטן',reply)
+
+
+class PartialBathOrderTests(unittest.TestCase):
+    setUp = ConversationSimulation.setUp
+    load = ConversationSimulation.load
+    save = ConversationSimulation.save
+    send = ConversationSimulation.send
+    reset = ConversationSimulation.reset
+    step = ConversationSimulation.step
+    model = ConversationSimulation.model
+
+    def bath(self):
+        return dict(product='אמבטיון',configuration='הזזה 2 קבועים + דלת',width_cm=181,
+                    height_cm=140,glass_type='אנטיסן ברונזה',finish='ניקל',solution_agreed=True)
+
+    def test_legacy_single_offer_recovers_second_item_and_only_quotes_bath(self):
+        history=[{'role':'user','content':'מקלחון באמבטיה עם דלת הזזה ומקלחון שירותים צד אחד קבוע וצד אחד דלת מתקפלת\n[לקוח צירף תמונה שנותח בפועל. מידות 113 ו100]'},
+                 {'role':'assistant','content':'נתחיל באמבטיון ואז נעבור למקלחון בשירותים.'}]
+        legacy=yossi.bundle_offer({'sales_items':{'1':self.bath()}},yossi.calculate_quote,allow_single=True)
+        self.memory[self.phone]=(history,dict(self.bath(),combined_offer=dict(legacy,issued=True),
+            validated_quote=dict(self.bath(),issued=True,amount_ils_pre_vat=2508)))
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True),patch('quote_pdf.create_quote_pdf') as pdf:
+            reply=self.step('כמה יעלה האמבטיון שבחרנו?',self.model('ההצעה המלאה לכל המקלחונים.',quote_requested=True,**self.bath()))
+        pdf.assert_not_called()
+        self.assertIn('2,508',reply)
+        self.assertIn('לאמבטיון בלבד',reply)
+        self.assertIn('נמשיך למקלחון השני',reply)
+        self.assertIn('צד קבוע וצד מתקפל',reply)
+        self.assertNotIn('סך הכול לכל',reply)
+        self.assertNotIn('לאשר',reply)
+        state=self.memory[self.phone][1]
+        self.assertEqual(state['expected_sales_item_count'],2)
+        self.assertEqual(state['sales_items']['1']['width_cm'],181)
+        self.assertFalse(state['sales_items']['2'].get('width_cm'))
+        self.assertFalse(state.get('combined_offer'))
+        with patch.object(yossi,'save_callback') as callback:
+            self.step('אני מאשר את ההצעה',self.model('נשלים קודם את פרטי המקלחון השני.'))
+        callback.assert_not_called()
+
+    def test_genuinely_single_bath_pdf_uses_singular_caption(self):
+        self.memory[self.phone]=([{'role':'assistant','content':'בחרנו את האמבטיון.'}],self.bath())
+        self.ai.queue.append(self.model('הנה ההצעה.',quote_requested=True,**self.bath()))
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True),patch('quote_pdf.create_quote_pdf',return_value=(b'%PDF-test','quote.pdf')),patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message(self.phone,'כמה יעלה האמבטיון?'))
+        caption=send.call_args.kwargs['caption']
+        self.assertIn('אמבטיון',caption)
+        self.assertIn('לפריט הזה',caption)
+        self.assertNotIn('לכל המקלחונים',caption)
+        self.assertNotIn('ההצעה המלאה',caption)
+
+
+    def test_partial_quote_objection_stays_on_bath_and_keeps_value_reply(self):
+        h=[{'role':'user','content':'מקלחון באמבטיה ומקלחון שירותים'},
+           {'role':'assistant','content':'בחרנו ברונזה לאמבטיון.'}]
+        self.memory[self.phone]=(h,self.bath())
+        self.step('כמה יעלה האמבטיון?',self.model('הנה מחיר.',quote_requested=True,**self.bath()))
+        reply=self.step('יקר לי, רוצה להשוות',self.model('מה התקציב שחשבת עליו?',**self.bath()))
+        self.assertIn('התקציב',reply)
+        self.assertIn('בלי קבלני משנה',reply)
+        self.assertNotIn('2,508',reply)
+        self.assertEqual(self.memory[self.phone][1]['active_sales_item'],'1')
