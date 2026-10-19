@@ -795,10 +795,10 @@ def load_photo_catalog():
         return []
 
 PHOTO_CATALOG = load_photo_catalog()
-# Public media metadata only; no environment values, credentials or customer data.
-app.logger.info('PHOTO_CATALOG_HANDLE_INDEX %s', json.dumps(
-    [{k: p.get(k, '') for k in ('url', 'glass', 'product', 'configuration', 'finish', 'handle')}
-     for p in PHOTO_CATALOG[:50]], ensure_ascii=False))
+# Approved media references only; verify live availability without customer sends.
+app.logger.info('PHOTO_CATALOG_HANDLE_EXAMPLES %s', json.dumps(
+    {name: [p['url'] for p in handle_photos(PHOTO_CATALOG, name, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)]
+     for name in ('כפתור', 'מגבת')}, ensure_ascii=False))
 
 
 def customer_written_text(body):

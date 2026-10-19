@@ -1,6 +1,13 @@
 """Illustration intent and honest catalog matching; no model or delivery calls."""
 import re
 
+# Existing owner-approved portfolio assets, visually reviewed for the handle only.
+# Do not infer glass, finish, measurements or configuration from these labels.
+REVIEWED_HANDLE_LABELS = {
+    'https://res.cloudinary.com/yovjswn9/image/upload/glass_010.jpeg': 'כפתור',
+    'https://res.cloudinary.com/yovjswn9/image/upload/glass_009.jpeg': 'מגבת',
+}
+
 
 
 def catalog_handle_label(record):
@@ -11,7 +18,7 @@ def catalog_handle_label(record):
         for label in value if isinstance(value, list) else [value]:
             if isinstance(label, str):
                 labels.append(label.strip())
-    return ' '.join(dict.fromkeys(labels))
+    return ' '.join(dict.fromkeys(labels)) or REVIEWED_HANDLE_LABELS.get(record.get('url'), '')
 
 def handle_photo_request(text, history):
     if declines_visuals(text) or not re.search(r'תמונ|דוגמ|לראות|תראה|תראי|תשלח', text):
