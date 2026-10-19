@@ -16,7 +16,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply
+from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -2279,6 +2279,25 @@ def process_message(phone, body, batch_rows=None):
             if has_new_messages(phone, batch_rows):
                 return False
             return pause_for_owner(phone, body, early_reason)
+        thickness_choice = shower_six_mm_choice(
+            customer_written_text(body), prior.get('product') or current_product_from_history(history),
+            [m.get('content', '') for m in history[:-1] if m.get('role') == 'assistant'])
+        if thickness_choice == 'accept_eight':
+            prior = dict(prior, sales_closed=False)
+        elif thickness_choice:
+            if has_new_messages(phone, batch_rows):
+                return False
+            closing = thickness_choice == 'close'
+            reply = ('מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ, ולכן לא נוכל לבצע את המקלחון שביקשת. תודה שפנית אלינו.'
+                     if closing else
+                     'מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ. אנחנו מבצעים מקלחונים בזכוכית מחוסמת 8 מ״מ. תרצה להתקדם עם 8 מ״מ?')
+            safe_context = dict(prior, sales_closed=closing)
+            if closing:
+                safe_context['quote_requested'] = False
+                safe_context.pop('callback_requested_day', None)
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant', 'content':reply}], safe_context)
+            return True
         # Identity and budget replies outrank quote restatement.
         if (re.search(r'בוט|דיגיטלי|רובוט|בינה מלאכותית|אדם אמיתי',body)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
