@@ -184,6 +184,29 @@ class ConversationSimulation(unittest.TestCase):
         self.assertNotIn('₪', reply)
         self.assertNotIn('הנחה', reply)
 
+    def test_button_examples_use_catalog_shower_with_plural_product_and_no_standalone_image(self):
+        self.memory[self.phone] = ([{'role':'assistant','content':'ידית כפתור או מגבת?'}],
+            {'product':'מקלחון', 'handles':['ידית כפתור'], 'finish':'ברונזה'})
+        pictures = []
+        def capture(phone, body=None, image_url=None, caption=None):
+            self.sent.append(body or '[TEST_IMAGE]')
+            if image_url:
+                pictures.append((image_url, caption))
+        records = [dict(url='https://res.cloudinary.com/test/image/upload/button.jpg', glass='שקופה',
+                        product='מקלחונים', handles=['ידית כפתור'])]
+        with patch.dict(yossi.os.environ, {'PHOTO_CATALOG_JSON':json.dumps(records)}):
+            catalog = yossi.load_photo_catalog()
+        with patch.object(yossi, 'PHOTO_CATALOG', catalog), \
+             patch.object(yossi, 'HANDLE_BUTTON_IMAGE_URL', ''), \
+             patch.object(yossi, 'HANDLE_TOWEL_IMAGE_URL', ''), \
+             patch.object(yossi, 'send_whatsapp', side_effect=capture), \
+             patch.object(yossi, 'pause_for_owner') as pause:
+            self.step('כפתור\nיש לך דוגמאות ?', self.model('הנה דוגמה לידית כפתור.'))
+            pause.assert_not_called()
+        self.assertEqual(len(pictures), 1)
+        self.assertIn('כפתור', pictures[0][1])
+        self.assertNotIn('ברונזה', pictures[0][1])
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},

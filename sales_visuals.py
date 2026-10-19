@@ -2,6 +2,17 @@
 import re
 
 
+
+def catalog_handle_label(record):
+    """Keep explicit handle metadata in supported catalog formats; never infer from glass/layout."""
+    values = [record.get(key) for key in ('handle', 'handles', 'handle_type') if record.get(key)]
+    labels = []
+    for value in values:
+        for label in value if isinstance(value, list) else [value]:
+            if isinstance(label, str):
+                labels.append(label.strip())
+    return ' '.join(dict.fromkeys(labels))
+
 def handle_photo_request(text, history):
     if declines_visuals(text) or not re.search(r'תמונ|דוגמ|לראות|תראה|תראי|תשלח', text):
         return False
@@ -20,12 +31,11 @@ def handle_photos(catalog, text, context, button_url='', towel_url=''):
     wanted = named or wanted
     result = []
     for name in wanted:
-        match = next((p for p in catalog if name in str(p.get('handle') or '') and
-                      'מקלחון' in p.get('product', '')), None)
+        match = next((p for p in catalog if name in catalog_handle_label(p)), None)
         url = match['url'] if match else {'כפתור': button_url, 'מגבת': towel_url}[name]
         if url:
             result.append({'url': url, 'glass': (match or {}).get('glass', ''),
-                           'caption': f'בתמונת המקלחון רואים ידית {name}.' if match else f'ידית {name}'})
+                           'caption': f'בתמונה רואים ידית {name}. המבנה והגוון בתמונה הם להמחשה.' if match else f'ידית {name}'})
     return result
 
 
