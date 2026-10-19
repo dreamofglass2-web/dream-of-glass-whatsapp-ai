@@ -84,6 +84,33 @@ class ConversationSimulation(unittest.TestCase):
 
 
 
+    def test_thickness_explanation_answers_current_question_despite_pending_quote(self):
+        history = [
+            {'role':'user', 'content':'אפשר הצעת מחיר למקלחון?'},
+            {'role':'assistant', 'content':'איך המקלחון הקיים?'},
+            {'role':'user', 'content':'מקלחון 90/90 זכוכית 6 מ״מ'},
+            {'role':'assistant', 'content':'פינתי או בין קירות?'},
+            {'role':'user', 'content':'בין שני קירות אבל רוצה אותו דבר חזית 6 מ״מ, הוא ישן'},
+            {'role':'assistant', 'content':'אצלנו מחוסמת 8 מ״מ ולא 6 מ״מ. איך הוא נפתח?'}]
+        for complete in (False, True):
+            with self.subTest(complete_specs=complete):
+                context = {'product':'מקלחון', 'quote_requested':True, 'customer_name':'שי'}
+                if complete:
+                    context.update(configuration='חזית קבוע + דלת', width_cm=120,
+                                   glass_type='שקופה', finish='שחור', handles=['ידית מגבת'],
+                                   solution_agreed=True)
+                self.memory[self.phone] = (list(history), context)
+                reply = self.step('למה בעצם צריך 8 מ״מ\nעד עכשיו לא היה לי בעיה איתו רק משום שהוא ישן',
+                                  self.model('8 מ״מ קשיחה יותר מ־6 מ״מ.'))
+                self.assertIn('לא עובדים עם 6 מ״מ', reply)
+                self.assertIn('קשיחה יותר ומתכופפת פחות', reply)
+                self.assertIn('ולא רק בעובי', reply)
+                self.assertNotIn('המחיר תלוי', reply)
+                self.assertNotIn('שני קירות?', reply)
+                self.assertNotIn('₪', reply)
+                self.assertTrue(self.memory[self.phone][1]['quote_requested'])
+                self.assertFalse(self.memory[self.phone][1].get('validated_quote', {}).get('issued'))
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},

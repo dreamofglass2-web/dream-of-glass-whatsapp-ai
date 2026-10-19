@@ -240,3 +240,23 @@ def personal_service_value(reply, customer, history, product=None):
         prefix = value[:question.start()].rstrip()
         return ' '.join(part for part in (prefix, addition, question.group(1).strip()) if part)
     return value + ' ' + addition
+
+
+def shower_thickness_reply(customer, product):
+    """Owner policy plus bounded material comparison, never a site safety verdict.
+
+    Price requests and mixed technical/design requests stay in the usual flow.
+    """
+    if not str(product or '').startswith(('מקלחון', 'אמבטיון')):
+        return None
+    text = str(customer or '')
+    thickness = bool(re.search(r'(?<!\d)[68]\s*(?:מ[״"׳\']?מ|מילימטר)', text))
+    question = bool(re.search(r'למה|מדוע|מה\s+ההבדל|מה\s+החשיבות|מה\s+היתרון|בשביל\s+מה', text))
+    if not (thickness and question):
+        return None
+    if re.search(r'מחיר|עולה|עלות|הצעה|אלירן|אדם|בטוח|בטיחות|תקן|שבר|סדק|רוחב|גובה|מידות|אחריות', text):
+        return None
+    return ('אצלנו מבצעים מקלחונים בזכוכית מחוסמת 8 מ״מ ולא עובדים עם 6 מ״מ. '
+            'באותן מידות ותמיכות, 8 מ״מ קשיחה יותר ומתכופפת פחות, ולכן נותנת תחושה יציבה ומוצקה יותר. '
+            'גם 6 מ״מ יכולה להתאים בתכנון נכון, כך שאין סיבה להסיק שהמקלחון הקיים היה לא מתאים; '
+            'הבטיחות תלויה גם בחיסום, במבנה, בפרזול ובהתקנה, ולא רק בעובי.')
