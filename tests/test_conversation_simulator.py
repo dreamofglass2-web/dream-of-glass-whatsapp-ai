@@ -153,6 +153,37 @@ class ConversationSimulation(unittest.TestCase):
         self.assertFalse(self.memory[self.phone][1]['sales_closed'])
         self.assertFalse(self.ai.queue)
 
+    def test_coffee_color_name_question_does_not_trigger_price_objection(self):
+        from sales_dialogue import sales_turn_context
+        customer = 'צבע קפה כזה איך זה ניקרא ?'
+        self.memory[self.phone] = ([
+            {'role':'user','content':'אני רוצה שני מקלחונים לבית חדש'},
+            {'role':'assistant','content':'נלך על זכוכית חלבית בחדר הכללי. איזה גוון תרצה לפרזול?'}],
+            {'product':'מקלחון', 'customer_name':'נאור', 'configuration':'חזית הזזה 2 קבועים + דלת',
+             'width_cm':166, 'glass_type':'חלבית', 'sales_discovery_completed':True})
+        answer = 'יכול להיות שאתה מתכוון לברונזה, גוון חום חמים. זה הגוון שהתכוונת אליו?'
+        reply = self.step(customer, self.model(answer))
+        self.assertEqual(reply, answer)
+        self.assertFalse(yossi.price_objection(customer))
+        self.assertNotIn('זוהי התנגדות', str(yossi.sales_turn_guidance(customer, [])))
+        self.assertNotEqual(sales_turn_context(customer, [], {})['focus_hint'], 'understand_price_objection')
+        for extra in ('אחריות', 'פרימיום', 'קבלני משנה', '7 שנות'):
+            self.assertNotIn(extra, reply)
+        for price in ('יקר לי', 'ההצעה יקרה', 'המחירים יקרים'):
+            self.assertTrue(yossi.price_objection(price))
+            self.assertEqual(sales_turn_context(price, [], {})['focus_hint'], 'understand_price_objection')
+
+    def test_equivalent_competitor_offer_gets_buyer_reason_not_another_comparison(self):
+        self.memory[self.phone] = ([{'role':'assistant','content':'מה חשוב לך בהשוואה להצעה האחרת?'}],
+                                   {'product':'מקלחון', 'sales_discovery_completed':True})
+        reply = self.step('המתחרה נותן את אותו הדבר בדיוק אבל זול יותר',
+                          self.model('ההצעה האחרת לאותו מפרט?'))
+        self.assertNotIn('לאותו מפרט?', reply)
+        self.assertIn('ממליץ', reply)
+        self.assertIn('כתובת אחת', reply)
+        self.assertNotIn('₪', reply)
+        self.assertNotIn('הנחה', reply)
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},
