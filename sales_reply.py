@@ -2,6 +2,9 @@
 import re
 from sales_items import preliminary_height
 
+# Hebrew word boundaries prevent words such as ניקרא from becoming price objections.
+EXPENSIVE_WORD = r'(?<![א-ת])(?:יקר(?:ה|ים|ות)?|התייקר(?:ה|ו)?)(?![א-ת])'
+
 
 def quote_facts_for_turn(prior, customer, calculator):
     prior = prior or {}
@@ -204,17 +207,26 @@ def comparison_turn(history, prior, customer, calculate, bom, glass_types, finis
     return reply,result
 
 
+BUYER_SERVICE_BENEFIT = ('הסיבה שאני ממליץ לבחור אצלנו היא שיש לך כתובת אחת שמכירה את העבודה מהמדידה ועד השירות, '
+                         'בלי שתצטרך לתאם בין מודד למתקין.')
+
 PERSONAL_SERVICE_VALUE = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה, '
-                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך.')
+                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך. ' + BUYER_SERVICE_BENEFIT)
 
 
 def personal_service_value(reply, customer, history, product=None):
     """Complete missing value facts, including when the model supplied only some."""
     text = str(customer or '')
-    if not re.search(r'יקר|מחיר.{0,15}גבוה|הציעו לי|מתחר|להשוות|השוואה|הצעה אחרת|מישהו אחר.{0,15}זול', text):
+    if not re.search(EXPENSIVE_WORD + r'|מחיר.{0,15}גבוה|הציעו לי|מתחר|להשוות|השוואה|הצעה אחרת|מישהו אחר.{0,15}זול', text):
         return reply
     if re.search(r'לא מעוניין|אל תפנ|אלך איתם|אסגור איתם|הולך איתם', text):
         return reply
+    same_offer = bool(re.search(r'מתחר.{0,40}(?:אותו\s*(?:הדבר|דבר|מפרט)|זהה)', text))
+    if same_offer:
+        # The customer already answered equivalence; do not send them back to compare.
+        reply = re.sub(r'(?:^|(?<=[.!?])\s+)[^.!?\n]*(?:אותו.{0,20}מפרט|מה.{0,20}(?:כולל|נותן))[^.!?\n]*\?\s*$', '', str(reply or '')).strip()
+        if not reply:
+            reply = 'גם כשפרטי ההצעות דומים, אני ממליץ להתקדם איתנו בזכות הליווי האישי לאורך העבודה וגם אחריה.'
     recent = [str(m.get('content') or '') for m in history[-7:] if m.get('role') == 'assistant']
     answers = [str(reply or '')] + recent
     additions = []
@@ -230,6 +242,13 @@ def personal_service_value(reply, customer, history, product=None):
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
     if not any('אלירן' in answer and re.search(r'קבלני משנה|מגיע בעצמו', answer) for answer in answers):
         additions.append(PERSONAL_SERVICE_VALUE)
+    # A fact list alone does not explain why the customer should choose this service.
+    benefit_explained = any(re.search(
+        r'כתובת אחת|אותו אדם.{0,70}(?:מכיר|אחראי|מטפל)|בלי שתצטרך לתאם|'
+        r'(?:כך|לכן|כדי|בשבילך|עבורך).{0,70}(?:שקט|תיאום|כתובת|מכיר.{0,15}העבודה)', answer)
+        for answer in answers + additions)
+    if not benefit_explained:
+        additions.append(BUYER_SERVICE_BENEFIT)
     if not additions:
         return reply
     addition = ' '.join(additions)

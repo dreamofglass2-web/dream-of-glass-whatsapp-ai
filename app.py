@@ -16,7 +16,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply
 from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
+from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
@@ -1331,7 +1331,7 @@ def sales_turn_guidance(customer_request, history):
         info.append('הלקוח כבר נתן מידות. אין צורך לצטט לו את כל המפרט או לבקש אותן שוב.')
     if re.search(r'לא\s+יודע|אין\s+לי\s+מושג|עוד\s+לא|בלאגן|בלגן', text) and re.search(r'שיפוץ|ריצוף|רצף|לא\s+מדד|תכנית|תוכנית', entire):
         info.append('הלקוח לא יכול לתת עוד פרטי תכנון כעת. תן לו דרך קלה להמשיך כשהמצב יתבהר, בלי לדרוש מדידה.')
-    if re.search(r'יקר|זול\s+יותר|הצעה\s+זולה|מתחר|מתלבט|לחשוב\s+על\s+זה', text):
+    if re.search(EXPENSIVE_WORD + r'|זול\s+יותר|הצעה\s+זולה|מתחר|מתלבט|לחשוב\s+על\s+זה', text):
         info.append('זוהי התנגדות או התלבטות: קודם לזהות את הסיבה, לתת ערך מבוסס ומדויק, ואז להציע צעד קטן. לא לטעון שהמתחרה נחות, לא להמציא הנחות ולא לחזור על נאום זהה.')
     if re.search(r'רוצה\s+לסגור|רוצה\s+להתקדם|איך\s+מתקדמים|מה\s+צריך\s+ממני', text):
         info.append('זה לקוח חם: קדם להצעת מחיר ולא למדידה; שאל רק מה הכרחי להצעה.')
@@ -1551,7 +1551,7 @@ def calculate_quote(data):
 
 
 def price_objection(text):
-    return bool(re.search(r'יקר|זול|תקציב|יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות)',str(text or '')))
+    return bool(re.search(EXPENSIVE_WORD + r'|זול|תקציב|יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות)|מתחר.{0,35}(?:נותן|מציע|אותו|זהה)',str(text or '')))
 
 
 def budget_answer(text, history, prior=None):

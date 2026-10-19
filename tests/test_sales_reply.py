@@ -148,3 +148,50 @@ class UnsupportedShowerThicknessTests(unittest.TestCase):
                               ('רוצה 6 ממ אבל דבר עם אלירן', 'מקלחון')):
             with self.subTest(text=text):
                 self.assertIsNone(choice(text, product, policy))
+
+
+class ColorNameIsNotPriceObjectionTests(unittest.TestCase):
+    def test_color_question_preserves_brief_bronze_clarification(self):
+        from sales_reply import personal_service_value
+        answer = 'יכול להיות שאתה מתכוון לברונזה, גוון חום חמים. זה הגוון שהתכוונת אליו?'
+        for customer in ('צבע קפה כזה איך זה ניקרא ?', 'איך נקרא הגוון הזה?', 'ברונזה איך זה ניקרא'):
+            with self.subTest(customer=customer):
+                self.assertEqual(personal_service_value(answer, customer, [], product='מקלחון'), answer)
+
+    def test_real_price_objections_still_include_value(self):
+        from sales_reply import personal_service_value
+        for customer in ('יקר לי', 'ההצעה יקרה', 'המחירים יקרים', 'זה התייקר', 'יקר!'):
+            with self.subTest(customer=customer):
+                self.assertIn('פליז פרימיום', personal_service_value('נבדוק מה חשוב לך.', customer, [], product='מקלחון'))
+
+
+class CustomerBenefitPersuasionTests(unittest.TestCase):
+    def test_fact_only_model_answer_gets_a_reason_to_choose_the_service(self):
+        from sales_reply import personal_service_value
+        facts = ('פרזול פליז פרימיום, 7 שנות אחריות על הפרזול ושנה על ההתקנה. '
+                 'אלירן מגיע בעצמו בלי קבלני משנה. מה חשוב לך בהשוואה?')
+        reply = personal_service_value(facts, 'קיבלתי הצעה אחרת זולה יותר, למה לקנות אצלכם?', [], product='מקלחון')
+        self.assertIn('כתובת אחת', reply)
+        self.assertIn('בלי שתצטרך לתאם', reply)
+        self.assertEqual(reply.count('7 שנות'), 1)
+        self.assertTrue(reply.endswith('מה חשוב לך בהשוואה?'))
+        self.assertNotIn('יחסוך לך', reply)
+
+    def test_existing_customer_benefit_is_preserved_without_another_pitch(self):
+        from sales_reply import personal_service_value
+        reply = ('פרזול פליז פרימיום עם 7 שנות אחריות על הפרזול ושנה על ההתקנה. '
+                 'אלירן מגיע בעצמו בלי קבלני משנה, כך שיש לך כתובת אחת שמכירה את העבודה. '
+                 'אם הליווי הזה חשוב לך, נוכל להתקדם עם ההצעה שלנו.')
+        self.assertEqual(personal_service_value(reply, 'יקר לי ביחס להצעה האחרת', [], product='מקלחון'), reply)
+
+
+class EquivalentCompetitorOfferTests(unittest.TestCase):
+    def test_same_offer_is_not_met_with_another_specification_question(self):
+        from sales_reply import personal_service_value
+        reply = personal_service_value('ההצעה האחרת לאותו מפרט?',
+            'המתחרה נותן את אותו הדבר בדיוק אבל זול יותר', [], product='מקלחון')
+        self.assertNotIn('לאותו מפרט?', reply)
+        self.assertIn('ממליץ', reply)
+        self.assertIn('כתובת אחת', reply)
+        self.assertNotIn('איכות נמוכה', reply)
+        self.assertNotIn('יחסוך', reply)
