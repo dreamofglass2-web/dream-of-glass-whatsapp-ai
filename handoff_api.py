@@ -1,4 +1,4 @@
-"""Fixed signed server-to-server owner control routes; never send messages."""
+"""Signed owner controls; return queues a durable continuation, never sends inline."""
 import hashlib, hmac, json, re, time
 from datetime import datetime, timezone
 from flask import request, Response

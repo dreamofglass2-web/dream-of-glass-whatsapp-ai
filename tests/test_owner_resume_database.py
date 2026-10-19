@@ -1,0 +1,175 @@
+"""Disposable PostgreSQL owner-return delivery jobs. All external sends are mocked."""
+import hashlib
+import json
+import os
+import types
+import unittest
+from datetime import datetime, timezone, timedelta
+from unittest.mock import patch, MagicMock
+import psycopg2
+os.environ.setdefault('OPENAI_API_KEY','sk-offline-test-only')
+import app as yossi
+from handoff_state import new_state, HandoffError
+from handoff_store import owner_action, write_state
+
+
+def connect():
+    return psycopg2.connect(os.environ['DATABASE_URL'],sslmode='disable',connect_timeout=5)
+
+
+class OwnerReturnPostgres(unittest.TestCase):
+    def setUp(self):
+        self.phone='TEST_FOLLOWUP_OWNER_RESUME'
+        self.patches=[patch.object(yossi,'db_connection',side_effect=connect),
+                      patch.object(yossi,'HANDOFF_ENABLED',True),
+                      patch.object(yossi,'business_auto_reply_allowed',return_value=True),
+                      patch.object(yossi,'verified_business_lead',return_value=True),
+                      patch.object(yossi,'customer_freeform_send_allowed',return_value=True),
+                      patch.object(yossi,'schedule_followup_dry_run'),
+                      patch.object(yossi.requests,'post',side_effect=AssertionError('External sends forbidden in PG tests'))]
+        for p in self.patches:p.start()
+        self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)])
+        yossi.ensure_db();yossi.ensure_followup_table();yossi.ensure_inbound_queue_table();yossi.ensure_outbound_attempts_table()
+        self.history=[{'role':'user','content':'כפתור יש לך דוגמאות?', 'at':'2026-10-19T10:00:00Z'}]
+        with connect() as db:
+            with db.cursor() as cur:
+                yossi.ensure_handoff_tables(cur)
+                cur.execute("INSERT INTO glass_leads(phone,conversation,context,last_inbound_at) VALUES(%s,%s::jsonb,%s::jsonb,now())",
+                            (self.phone,json.dumps(self.history),json.dumps({'product':'מקלחון','handles':['ידית כפתור']})))
+                write_state(cur,self.phone,dict(new_state(),owner='operator',revision=3,handoff_generation=1,
+                    summary='הלקוח בחר כפתור',instructions='שלח דוגמאות של כפתור ומגבת'))
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                for table in ('yossi_handoffs','yossi_inbound_queue','yossi_outbound_attempts','yossi_followup_jobs'):
+                    cur.execute('DELETE FROM '+table+' WHERE phone=%s',(self.phone,))
+                cur.execute('DELETE FROM glass_leads WHERE phone=%s',(self.phone,))
+        yossi._delivery_scope.current=None
+
+    def enqueue(self,resume_at=None):
+        with connect() as db:
+            with db.cursor() as cur:
+                state=owner_action(cur,self.phone,3,{'type':'returnToYossi','resume_at':resume_at},datetime.now(timezone.utc).isoformat())
+                cur.execute('SELECT id,status FROM yossi_resume_jobs WHERE phone=%s',(self.phone,))
+                self.job_id,status=cur.fetchone()
+        self.assertEqual(status,'pending')
+        return state
+
+    def status(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT status FROM yossi_resume_jobs WHERE id=%s',(self.job_id,))
+                return cur.fetchone()[0]
+
+    def test_return_is_atomic_single_job_and_revision_replay_is_rejected(self):
+        self.enqueue()
+        with connect() as db:
+            with db.cursor() as cur:
+                with self.assertRaises(HandoffError):
+                    owner_action(cur,self.phone,3,{'type':'returnToYossi'},datetime.now(timezone.utc).isoformat())
+                cur.execute('SELECT count(*) FROM yossi_resume_jobs WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],1)
+
+    def test_restart_recovery_dispatches_both_examples_once_without_new_inbound(self):
+        self.enqueue()
+        data={'reply':'הנה שתי הדוגמאות. איזו ידית מתאימה לך?', 'product':'מקלחון','needs_human':False,
+              'handles':['ידית כפתור','ידית מגבת'],'send_handle_images':True}
+        catalog=[dict(url='https://example.test/button',handle='כפתור'),dict(url='https://example.test/towel',handle='מגבת')]
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT last_inbound_at FROM glass_leads WHERE phone=%s',(self.phone,));before=cur.fetchone()[0]
+        with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(data))) as model, \
+             patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp') as send:
+            # The durable job is discovered without any in-memory inbound queue entry.
+            self.assertTrue(yossi.process_next_owner_resume())
+            self.assertFalse(yossi.process_next_owner_resume())
+        self.assertEqual(self.status(),'done');self.assertEqual(send.call_count,3);model.assert_called_once()
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation,last_inbound_at FROM glass_leads WHERE phone=%s',(self.phone,))
+                history,after=cur.fetchone()
+        self.assertEqual(before,after)
+        self.assertEqual([m for m in history if m['role']=='user'],self.history)
+        self.assertEqual(history[-1]['role'],'assistant')
+
+    def test_new_customer_message_cancels_the_resume_job(self):
+        self.enqueue()
+        yossi.persist_inbound_message(self.phone,'בחרתי מגבת','TEST_OWNER_NEW_CUSTOMER')
+        with patch.object(yossi,'process_owner_continuation') as continuation:
+            self.assertFalse(yossi.process_next_owner_resume())
+        continuation.assert_not_called();self.assertEqual(self.status(),'canceled')
+
+    def test_owner_takeover_cancels_pending_work(self):
+        self.enqueue()
+        with connect() as db:
+            with db.cursor() as cur:
+                owner_action(cur,self.phone,4,{'type':'takeover'},datetime.now(timezone.utc).isoformat())
+        self.assertEqual(self.status(),'canceled')
+        with patch.object(yossi,'process_owner_continuation') as continuation:
+            self.assertFalse(yossi.process_next_owner_resume())
+        continuation.assert_not_called()
+
+    def test_scheduled_return_is_not_dispatched_early(self):
+        self.enqueue((datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+        with patch.object(yossi,'process_owner_continuation') as continuation:
+            self.assertFalse(yossi.process_next_owner_resume())
+        continuation.assert_not_called();self.assertEqual(self.status(),'pending')
+
+    def test_prior_ambiguous_attempt_is_not_replayed(self):
+        self.enqueue()
+        fingerprint=hashlib.sha256(('owner-resume:'+self.job_id).encode()).hexdigest()
+        yossi.reserve_outbound_attempt('TEST_OWNER_PRIOR_ATTEMPT',self.phone,fingerprint)
+        with patch.object(yossi,'process_owner_continuation') as continuation,patch.object(yossi,'pause_for_owner') as pause:
+            self.assertTrue(yossi.process_next_owner_resume())
+        continuation.assert_not_called();self.assertEqual(self.status(),'needs_review');pause.assert_called_once()
+        self.assertFalse(pause.call_args.kwargs['record_customer'])
+
+    def test_expired_window_reports_to_owner_without_fabricated_customer_text(self):
+        self.enqueue()
+        with patch.object(yossi,'customer_freeform_send_allowed',return_value=False), \
+             patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_next_owner_resume())
+        send.assert_not_called();self.assertEqual(self.status(),'blocked')
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],self.history)
+                self.assertEqual(yossi.read_handoff_state(cur,self.phone)['owner'],'operator')
+
+    def test_takeover_after_first_photo_stops_remaining_delivery(self):
+        self.enqueue()
+        data={'reply':'הנה דוגמאות', 'needs_human':False,'handles':['ידית כפתור','ידית מגבת'],'send_handle_images':True}
+        catalog=[dict(url='https://example.test/button',handle='כפתור'),dict(url='https://example.test/towel',handle='מגבת')]
+        provider=MagicMock(status_code=200)
+        real_send=yossi.send_whatsapp
+        def send_then_takeover(*args,**kwargs):
+            real_send(*args,**kwargs)
+            with connect() as db:
+                with db.cursor() as cur:
+                    owner_action(cur,self.phone,4,{'type':'takeover'},datetime.now(timezone.utc).isoformat())
+        with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(data))), \
+             patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp',side_effect=send_then_takeover), \
+             patch.object(yossi.requests,'post',return_value=provider) as post:
+            self.assertTrue(yossi.process_next_owner_resume())
+        self.assertEqual(post.call_count,1)
+        self.assertEqual(self.status(),'canceled')
+
+    def test_customer_reply_between_photos_stops_without_re_escalating(self):
+        self.enqueue()
+        data={'reply':'הנה דוגמאות', 'needs_human':False,'handles':['ידית כפתור','ידית מגבת'],'send_handle_images':True}
+        catalog=[dict(url='https://example.test/button',handle='כפתור'),dict(url='https://example.test/towel',handle='מגבת')]
+        provider=MagicMock(status_code=200)
+        real_send=yossi.send_whatsapp
+        def send_then_inbound(*args,**kwargs):
+            real_send(*args,**kwargs)
+            yossi.persist_inbound_message(self.phone,'בעצם אל תשלח עוד תמונות','TEST_OWNER_DURING_SEND')
+        with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(data))), \
+             patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp',side_effect=send_then_inbound), \
+             patch.object(yossi.requests,'post',return_value=provider) as post, \
+             patch.object(yossi,'pause_for_owner') as pause:
+            self.assertTrue(yossi.process_next_owner_resume())
+        self.assertEqual(post.call_count,1)
+        self.assertEqual(self.status(),'canceled')
+        pause.assert_not_called()

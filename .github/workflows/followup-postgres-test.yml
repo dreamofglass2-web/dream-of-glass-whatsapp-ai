@@ -4,6 +4,7 @@ on:
     paths:
       - 'app.py'
       - 'tests/test_followup_database.py'
+      - 'tests/test_owner_resume_database.py'
       - 'tests/test_verified_inbound_gate.py'
       - 'handoff_state.py'
       - 'handoff_store.py'
@@ -41,6 +42,7 @@ jobs:
       - name: Run disposable database tests; never send WhatsApp
         run: |
           python -m unittest discover -s tests -p test_followup_database.py -v
+          python -m unittest tests.test_owner_resume_database -v
           python -m unittest discover -s tests -p test_verified_inbound_gate.py -v
 
           python -m unittest discover -s tests -p test_operator_echo_webhook.py -v

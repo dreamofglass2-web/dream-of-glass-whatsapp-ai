@@ -87,7 +87,7 @@ def transition(state, expected_revision, action, now):
         if not state['summary'].strip():
             raise HandoffError('Owner summary required before returning conversation')
         # A summary is mandatory even with echoes: phone calls and commitments
-        # may be absent from WhatsApp. Returning does not itself send a message.
+        # may be absent from WhatsApp. Persistence queues the authorized continuation.
         if action.get('resume_at') is not None:
             if instant(action['resume_at']) < instant(now):
                 raise HandoffError('Resume time must not be in the past')
