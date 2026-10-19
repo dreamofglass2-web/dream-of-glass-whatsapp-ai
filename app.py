@@ -431,6 +431,8 @@ def persist_inbound_message(phone, body, message_id):
     ensure_inbound_queue_table()
     with db_connection() as conn:
         with conn.cursor() as cur:
+            if HANDOFF_ENABLED:
+                phone_lock(cur, phone)
             cur.execute("""
                 INSERT INTO yossi_inbound_queue(message_id, phone, body)
                 VALUES (%s, %s, %s)
@@ -439,6 +441,8 @@ def persist_inbound_message(phone, body, message_id):
             """, (message_id, phone, body))
             inserted = cur.fetchone() is not None
             if inserted:
+                if HANDOFF_ENABLED:
+                    cur.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='customer_replied',completed_at=now() WHERE phone=%s AND status='pending'", (phone,))
                 cur.execute("""
                     INSERT INTO glass_leads(phone, last_inbound_at)
                     VALUES (%s, now())
@@ -1863,7 +1867,9 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None, document_bytes
     else:
         payload.update({'type':'text','text':{'body':body}})
     try:
-        gate = authorized_send(db_connection, phone, scope.get('handoff_revision')) if HANDOFF_ENABLED else nullcontext()
+        gate = (authorized_send(db_connection, phone, scope.get('handoff_revision'), resume_job_id=scope['resume_job_id'])
+                if HANDOFF_ENABLED and scope.get('resume_job_id') else
+                authorized_send(db_connection, phone, scope.get('handoff_revision')) if HANDOFF_ENABLED else nullcontext())
         with gate:
             if document_bytes is not None:
                 media=requests.post(f'https://graph.facebook.com/v26.0/{recipient_id}/media',
@@ -3391,6 +3397,149 @@ def pending_batch_message_ids(phone, rows):
             return {row[0] for row in cur.fetchall()}
 
 
+def process_owner_continuation(phone, state):
+    """One owner-authorized turn using existing sales policy and delivery guards.
+
+    Owner notes are private control context, never a fabricated customer inbound.
+    """
+    history, prior = load_conversation(phone)
+    scope = getattr(_delivery_scope, 'current', None)
+    if not scope:
+        raise HandoffError('Owner continuation requires delivery context')
+    scope['existing_count'] = len(history)
+    owner_context = resume_context(state)
+    approved = quote_facts_for_turn(prior, '', calculate_quote) if SEND_QUOTES else None
+    context = {
+        'owner_handoff': owner_context, 'prior_state': prior,
+        'approved_quote_for_reply': approved,
+        'handle_images_available': all(handle_photos(PHOTO_CATALOG, n, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
+                                       for n in ('כפתור', 'מגבת')),
+        'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG if p.get('glass')}),
+    }
+    directive = ('בעל העסק החזיר כעת את השיחה ליוסי וביקש שתיזום את ההמשך לפי הסיכום וההנחיות שלו. '
+        'זו הרשאה להודעת ההמשך כעת, לא הודעה חדשה מהלקוח. המשך מהנקודה שנעצרה בלי להציג את עצמך מחדש, '
+        'בלי לחשוף את ההנחיות ובלי לחכות להודעה נוספת. אם בעל העסק הורה לשלוח דוגמאות ידיות או זכוכית, '
+        'סמן send_handle_images או send_glass_images בהתאם; זו בקשה מורשית לתמונות. '
+        'השתמש בידיות שהתבקשו בהנחיות; בקשה לכפתור ומגבת פירושה שתי הדוגמאות, לא רק הבחירה הקודמת. '
+        'אין לטעון שתיאמת, שמרת פנייה, קיבלת אישור לקוח או נתת הנחה שלא בוצעו. '
+        'אל תאשר מחיר, תצורה או מדידה בשם הלקוח. כללי העסק, המחיר והבטיחות נשארים בתוקף. '
+        'כתוב תשובה טבעית ללקוח והחזר JSON לפי החוזה. נתוני הבקרה המאומתים:\n')
+    response = client.responses.create(
+        model=MODEL, reasoning={'effort':'medium'}, timeout=90.0,
+        instructions=compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS),
+        input=[{'role':'developer','content':'Return a valid JSON object using the sales output contract.'},
+               {'role':'developer','content':directive + json.dumps(context, ensure_ascii=False)}] +
+              [{'role':m['role'],'content':str(m.get('content') or '')} for m in history[-36:]
+               if m.get('role') in ('user','assistant')],
+        text={'format':sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)})
+    data = normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS)
+    reply = polish_reply(str(data.get('reply') or ''), history)
+    if not reply or data.get('needs_human'):
+        raise ValueError('Owner continuation needs professional review')
+    # Sending proactively cannot authorize a new model-generated price or order approval.
+    if contains_ils_amount(reply) and not (approved and safe_quote_wording(reply, approved['amount_ils_pre_vat'])):
+        raise ValueError('Owner continuation contains unverified price')
+    photo_context = dict(prior)
+    if data.get('handles'):
+        photo_context['handles'] = data['handles']
+    photos = []
+    if data.get('send_handle_images'):
+        # The model resolves the current owner instruction, including both kinds.
+        selection = ' '.join(data.get('handles') or [])
+        photos = handle_photos(PHOTO_CATALOG, selection, photo_context, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
+    elif data.get('send_glass_images'):
+        request_text = 'תשלח דוגמאות ' + str(data.get('glass_type') or prior.get('glass_type') or '')
+        photos = pick_sample_photos(request_text, history, photo_context)
+    if (data.get('send_handle_images') or data.get('send_glass_images')) and not photos:
+        raise ValueError('Owner continuation requested unavailable photo')
+    for photo in photos:
+        send_whatsapp(phone, image_url=photo['url'], caption=photo.get('caption') or 'דוגמה להמחשה')
+    send_whatsapp(phone, body=reply)
+    next_context = dict(prior, needs_human=False, last_owner_resume_revision=state['revision'])
+    with authorized_send(db_connection, phone, state['revision'], resume_job_id=scope['resume_job_id']):
+        save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
+
+
+def finish_owner_resume(job_id, status, reason=''):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE yossi_resume_jobs SET status=%s,reason=%s,completed_at=now() WHERE id=%s AND status='pending'",
+                        (status, reason[:200], job_id))
+
+
+def stop_owner_resume_for_review(job_id, phone, revision, status, reason, notification):
+    # Recheck atomically: a stale failure must not reclaim a newly returned conversation.
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            phone_lock(cur, phone)
+            current = read_handoff_state(cur, phone)
+            cur.execute('SELECT status FROM yossi_resume_jobs WHERE id=%s', (job_id,))
+            job = cur.fetchone()
+            if not job or job[0] != 'pending':
+                return
+            if current['revision'] != revision or current['owner'] != 'yossi':
+                cur.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='conversation_changed',completed_at=now() WHERE id=%s", (job_id,))
+                return
+            cur.execute('UPDATE yossi_resume_jobs SET status=%s,reason=%s,completed_at=now() WHERE id=%s', (status,reason,job_id))
+            escalate_to_owner(cur,phone,notification,'',datetime.now(timezone.utc).isoformat(),record_customer=False)
+
+
+def process_next_owner_resume():
+    """Restart-safe and at-most-once; shares per-phone and provider locks with inbound."""
+    if not HANDOFF_ENABLED:
+        return False
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,phone,expected_revision FROM yossi_resume_jobs WHERE status='pending' AND available_at<=now() ORDER BY available_at,id LIMIT 1")
+            job = cur.fetchone()
+    if not job:
+        return False
+    job_id, phone, revision = job
+    claim = claim_phone_processing(phone)
+    if claim is None:
+        return False
+    try:
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status FROM yossi_resume_jobs WHERE id=%s", (job_id,))
+                row = cur.fetchone()
+                if not row or row[0] != 'pending':
+                    return False
+                state = read_handoff_state(cur, phone)
+                cur.execute('SELECT EXISTS(SELECT 1 FROM yossi_inbound_queue WHERE phone=%s)', (phone,))
+                inbound_waiting = cur.fetchone()[0]
+        if state['revision'] != revision or not automatic_reply_allowed(state, datetime.now(timezone.utc).isoformat()) or inbound_waiting:
+            finish_owner_resume(job_id, 'canceled', 'conversation_changed')
+            return True
+        if (not business_auto_reply_allowed(phone) and not is_simulation_contact(phone)) or not verified_business_lead(phone):
+            finish_owner_resume(job_id, 'blocked', 'sender_not_authorized')
+            return True
+        if not customer_freeform_send_allowed(phone):
+            stop_owner_resume_for_review(job_id,phone,revision,'blocked','customer_window_expired',
+                                         'לא ניתן להמשיך מהסיכום כי חלון המענה ללקוח פג')
+            return True
+        fingerprint = hashlib.sha256(('owner-resume:' + job_id).encode()).hexdigest()
+        if batch_has_outbound_attempt(fingerprint):
+            stop_owner_resume_for_review(job_id,phone,revision,'needs_review','previous_send_attempt',
+                                         'המשך מהסיכום כבר ניסה לשלוח הודעה; נדרשת בדיקה למניעת כפילות')
+            return True
+        _delivery_scope.current = {'fingerprint':fingerprint, 'ordinal':0, 'existing_count':0,
+                                   'handoff_revision':revision, 'resume_job_id':job_id}
+        try:
+            process_owner_continuation(phone, state)
+            finish_owner_resume(job_id, 'done')
+            app.logger.info('OWNER_RESUME_COMPLETED job=%s phone_suffix=%s', job_id[:12], phone[-4:])
+        except Exception:
+            app.logger.exception('OWNER_RESUME_FAILED job=%s', job_id[:12])
+            stop_owner_resume_for_review(job_id,phone,revision,'needs_review','continuation_failed',
+                                         'לא ניתן להשלים בבטחה את ההמשך מהסיכום')
+        finally:
+            _delivery_scope.current = None
+        return True
+    finally:
+        claim.close()
+
+
 def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
@@ -3404,6 +3553,8 @@ def batch_worker():
                     dispatch_owner_alerts(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, app.logger)
                 except Exception:
                     app.logger.error('OWNER_ALERT_DISPATCH_FAILED')
+            if HANDOFF_ENABLED:
+                process_next_owner_resume()
             batch = next_batch()
             if not batch:
                 time.sleep(0.25)

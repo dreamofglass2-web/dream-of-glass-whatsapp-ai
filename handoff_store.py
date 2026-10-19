@@ -8,6 +8,13 @@ from handoff_state import new_state, validate, transition, append_verified_messa
 def ensure_tables(cursor):
     cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_handoffs (
         phone TEXT PRIMARY KEY REFERENCES glass_leads(phone), state JSONB NOT NULL)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_resume_jobs (
+        id TEXT PRIMARY KEY, phone TEXT NOT NULL REFERENCES glass_leads(phone) ON DELETE CASCADE,
+        expected_revision INTEGER NOT NULL, available_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ)''')
+    cursor.execute('''CREATE INDEX IF NOT EXISTS yossi_resume_jobs_pending_idx
+        ON yossi_resume_jobs(available_at) WHERE status='pending' ''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_control_nonces (
         nonce TEXT PRIMARY KEY, expires TIMESTAMPTZ NOT NULL)''')
 
@@ -38,6 +45,14 @@ def owner_action(cursor, phone, revision, action, now):
     if action.get('type') == 'takeover':
         capture_suppression(cursor, phone, result)
     write_state(cursor, phone, result)
+    if action.get('type') == 'returnToYossi':
+        import hashlib
+        identity = hashlib.sha256(('owner-resume:' + phone + ':' + str(result['revision'])).encode()).hexdigest()
+        cursor.execute('''INSERT INTO yossi_resume_jobs(id,phone,expected_revision,available_at)
+            VALUES(%s,%s,%s,%s::timestamptz) ON CONFLICT(id) DO NOTHING''',
+            (identity, phone, result['revision'], result.get('resume_at') or now))
+    elif action.get('type') in ('takeover', 'notes'):
+        cursor.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='owner_changed',completed_at=now() WHERE phone=%s AND status='pending'", (phone,))
     return result
 
 
@@ -75,7 +90,7 @@ def record_message(cursor, phone, message, *, operator=False):
 
 
 @contextmanager
-def authorized_send(connect, phone, expected_revision):
+def authorized_send(connect, phone, expected_revision, *, resume_job_id=None):
     """Hold the same per-phone transaction lock through the provider request.
 
     An accepted takeover waits for any already-started send. After its acknowledgement,
@@ -88,6 +103,11 @@ def authorized_send(connect, phone, expected_revision):
             now = datetime.now(timezone.utc).isoformat()
             if expected_revision is None or state['revision'] != expected_revision or not automatic_reply_allowed(state, now):
                 raise HandoffError('Automatic send stopped by operator handoff')
+            if resume_job_id:
+                cursor.execute("SELECT status FROM yossi_resume_jobs WHERE id=%s AND phone=%s", (resume_job_id,phone))
+                job = cursor.fetchone()
+                if not job or job[0] != 'pending':
+                    raise HandoffError('Owner continuation canceled')
             yield
 
 
@@ -125,20 +145,21 @@ def parse_echoes(change, business_number_id):
     return result
 
 
-def escalate_to_owner(cursor, phone, reason, customer_text, now):
+def escalate_to_owner(cursor, phone, reason, customer_text, now, *, record_customer=True):
     """Persist pause and owner request atomically, without customer sends."""
     import hashlib
     phone_lock(cursor, phone)
     # The triggering inbound must remain visible in the source CRM even when
     # process_message exits before its normal save_conversation call.
-    cursor.execute("""UPDATE glass_leads SET conversation =
-        CASE WHEN conversation->-1->>'role' = 'user'
-                  AND conversation->-1->>'content' = %s
-             THEN conversation
-             ELSE COALESCE(conversation,'[]'::jsonb) ||
-                  jsonb_build_array(jsonb_build_object(
-                      'role','user','content',%s::text,'at',%s::text))
-        END WHERE phone=%s""", (str(customer_text),str(customer_text),now,phone))
+    if record_customer:
+        cursor.execute("""UPDATE glass_leads SET conversation =
+            CASE WHEN conversation->-1->>'role' = 'user'
+                      AND conversation->-1->>'content' = %s
+                 THEN conversation
+                 ELSE COALESCE(conversation,'[]'::jsonb) ||
+                      jsonb_build_array(jsonb_build_object(
+                          'role','user','content',%s::text,'at',%s::text))
+            END WHERE phone=%s""", (str(customer_text),str(customer_text),now,phone))
     state = read_state(cursor, phone)
     if state['owner'] == 'operator' and (state.get('escalation') or {}).get('active'):
         return state
