@@ -114,3 +114,19 @@ class PersonalServiceValueTests(unittest.TestCase):
         answer=personal_service_value('נבחן חלופה.','יקר לי',[],product='מראה')
         self.assertNotIn('7 שנות',answer)
         self.assertNotIn('פליז',answer)
+
+
+class ShowerThicknessPolicyTests(unittest.TestCase):
+    def test_comparison_is_limited_to_showers_and_does_not_absorb_other_requests(self):
+        from sales_reply import shower_thickness_reply
+        self.assertIn('8 מ״מ', shower_thickness_reply('מה ההבדל בין 6 מ״מ ל8 מ״מ?', 'אמבטיון'))
+        for customer, product in (
+            ('למה 8 מ״מ?', 'מראה'),
+            ('למה 8 מ״מ וכמה עולה?', 'מקלחון'),
+            ('למה 8 מ״מ, יש סדק בזכוכית', 'מקלחון'),
+            ('למה 8 מ״מ, רוצה לדבר עם אלירן', 'מקלחון'),
+            ('למה 8 מ״מ, זה בטוח ברוחב 200?', 'מקלחון'),
+            ('אני רוצה אותו דבר 6 מ״מ', 'מקלחון'),
+        ):
+            with self.subTest(customer=customer, product=product):
+                self.assertIsNone(shower_thickness_reply(customer, product))
