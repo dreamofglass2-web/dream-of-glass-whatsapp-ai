@@ -114,6 +114,45 @@ class ConversationSimulation(unittest.TestCase):
                 self.assertTrue(self.memory[self.phone][1]['quote_requested'])
                 self.assertFalse(self.memory[self.phone][1].get('validated_quote', {}).get('issued'))
 
+    def test_first_six_mm_request_offers_eight_then_insistence_closes_without_quote(self):
+        self.memory[self.phone] = ([], {'product':'מקלחון', 'quote_requested':True})
+        first = self.step('אני רוצה מקלחון חזית 6 ממ, כמה עולה?')
+        self.assertIn('מצטער', first)
+        self.assertIn('לא מתעסקים', first)
+        self.assertIn('8 מ״מ?', first)
+        self.assertFalse(self.memory[self.phone][1]['sales_closed'])
+        final = self.step('לא, אני רוצה רק 6 ממ')
+        self.assertIn('לא נוכל לבצע', final)
+        self.assertNotIn('?', final)
+        self.assertNotIn('₪', final)
+        self.assertNotIn('פרזול', final)
+        self.assertTrue(self.memory[self.phone][1]['sales_closed'])
+        self.assertFalse(self.memory[self.phone][1]['quote_requested'])
+        self.assertFalse(self.ai.queue)
+
+    def test_actual_refusal_of_eight_after_policy_closes_instead_of_pricing(self):
+        self.memory[self.phone] = ([
+            {'role':'user','content':'יש לי מקלחון חזית 6 ממ'},
+            {'role':'assistant','content':'אצלנו לא עובדים עם 6 מ״מ. אנחנו מציעים 8 מ״מ.'},
+            {'role':'user','content':'אני לא רוצה 6 ממ\n8 ממ'},
+            {'role':'assistant','content':'נמשיך עם זכוכית מחוסמת 8 מ״מ.'}],
+            {'product':'מקלחון', 'quote_requested':True})
+        final = self.step('אני לא רוצה 8 ממ אבל')
+        self.assertIn('תודה שפנית', final)
+        self.assertNotIn('?', final)
+        self.assertNotIn('המחיר תלוי', final)
+        self.assertTrue(self.memory[self.phone][1]['sales_closed'])
+
+    def test_negated_six_accepts_eight_and_a_later_changed_choice_can_reopen(self):
+        self.memory[self.phone] = ([], {'product':'מקלחון', 'quote_requested':True})
+        self.step('אני רוצה 6 ממ')
+        self.step('אני מתעקש על 6 ממ')
+        reply = self.step('אני לא רוצה 6 ממ\n8 ממ', self.model('נמשיך עם 8 מ״מ. איך נפתח המקלחון הקיים?'))
+        self.assertNotIn('לא נוכל לבצע', reply)
+        self.assertNotIn('תודה שפנית', reply)
+        self.assertFalse(self.memory[self.phone][1]['sales_closed'])
+        self.assertFalse(self.ai.queue)
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},

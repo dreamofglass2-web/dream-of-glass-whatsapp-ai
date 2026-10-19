@@ -130,3 +130,21 @@ class ShowerThicknessPolicyTests(unittest.TestCase):
         ):
             with self.subTest(customer=customer, product=product):
                 self.assertIsNone(shower_thickness_reply(customer, product))
+
+
+class UnsupportedShowerThicknessTests(unittest.TestCase):
+    def test_preferences_existing_glass_negations_and_other_products(self):
+        from sales_reply import shower_six_mm_choice as choice
+        policy = ['מצטער, לא מתעסקים ב־6 מ״מ. אנחנו מציעים 8 מ״מ.']
+        for text in ('אני רוצה 6 ממ', 'רק 6 מ״מ', 'אפשר מקלחון 6 מ״מ?', '6 מ״מ', 'כמה עולה מקלחון 6 ממ?'):
+            with self.subTest(text=text):
+                self.assertEqual(choice(text, 'מקלחון'), 'offer_eight')
+                self.assertEqual(choice(text, 'מקלחון', policy), 'close')
+        self.assertEqual(choice('אני לא רוצה 8 ממ אבל', 'מקלחון', policy), 'close')
+        self.assertEqual(choice('אני לא רוצה 6 ממ\n8 ממ', 'מקלחון', policy), 'accept_eight')
+        for text, product in (('יש לי מקלחון 6 ממ', 'מקלחון'),
+                              ('למה צריך 8 מ״מ אם יש לי 6 מ״מ?', 'מקלחון'),
+                              ('אני רוצה 6 ממ', 'מראה'),
+                              ('רוצה 6 ממ אבל דבר עם אלירן', 'מקלחון')):
+            with self.subTest(text=text):
+                self.assertIsNone(choice(text, product, policy))

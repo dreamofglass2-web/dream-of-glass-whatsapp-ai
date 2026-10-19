@@ -260,3 +260,35 @@ def shower_thickness_reply(customer, product):
             'באותן מידות ותמיכות, 8 מ״מ קשיחה יותר ומתכופפת פחות, כך שהמקלחון מרגיש מוצק ויציב יותר. '
             'את הזכוכית אנחנו משלבים עם פרזול פליז פרימיום, ואלירן עצמו מגיע למדידה ולהתקנה, '
             'כדי להתאים לך את המקלחון החדש וללוות אותך גם בהמשך.')
+
+
+def shower_six_mm_choice(customer, product, policy_replies=()):
+    """Reject an unsupported purchase, distinguishing preference from old glass/negation."""
+    if not str(product or '').startswith(('מקלחון', 'אמבטיון')):
+        return None
+    def normalize(value):
+        return re.sub(r'(?<!\d)([68])\s*(?:מ[״"׳\']?מ|מילימטר(?:ים)?)', r'\1mm', str(value or ''))
+    text = normalize(customer)
+    if re.match(r'\s*(?:למה|מדוע|מה\s+(?:ההבדל|היתרון|החשיבות))', text):
+        return None
+    if re.search(r'אלירן|אדם|אחריות|סדק|נשבר|בטיחות|תקן|מראה|מחיצה|מעקה', text):
+        return None
+    # A negated preference cannot become an order for that thickness.
+    negative = r'(?:לא|אינני|איני)\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת|מבקש|מבקשת)(?:(?![68]mm).){0,35}'
+    positive_text = re.sub(negative + r'6mm', '', text)
+    wants_six = bool(re.search(
+        r'(?:רוצה|צריך|צריכה|מבקש|מבקשת|מעוניין|מעוניינת|מחפש|מחפשת|מתעקש|מתעקשת|אפשר|רק|דווקא)'
+        r'(?:(?!8mm).){0,60}6mm', positive_text) or re.search(
+        r'(?:מחיר|עלות|הצעה|כמה.{0,12}עולה)(?:(?!8mm).){0,35}6mm|6mm.{0,20}(?:מחיר|כמה.{0,12}עולה)', positive_text) or re.fullmatch(r'\s*6mm[.!?\s]*', positive_text))
+    explained = any('8mm' in normalize(reply) and re.search(r'לא.{0,35}6mm', normalize(reply))
+                    for reply in policy_replies)
+    rejects_eight = bool(re.search(negative + r'8mm', text))
+    if explained and (wants_six or rejects_eight):
+        return 'close'
+    if wants_six or rejects_eight:
+        return 'offer_eight'
+    positive_eight = re.sub(negative + r'8mm', '', positive_text)
+    if (re.search(r'(?:רוצה|צריך|צריכה|מעוניין|מעוניינת|אפשר)(?:(?!6mm).){0,35}8mm', positive_eight)
+            or re.fullmatch(r'\s*(?:אני\s+)?8mm[.!?\s]*', positive_eight)):
+        return 'accept_eight'
+    return None
