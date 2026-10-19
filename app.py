@@ -15,7 +15,7 @@ from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply
-from sales_visuals import handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
+from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
@@ -788,13 +788,17 @@ def load_photo_catalog():
                            'product':str(item.get('product') or ''),
                            'configuration':str(item.get('configuration') or ''),
                            'finish':str(item.get('finish') or ''),
-                           'handle':str(item.get('handle') or '')})
+                           'handle':catalog_handle_label(item)})
         return result
     except (TypeError, ValueError):
         app.logger.warning('Invalid PHOTO_CATALOG_JSON')
         return []
 
 PHOTO_CATALOG = load_photo_catalog()
+# Public media metadata only; no environment values, credentials or customer data.
+app.logger.info('PHOTO_CATALOG_HANDLE_INDEX %s', json.dumps(
+    [{k: p.get(k, '') for k in ('url', 'glass', 'product', 'configuration', 'finish', 'handle')}
+     for p in PHOTO_CATALOG[:50]], ensure_ascii=False))
 
 
 def customer_written_text(body):
@@ -2602,7 +2606,7 @@ def process_message(phone, body, batch_rows=None):
             competitor_exit = True
         showroom_question = ('אולם' in customer_request or 'תצוגה' in customer_request) and any(w in customer_request for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
-        image_ready = bool(HANDLE_BUTTON_IMAGE_URL and HANDLE_TOWEL_IMAGE_URL)
+        image_ready = all(handle_photos(PHOTO_CATALOG, name, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL) for name in ('כפתור', 'מגבת'))
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
         # Stable business policy is cached separately from private, changing context.
         if extract_customer_name(history):

@@ -39,3 +39,21 @@ class IllustrationTests(unittest.TestCase):
     def test_catalog_duplicates_are_not_sent_twice(self):
         item = dict(url='x', product='מקלחון', glass='שקופה', configuration='חזית')
         self.assertEqual(len(consultation_photos([item,item], dict(product='מקלחון'))), 1)
+
+
+class CatalogHandleExamplesTests(unittest.TestCase):
+    def test_explicit_handle_tags_do_not_depend_on_singular_product_label(self):
+        from sales_visuals import handle_photos
+        for product in ('מקלחונים', 'אמבטיון', ''):
+            with self.subTest(product=product):
+                catalog = [{'url':'https://example.test/button', 'product':product, 'handles':['ידית כפתור']},
+                           {'url':'https://example.test/towel', 'product':product, 'handle_type':'ידית מגבת'}]
+                photos = handle_photos(catalog, 'כפתור יש לך דוגמאות?', {}, '', '')
+                self.assertEqual([p['url'] for p in photos], ['https://example.test/button'])
+                self.assertIn('כפתור', photos[0]['caption'])
+                self.assertNotIn('מגבת', photos[0]['caption'])
+                self.assertEqual(handle_photos(catalog, 'מגבת', {})[0]['url'], 'https://example.test/towel')
+
+    def test_unlabelled_photo_is_not_invented_as_a_handle_example(self):
+        from sales_visuals import handle_photos
+        self.assertEqual(handle_photos([{'url':'x', 'product':'מקלחון', 'configuration':'קבוע ודלת'}], 'כפתור', {}), [])
