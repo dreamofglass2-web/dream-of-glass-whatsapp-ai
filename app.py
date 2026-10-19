@@ -2136,14 +2136,14 @@ def meta_lead_sales_context(prior):
 
 
 
-def pause_for_owner(phone, body, reason, *, record_customer=True):
+def pause_for_owner(phone, body, reason):
     """Pause first. No uncertain sales reply or claim of a delivered alert."""
     if not HANDOFF_ENABLED:
         return False
     ensure_db()
     with db_connection() as conn:
         with conn.cursor() as cur:
-            state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat(), record_customer=record_customer)
+            state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat())
     app.logger.warning('OWNER_ESCALATION_PAUSED reason=%s', reason)
     return True
 
@@ -3414,7 +3414,7 @@ def process_owner_continuation(phone, state):
         'approved_quote_for_reply': approved,
         'handle_images_available': all(handle_photos(PHOTO_CATALOG, n, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
                                        for n in ('כפתור', 'מגבת')),
-        'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG}),
+        'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG if p.get('glass')}),
     }
     directive = ('בעל העסק החזיר כעת את השיחה ליוסי וביקש שתיזום את ההמשך לפי הסיכום וההנחיות שלו. '
         'זו הרשאה להודעת ההמשך כעת, לא הודעה חדשה מהלקוח. המשך מהנקודה שנעצרה בלי להציג את עצמך מחדש, '
@@ -3467,6 +3467,23 @@ def finish_owner_resume(job_id, status, reason=''):
                         (status, reason[:200], job_id))
 
 
+def stop_owner_resume_for_review(job_id, phone, revision, status, reason, notification):
+    # Recheck atomically: a stale failure must not reclaim a newly returned conversation.
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            phone_lock(cur, phone)
+            current = read_handoff_state(cur, phone)
+            cur.execute('SELECT status FROM yossi_resume_jobs WHERE id=%s', (job_id,))
+            job = cur.fetchone()
+            if not job or job[0] != 'pending':
+                return
+            if current['revision'] != revision or current['owner'] != 'yossi':
+                cur.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='conversation_changed',completed_at=now() WHERE id=%s", (job_id,))
+                return
+            cur.execute('UPDATE yossi_resume_jobs SET status=%s,reason=%s,completed_at=now() WHERE id=%s', (status,reason,job_id))
+            escalate_to_owner(cur,phone,notification,'',datetime.now(timezone.utc).isoformat(),record_customer=False)
+
+
 def process_next_owner_resume():
     """Restart-safe and at-most-once; shares per-phone and provider locks with inbound."""
     if not HANDOFF_ENABLED:
@@ -3498,13 +3515,13 @@ def process_next_owner_resume():
             finish_owner_resume(job_id, 'blocked', 'sender_not_authorized')
             return True
         if not customer_freeform_send_allowed(phone):
-            finish_owner_resume(job_id, 'blocked', 'customer_window_expired')
-            pause_for_owner(phone, '', 'לא ניתן להמשיך מהסיכום כי חלון המענה ללקוח פג', record_customer=False)
+            stop_owner_resume_for_review(job_id,phone,revision,'blocked','customer_window_expired',
+                                         'לא ניתן להמשיך מהסיכום כי חלון המענה ללקוח פג')
             return True
         fingerprint = hashlib.sha256(('owner-resume:' + job_id).encode()).hexdigest()
         if batch_has_outbound_attempt(fingerprint):
-            finish_owner_resume(job_id, 'needs_review', 'previous_send_attempt')
-            pause_for_owner(phone, '', 'המשך מהסיכום כבר ניסה לשלוח הודעה; נדרשת בדיקה למניעת כפילות', record_customer=False)
+            stop_owner_resume_for_review(job_id,phone,revision,'needs_review','previous_send_attempt',
+                                         'המשך מהסיכום כבר ניסה לשלוח הודעה; נדרשת בדיקה למניעת כפילות')
             return True
         _delivery_scope.current = {'fingerprint':fingerprint, 'ordinal':0, 'existing_count':0,
                                    'handoff_revision':revision, 'resume_job_id':job_id}
@@ -3514,16 +3531,8 @@ def process_next_owner_resume():
             app.logger.info('OWNER_RESUME_COMPLETED job=%s phone_suffix=%s', job_id[:12], phone[-4:])
         except Exception:
             app.logger.exception('OWNER_RESUME_FAILED job=%s', job_id[:12])
-            with db_connection() as conn:
-                with conn.cursor() as cur:
-                    current = read_handoff_state(cur, phone)
-                    cur.execute('SELECT status FROM yossi_resume_jobs WHERE id=%s', (job_id,))
-                    current_job = cur.fetchone()
-            if not current_job or current_job[0] != 'pending' or current['revision'] != revision or current['owner'] != 'yossi':
-                finish_owner_resume(job_id, 'canceled', 'conversation_changed')
-            else:
-                finish_owner_resume(job_id, 'needs_review', 'continuation_failed')
-                pause_for_owner(phone, '', 'לא ניתן להשלים בבטחה את ההמשך מהסיכום', record_customer=False)
+            stop_owner_resume_for_review(job_id,phone,revision,'needs_review','continuation_failed',
+                                         'לא ניתן להשלים בבטחה את ההמשך מהסיכום')
         finally:
             _delivery_scope.current = None
         return True

@@ -121,10 +121,12 @@ class OwnerReturnPostgres(unittest.TestCase):
         self.enqueue()
         fingerprint=hashlib.sha256(('owner-resume:'+self.job_id).encode()).hexdigest()
         yossi.reserve_outbound_attempt('TEST_OWNER_PRIOR_ATTEMPT',self.phone,fingerprint)
-        with patch.object(yossi,'process_owner_continuation') as continuation,patch.object(yossi,'pause_for_owner') as pause:
+        with patch.object(yossi,'process_owner_continuation') as continuation:
             self.assertTrue(yossi.process_next_owner_resume())
-        continuation.assert_not_called();self.assertEqual(self.status(),'needs_review');pause.assert_called_once()
-        self.assertFalse(pause.call_args.kwargs['record_customer'])
+        continuation.assert_not_called();self.assertEqual(self.status(),'needs_review')
+        with connect() as db:
+            with db.cursor() as cur:
+                self.assertEqual(yossi.read_handoff_state(cur,self.phone)['owner'],'operator')
 
     def test_expired_window_reports_to_owner_without_fabricated_customer_text(self):
         self.enqueue()
@@ -168,8 +170,8 @@ class OwnerReturnPostgres(unittest.TestCase):
         with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(data))), \
              patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp',side_effect=send_then_inbound), \
              patch.object(yossi.requests,'post',return_value=provider) as post, \
-             patch.object(yossi,'pause_for_owner') as pause:
+             patch.object(yossi,'escalate_to_owner') as escalation:
             self.assertTrue(yossi.process_next_owner_resume())
         self.assertEqual(post.call_count,1)
         self.assertEqual(self.status(),'canceled')
-        pause.assert_not_called()
+        escalation.assert_not_called()
