@@ -207,6 +207,30 @@ class ConversationSimulation(unittest.TestCase):
         self.assertIn('כפתור', pictures[0][1])
         self.assertNotIn('ברונזה', pictures[0][1])
 
+    def test_live_catalog_without_handle_tags_uses_reviewed_existing_photos(self):
+        records = [dict(url='https://res.cloudinary.com/yovjswn9/image/upload/glass_009.jpeg', product='מקלחון', glass='שקופה'),
+                   dict(url='https://res.cloudinary.com/yovjswn9/image/upload/glass_010.jpeg', product='מקלחון', glass='שקופה')]
+        for name, asset in (('כפתור', 'glass_010.jpeg'), ('מגבת', 'glass_009.jpeg')):
+            with self.subTest(handle=name):
+                self.memory[self.phone] = ([{'role':'assistant','content':'ידית כפתור או מגבת?'}], {'product':'מקלחון'})
+                pictures = []
+                def capture(phone, body=None, image_url=None, caption=None):
+                    self.sent.append(body or '[TEST_IMAGE]')
+                    if image_url:
+                        pictures.append((image_url, caption))
+                with patch.dict(yossi.os.environ, {'PHOTO_CATALOG_JSON':json.dumps(records)}):
+                    catalog = yossi.load_photo_catalog()
+                with patch.object(yossi, 'PHOTO_CATALOG', catalog), \
+                     patch.object(yossi, 'HANDLE_BUTTON_IMAGE_URL', ''), \
+                     patch.object(yossi, 'HANDLE_TOWEL_IMAGE_URL', ''), \
+                     patch.object(yossi, 'send_whatsapp', side_effect=capture), \
+                     patch.object(yossi, 'pause_for_owner') as pause:
+                    self.step(name+' יש לך דוגמאות?', self.model('הנה דוגמה לידית '+name+'.'))
+                    pause.assert_not_called()
+                self.assertEqual(len(pictures), 1)
+                self.assertTrue(pictures[0][0].endswith(asset))
+                self.assertIn(name, pictures[0][1])
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},

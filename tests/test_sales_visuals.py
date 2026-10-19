@@ -57,3 +57,13 @@ class CatalogHandleExamplesTests(unittest.TestCase):
     def test_unlabelled_photo_is_not_invented_as_a_handle_example(self):
         from sales_visuals import handle_photos
         self.assertEqual(handle_photos([{'url':'x', 'product':'מקלחון', 'configuration':'קבוע ודלת'}], 'כפתור', {}), [])
+
+
+class ReviewedExistingPortfolioTests(unittest.TestCase):
+    def test_reviewed_live_photos_fill_missing_handle_tags(self):
+        from sales_visuals import handle_photos
+        records = [dict(url='https://res.cloudinary.com/yovjswn9/image/upload/glass_010.jpeg', product='מקלחון', handle=''),
+                   dict(url='https://res.cloudinary.com/yovjswn9/image/upload/glass_009.jpeg', product='מקלחון', handle='')]
+        self.assertTrue(handle_photos(records, 'כפתור', {})[0]['url'].endswith('glass_010.jpeg'))
+        self.assertTrue(handle_photos(records, 'מגבת', {})[0]['url'].endswith('glass_009.jpeg'))
+        self.assertIn('המבנה והגוון', handle_photos(records, 'כפתור', {})[0]['caption'])
