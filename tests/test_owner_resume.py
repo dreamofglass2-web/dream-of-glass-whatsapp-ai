@@ -98,6 +98,23 @@ class OwnerContinuationTests(unittest.TestCase):
             self.assertFalse(yossi.owner_requests_new_examples({'instructions':instruction}))
         self.assertTrue(yossi.owner_requests_new_examples({'instructions':'תשלח לו דוגמאות של כפתור ומגבת'}))
 
+    def test_owner_choice_summary_continues_unfinished_second_shower(self):
+        self.state['instructions']='הלקוח בחר ידית כפתור תמשיך את השיחה משם'
+        self.history.insert(0,{'role':'user','content':'כן מקלחונים לשתי החדרים','at':'2026-10-19T09:00:00Z'})
+        self.prior.update(configuration='הזזה 2 קבועים + דלת',width_cm=166,height_cm=200,
+                          glass_type='חלבי',finish='ברונזה',solution_agreed=True)
+        with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \
+             patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(
+                 {'reply':'מתאים לך לאשר את ההצעה לפריט הזה?', 'needs_human':False}))), \
+             patch.object(yossi,'send_whatsapp') as send, patch.object(yossi,'save_conversation') as save, \
+             patch.object(yossi,'authorized_send',return_value=nullcontext()):
+            yossi.process_owner_continuation(self.phone,self.state)
+        reply=send.call_args.kwargs['body']
+        self.assertIn('נמשיך למקלחון השני',reply)
+        self.assertNotIn('לאשר',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertEqual(save.call_args.args[2]['expected_sales_item_count'],2)
+
     def test_unverified_price_is_not_sent_from_owner_summary(self):
         with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \
              patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps({'reply':'המחיר 999 ₪','needs_human':False}))), \

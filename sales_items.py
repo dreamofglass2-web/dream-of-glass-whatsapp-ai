@@ -32,7 +32,7 @@ def order_inventory(history):
         text = str(message.get('content') or '').split('[לקוח צירף', 1)[0]
         if re.search(r'(?:3|שלושה)\s*מקלחונים', text):
             count = max(count, 3)
-        elif re.search(r'(?:2|שני|שתי)\s*מקלחונים', text):
+        elif re.search(r'(?:2|שני|שתי)\s*מקלחונים|מקלחונים\s+(?:ל|ב)?(?:שני|שתי|שניי?ם|2)\s*(?:ה)?חדרים', text):
             count = max(count, 2)
         bath = re.search(r'אמבטיון|מקלחון\s+באמבטיה', text)
         shower = re.search(r'מקלחון\s+(?:בשירותים|ה?שירותים)', text)
@@ -154,6 +154,22 @@ def bundle_offer(state, calculator, allow_single=False):
             'amount_ils_pre_vat':sum(o['amount_ils_pre_vat'] for o in offers)}
 
 
+def offer_height_note(offer):
+    """Mention only the actual products and pricing heights in this offer."""
+    return ' '.join(('אמבטיון' if 'אמבטיון' in str(i['specification'].get('product') or '') +
+                    str(i['specification'].get('configuration') or '') else 'מקלחון') +
+                   ' בגובה ' + str(i['specification']['height_cm']) + ' ס״מ.' for i in offer['items']) + \
+           ' המידות הסופיות ייבדקו בשטח. שינוי במידות או במפרט עשוי לשנות את המחיר.'
+
+
+def offer_document_caption(offer):
+    if len(offer['items']) > 1:
+        return 'מצורפת הצעת המחיר המלאה למקלחונים שבחרנו. המפרטים, המחירים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
+    s = offer['items'][0]['specification']
+    product = 'אמבטיון' if 'אמבטיון' in str(s.get('product') or '') + str(s.get('configuration') or '') else 'מקלחון'
+    return 'מצורפת הצעת המחיר ל' + product + ' שבחרנו, לפריט הזה בלבד. המפרט, המחיר והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה לפריט הזה?'
+
+
 def bundle_offer_reply(offer):
     lines=[]
     for item in offer['items']:
@@ -169,7 +185,7 @@ def bundle_offer_reply(offer):
         lines.append(f"סך הכול לכל המקלחונים {offer['amount_ils_pre_vat']:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה.")
     else:
         lines.append("המחיר מתייחס לפריט הזה בלבד וכולל מדידה, הובלה והתקנה.")
-    lines.append('זו הצעה ראשונית, והמידות הסופיות ייבדקו בשטח. גובה שלא נמדד חושב לפי 140 ס״מ לאמבטיון ו־200 ס״מ למקלחון לצורך ההצעה, ושינוי במידות או במפרט עשוי לשנות את המחיר.')
+    lines.append('זו הצעה ראשונית. ' + offer_height_note(offer))
     lines.append('מתאים לך לאשר את ההצעה המלאה?' if len(offer['items']) > 1 else 'מתאים לך לאשר את ההצעה לפריט הזה?')
     return '\n\n'.join(lines)
 
@@ -191,6 +207,5 @@ def partial_offer_reply(state, calculator, missing_detail):
     label = {'1':'הראשון','2':'השני','3':'השלישי'}.get(number, number)
     layout = (' עם ' + str(other['requested_layout']) + ' שביקשת') if other.get('requested_layout') else ''
     question = ('מה המידות המשוערות שלו?' if not other.get('width_cm') else missing_detail(other))
-    return (f'המחיר הראשוני עבור {product} שבחרת הוא {amount:,.0f} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. '
-            f'הוא מתייחס ל{product[1:]} בלבד, ולא לכל ההזמנה. החישוב לפי גובה {specs["height_cm"]} ס״מ, בכפוף למדידה סופית בשטח ושינוי מחיר אם המפרט ישתנה. '
+    return (f'סיכמנו את פרטי {product} שבחרת. '
             f'נמשיך למקלחון {label}{layout} כדי להשלים את ההצעה לשניהם. ' + question)

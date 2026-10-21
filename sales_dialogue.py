@@ -41,6 +41,7 @@ OUTPUT_CONTRACT = """
 
 def compact_instructions(website_facts, glass_types, configurations):
     return '\n'.join((CONSULTANT, BUSINESS, PRODUCTS, OUTPUT_CONTRACT,
+                      'מחיר בקובץ בלבד. ברר מקלחון נוסף.',
                       website_facts,
                       'סוגי זכוכית זמינים: ' + ', '.join(glass_types),
                       'תצורות מוכרות לשיחה; מחיר רק מהמחשבון: ' + ', '.join(configurations)))
