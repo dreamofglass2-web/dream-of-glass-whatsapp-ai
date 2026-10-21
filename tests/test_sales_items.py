@@ -95,3 +95,26 @@ class OrderInventoryTests(unittest.TestCase):
         self.assertEqual(state['active_sales_item'],'2')
         self.assertEqual(state['sales_items']['1']['product'],'מקלחון')
         self.assertEqual(state['sales_items']['2']['product'],'אמבטיון')
+
+
+class CurrentOrderPolicyTests(unittest.TestCase):
+    def test_customer_two_rooms_wording_recovers_second_item_without_image_dimensions(self):
+        h=[{'role':'user','content':'כן מקלחונים לשתי החדרים'},
+           {'role':'assistant','content':'ידית כפתור או מגבת?'},
+           {'role':'user','content':'נלך על ידית כפתור'}]
+        state=item_context({'product':'מקלחון','width_cm':166},h,h[-1]['content'])
+        self.assertEqual(state['expected_sales_item_count'],2)
+        self.assertEqual(state['sales_items']['1']['width_cm'],166)
+        self.assertFalse(state['sales_items']['2'].get('width_cm'))
+
+    def test_height_note_only_mentions_the_quoted_product_and_actual_height(self):
+        from sales_items import offer_height_note, offer_document_caption
+        for product,height,absent in [('מקלחון',200,'אמבטיון'),('אמבטיון',140,'200'),('אמבטיון',155,'140')]:
+            offer={'items':[{'specification':{'product':product,'height_cm':height}}]}
+            note=offer_height_note(offer)
+            self.assertIn(str(height),note)
+            self.assertNotIn(absent,note)
+            caption=offer_document_caption(offer)
+            self.assertIn(product,caption)
+            self.assertNotIn('ש״ח',caption)
+            self.assertNotIn('₪',caption)

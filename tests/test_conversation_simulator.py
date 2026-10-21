@@ -31,9 +31,12 @@ class FakeResponses:
 class ConversationSimulation(unittest.TestCase):
     def setUp(self):
         self.sent = []
+        self.documents = []
         self.memory = {}
         self.ai = FakeResponses()
         self.patches = [
+            patch.object(yossi, "PDF_QUOTES_ENABLED", False),
+            patch("quote_pdf.create_quote_pdf", side_effect=lambda offer,customer: (self.documents.append(offer) or b"%PDF-offline", "quote.pdf")),
             patch.object(yossi, "load_conversation", side_effect=self.load),
             patch.object(yossi, "save_conversation", side_effect=self.save),
             patch.object(yossi, "send_whatsapp", side_effect=self.send),
@@ -61,9 +64,9 @@ class ConversationSimulation(unittest.TestCase):
     def save(self, phone, history, context):
         self.memory[phone] = (list(history), dict(context))
 
-    def send(self, phone, body=None, image_url=None, caption=None):
+    def send(self, phone, body=None, image_url=None, caption=None, document_bytes=None, filename=None):
         self.assertEqual(phone, self.phone)
-        self.sent.append(body if body is not None else "[TEST_IMAGE]")
+        self.sent.append(body if body is not None else caption if document_bytes is not None else "[TEST_IMAGE]")
 
     def reset(self, phone):
         self.memory[phone] = ([], {})
@@ -359,7 +362,8 @@ class ConversationSimulation(unittest.TestCase):
         self.step('160',self.model('להכין הצעת מחיר לשני המקלחונים?',**second))
         reply=self.step('כן תודה',self.model('בודק מחיר',**second,quote_requested=True))
         total=round(yossi.calculate_quote(first))+round(yossi.calculate_quote(second))
-        self.assertIn(f'{total:,.0f}',reply)
+        self.assertEqual(self.documents[-1]['amount_ils_pre_vat'],total)
+        self.assertFalse(yossi.contains_ils_amount(reply))
         state=self.memory[self.phone][1]
         self.assertEqual(state['sales_items']['1']['width_cm'],120)
         self.assertEqual(state['sales_items']['1']['handles'],['ידית כפתור'])
@@ -1934,9 +1938,10 @@ class CompleteOrderFlowTests(ConversationSimulation):
         with patch.object(yossi.client.responses,'create') as ai:
             self.step('נשמע טוב, איך מתקדמים')
         ai.assert_not_called()
-        self.assertLess(self.sent[-1].index('מקלחון הראשון'),self.sent[-1].index('מקלחון השני'))
+        self.assertEqual([i['number'] for i in self.documents[-1]['items']],['1','2'])
         total=sum(yossi.calculate_quote(x) for x in self.items().values())
-        self.assertIn(f'{total:,.0f}',self.sent[-1])
+        self.assertEqual(self.documents[-1]['amount_ils_pre_vat'],total)
+        self.assertFalse(yossi.contains_ils_amount(self.sent[-1]))
         self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
 
     def test_approval_registers_measurement_callback_once_after_full_offer(self):
@@ -1965,7 +1970,7 @@ class CompleteOrderFlowTests(ConversationSimulation):
         history,state=self.memory[self.phone];state['sales_items']['2']['width_cm']=110
         self.step('אני מאשר את ההצעה')
         self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
-        self.assertIn('110',self.sent[-1])
+        self.assertEqual(self.documents[-1]['items'][1]['specification']['width_cm'],110)
 
     def test_pdf_is_sent_as_document_with_followup_question(self):
         self.memory[self.phone]=([] ,{'product':'מקלחון','sales_items':self.items()})
@@ -2190,8 +2195,8 @@ class PartialBathOrderTests(unittest.TestCase):
         with patch.object(yossi,'PDF_QUOTES_ENABLED',True),patch('quote_pdf.create_quote_pdf') as pdf:
             reply=self.step('כמה יעלה האמבטיון שבחרנו?',self.model('ההצעה המלאה לכל המקלחונים.',quote_requested=True,**self.bath()))
         pdf.assert_not_called()
-        self.assertIn('2,508',reply)
-        self.assertIn('לאמבטיון בלבד',reply)
+        self.assertNotIn('2,508',reply)
+        self.assertIn('האמבטיון שבחרת',reply)
         self.assertIn('נמשיך למקלחון השני',reply)
         self.assertIn('צד קבוע וצד מתקפל',reply)
         self.assertNotIn('סך הכול לכל',reply)
@@ -2237,3 +2242,39 @@ class PartialBathOrderTests(unittest.TestCase):
         for fact in ['פליז פרימיום','7 שנות אחריות על הפרזול','שנה אחריות על ההתקנה','בלי קבלני משנה']:
             self.assertIn(fact,reply)
         self.assertTrue(reply.endswith('ההצעה האחרת לאותו מפרט?'))
+
+
+class DocumentOnlyOrderTests(unittest.TestCase):
+    setUp = ConversationSimulation.setUp
+    load = ConversationSimulation.load
+    save = ConversationSimulation.save
+    send = ConversationSimulation.send
+    reset = ConversationSimulation.reset
+    step = ConversationSimulation.step
+    model = ConversationSimulation.model
+
+    def test_actual_two_rooms_choice_continues_second_without_price_or_approval(self):
+        first=dict(product='מקלחון',configuration='הזזה 2 קבועים + דלת',width_cm=166,
+                   height_cm=200,glass_type='חלבי',finish='ברונזה',handles=['ידית כפתור'],
+                   solution_agreed=True)
+        self.memory[self.phone]=([{'role':'user','content':'כן מקלחונים לשתי החדרים'},
+                                 {'role':'assistant','content':'איזו ידית תעדיף?'}],first)
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('נלך על ידית כפתור',self.model('המחיר 2690 ש״ח. מתאים לך לאשר?',quote_requested=True,**first))
+        self.assertIn('נמשיך למקלחון השני',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertNotIn('לאשר',reply)
+        self.assertEqual(self.documents,[])
+        # The answer to the next-item question must not inherit the first item's width.
+        second=dict(product='מקלחון',width_cm=100)
+        self.step('100',self.model('איזו פתיחה מתאימה לחדר ההורים?',**second))
+        state=self.memory[self.phone][1]
+        self.assertEqual(state['active_sales_item'],'2')
+        self.assertEqual(state['sales_items']['1']['width_cm'],166)
+        self.assertEqual(state['sales_items']['2']['width_cm'],100)
+
+    def test_price_objection_keeps_value_but_omits_numeric_price_in_chat(self):
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=yossi.price_free_reply('המחיר 2690 ש״ח לפני מע״מ. אלירן מגיע בעצמו למדידה ולהתקנה. מה חשוב לך בהשוואה?')
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertIn('אלירן מגיע בעצמו',reply)

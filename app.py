@@ -14,7 +14,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply
+from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -1903,18 +1903,13 @@ def send_whatsapp(phone, body=None, image_url=None, caption=None, document_bytes
         schedule_followup_dry_run(phone)
 
 
-PDF_QUOTES_ENABLED=os.getenv('PDF_QUOTES_ENABLED','false').lower()=='true'
+# Owner policy: prices are delivered in the quote document, never as chat totals.
+PDF_QUOTES_ENABLED=True
 
 def deliver_order_offer(phone,offer,state,history):
-    reply=bundle_offer_reply(offer)
-    if not PDF_QUOTES_ENABLED:
-        send_whatsapp(phone,body=reply)
-        return reply
+    reply=offer_document_caption(offer)
     from quote_pdf import create_quote_pdf
     data,filename=create_quote_pdf(offer,{'name':extract_customer_name(history) or state.get('customer_name') or 'לקוח','phone':phone})
-    if len(reply)>1000:
-        reply='\n'.join('מקלחון '+item['number']+' במחיר '+f"{item['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ' for item in offer['items'])
-        reply+='\\nסך הכול '+f"{offer['amount_ils_pre_vat']:,.0f}"+' ש״ח לפני מע״מ. המפרטים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
     send_whatsapp(phone,document_bytes=data,filename=filename,caption=reply)
     state['quote_document']={'filename':filename,'offer_fingerprint':offer['fingerprint'],'sent_at':datetime.now(timezone.utc).isoformat()}
     return reply
@@ -3143,7 +3138,9 @@ def process_message(phone, body, batch_rows=None):
                 if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
                     reply=bundle_offer_reply(complete_order)
                     issuing_order=True
-                elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested')):
+                elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested') or
+                        (partial_offer_reply(quote_state,calculate_quote,missing_quote_detail) and
+                         not re.search(r'[?？]|איך|מה |יש לך|דוגמ|תמונ|נקרא|ניקרא',customer_request))):
                     missing=next((number for number,specs in sorted(quote_state['sales_items'].items())
                                   if not specs.get('solution_agreed') or calculate_quote(dict(specs,height_cm=preliminary_height(specs))) is None),None)
                     if missing:
@@ -3198,6 +3195,9 @@ def process_message(phone, body, batch_rows=None):
                 if has_new_messages(phone,batch_rows):
                     return False
                 return pause_for_owner(phone,body,'התשובה הסופית חזרה ללא התקדמות בשיחה')
+
+            if PDF_QUOTES_ENABLED and not issuing_order and contains_ils_amount(reply):
+                reply = price_free_reply(reply)
 
             document_state={}
             if issuing_order and complete_order:
@@ -3400,6 +3400,13 @@ def pending_batch_message_ids(phone, rows):
             return {row[0] for row in cur.fetchall()}
 
 
+def price_free_reply(reply):
+    """Keep useful non-price advice; monetary amounts belong in the quote PDF."""
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', reply)
+    kept = [s for s in sentences if not contains_ils_amount(s)]
+    return ' '.join(kept).strip() or 'המחיר מפורט בהצעת המחיר עצמה. אשמח לעבור איתך על המפרט ולענות על כל שאלה.'
+
+
 def owner_requests_new_examples(state):
     """Only a current owner command authorizes proactive media."""
     instruction = str(state.get('instructions') or state.get('summary') or '')
@@ -3441,6 +3448,8 @@ def process_owner_continuation(phone, state):
     scope['existing_count'] = len(history)
     owner_context = resume_context(state)
     history = owner_continuation_history(history, owner_context)
+    prior = item_context(prior, history, '')
+    pending_item_reply = partial_offer_reply(prior, calculate_quote, missing_quote_detail)
     media_allowed = owner_requests_new_examples(state)
     output_format = sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)
     if not media_allowed:
@@ -3481,11 +3490,15 @@ def process_owner_continuation(phone, state):
     if not media_allowed and (data.get('send_handle_images') or data.get('send_glass_images')):
         raise ValueError('Owner continuation media was not authorized by the current instruction')
     reply = polish_reply(str(data.get('reply') or ''), history)
+    if pending_item_reply and not media_allowed and not data.get('needs_human'):
+        reply = pending_item_reply
     if not reply or data.get('needs_human'):
         raise ValueError('Owner continuation needs professional review')
     # Sending proactively cannot authorize a new model-generated price or order approval.
     if contains_ils_amount(reply) and not (approved and safe_quote_wording(reply, approved['amount_ils_pre_vat'])):
         raise ValueError('Owner continuation contains unverified price')
+    if PDF_QUOTES_ENABLED and contains_ils_amount(reply):
+        reply = price_free_reply(reply)
     photo_context = dict(prior)
     if data.get('handles'):
         photo_context['handles'] = data['handles']

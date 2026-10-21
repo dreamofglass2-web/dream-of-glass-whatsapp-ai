@@ -1,4 +1,5 @@
 """Private in-memory Hebrew quote PDF from calculator-authorized offer data."""
+from sales_items import offer_height_note
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
@@ -71,7 +72,8 @@ def create_quote_pdf(offer, customer, issued_at=None):
         s=item['specification'];number=item['number']
         size=str(s['width_cm'])+((' על '+str(s['second_width_cm'])) if s.get('second_width_cm') else '')
         label={'1':'הראשון','2':'השני','3':'השלישי'}.get(number,number)
-        desc=f"מקלחון {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ."
+        product='אמבטיון' if 'אמבטיון' in str(s.get('product') or '')+str(s.get('configuration') or '') else 'מקלחון'
+        desc=f"{product} {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ."
         detail=f"זכוכית {s['glass_type']}, פרזול {s['finish']}, "+', '.join(s.get('handles') or [])
         lines=wrap(desc,260,9)+wrap(detail,260,9)
         height=max(48,len(lines)*15+17)
@@ -95,7 +97,7 @@ def create_quote_pdf(offer, customer, issued_at=None):
         'המחיר כולל מדידה, הובלה והתקנה. זכוכית מחוסמת 8 מ״מ ופרזול פליז פרימיום.',
         '7 שנות אחריות על הפרזול ושנה על ההתקנה. אין אחריות על הזכוכית.',
         'זו הצעת מחיר ראשונית על בסיס הנתונים שנמסרו. המידות וההתאמה הסופיות ייבדקו בשטח.',
-        'גובה שלא נמדד חושב לפי 200 ס״מ לצורך תמחור בלבד. שינוי במידות או במפרט עשוי לשנות את המחיר.',
+        offer_height_note(offer),
         'לאחר אישור ההצעה, אלירן ייצור קשר לתיאום מדידה.',
         'אישור ההצעה אינו תיאום מועד מדידה או התקנה.']
     for note in notes:
