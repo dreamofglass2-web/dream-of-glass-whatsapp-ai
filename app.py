@@ -16,9 +16,9 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice
+from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
-from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock
+from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError
 from handoff_api import register_routes as register_handoff_routes
 from contextlib import nullcontext, closing
@@ -878,11 +878,15 @@ def reset_conversation_for_phone(phone):
                  'no_followups', 'no_phone_calls')
     retained = {key: value for key, value in customer_context.get(phone, {}).items()
                 if key in protected}
+    reset_state = None
+    scope = getattr(_delivery_scope, 'current', None)
     if DATABASE_URL:
         try:
             ensure_db()
             with db_connection() as conn:
                 with conn.cursor() as cur:
+                    ensure_handoff_tables(cur)
+                    phone_lock(cur, phone)
                     cur.execute("""
                         UPDATE glass_leads SET conversation='[]'::jsonb,
                           context=jsonb_strip_nulls(jsonb_build_object(
@@ -897,9 +901,13 @@ def reset_conversation_for_phone(phone):
                     if row is None:
                         return False
                     retained = row[0]
+                    reset_state = reset_sales_handoff(cur, phone, datetime.now(timezone.utc).isoformat(),
+                        expected_revision=(scope or {}).get('handoff_revision'))
         except Exception:
             app.logger.exception('Could not persist conversation reset')
             return False
+    if reset_state is not None and scope is not None:
+        scope['handoff_revision'] = reset_state['revision']
     with lock:
         histories[phone] = []
         customer_context[phone] = retained
@@ -2490,7 +2498,27 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
             return True
-        customer_request = customer_written_text(body)
+        customer_request = canonical_finish_text(customer_written_text(body))
+        if (ROSE_GOLD.search(customer_written_text(body))
+                and re.search(r'רוצה|מעוניי[ןנת]|מעדיף|נלך|בחרתי',customer_request)
+                and not re.search(r'לא רוצה|לא מעוניי|בלי|מתלבט|\bאו\b',customer_request)
+                and not (quote_intent(customer_request) or escalation_reason(customer_request)
+                         or requires_specialist_review(customer_request) or is_callback_request(customer_request)
+                         or requests_catalog_samples(customer_request) or handle_photo_request(customer_request,history))):
+            if has_new_messages(phone,batch_rows):
+                return False
+            alias_context = dict(prior, finish='ברונזה', needs_human=False)
+            save_item(alias_context)
+            reply = 'אצלנו הגוון הזה נקרא ברונזה.'
+            if 'ברז' in customer_request:
+                reply += (' נוכל להשוות לברזים שבתמונה, בלי להבטיח התאמה מדויקת בין ספקים.'
+                          if '[לקוח צירף ' in body else
+                          ' תוכל לשלוח תמונה של הברזים כדי שנשווה את הגוון?')
+            else:
+                reply += ' איזה סוג זכוכית תרצה?' if not prior.get('glass_type') else ' נמשיך להתאים את המקלחון לשטח שלך.'
+            send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],alias_context)
+            return True
         prior = item_context(prior, history, customer_request)
         clearance_result = respond_to_bath_entry_constraint(phone, body, history, prior, batch_rows)
         if clearance_result is not None:
@@ -2591,7 +2619,7 @@ def process_message(phone, body, batch_rows=None):
         generic_price_question = bool(re.search(r'(?:כמה\s+עול[הים]|מחיר\s+בערך|בודק\s+מחירים|טווח\s+מחירים)', customer_request)) and not re.search(r'\d+\s*[/xX×]\s*\d+|(?:רוחב|גובה)\s*\d+', customer_request)
         mentions_current_picture = bool(re.search(r'(?:בתמונה|ששלחתי|לפי\s+הצילום|171)', customer_request))
         # CRM timestamps and audit metadata are not valid Responses input fields.
-        model_history = [{'role':m['role'], 'content':str(m.get('content') or '')}
+        model_history = [{'role':m['role'], 'content':canonical_finish_text(m.get('content') or '')}
                          for m in history[-36:] if m.get('role') in ('user','assistant')]
         if generic_price_question and not mentions_current_picture and not media_was_analyzed:
             # General inquiry: no old picture and no old AI claim may leak into answer.
@@ -2630,6 +2658,7 @@ def process_message(phone, body, batch_rows=None):
             'no_followups': bool((prior or {}).get('no_followups')),
             'meta_form_context': meta_lead_sales_context(prior),
             'owner_handoff': resume_context(handoff) if handoff is not None else None,
+            'owner_verified_finish_aliases': {'רוז גולד / rose gold':'ברונזה; אין להבטיח התאמה מדויקת לברז של ספק אחר'},
             'quotes_enabled': SEND_QUOTES,
             'approved_quote_for_reply': (quote_facts_for_turn(prior, customer_request, calculate_quote)
                                          if SEND_QUOTES and not discovery_question else None),

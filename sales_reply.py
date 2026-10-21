@@ -106,6 +106,14 @@ def retain_known_quote_choices(prior, data, customer):
             result[field]=prior[field]
     return result
 
+ROSE_GOLD = re.compile(r'(?<![\w])(?:רוז[\s-]*גולד|רוזגולד|rose[\s-]*gold)(?![\w])', re.I)
+
+
+def canonical_finish_text(text):
+    """Owner-confirmed business alias; no claim about another vendor's exact shade."""
+    return ROSE_GOLD.sub('ברונזה', str(text or ''))
+
+
 def normalize_sales_fields(data, configurations, glass_types, finishes):
     """Normalize only exact wording aliases of catalog values, never a new design."""
     if not isinstance(data,dict):
@@ -123,7 +131,7 @@ def normalize_sales_fields(data, configurations, glass_types, finishes):
         elif field=='glass_type':
             candidate=re.sub(r'^זכוכית\s+','',candidate)
         else:
-            candidate=re.sub(r'^פרזול\s+','',candidate)
+            candidate=canonical_finish_text(re.sub(r'^פרזול\s+','',candidate))
         if candidate in allowed:
             result[field]=candidate
     return result

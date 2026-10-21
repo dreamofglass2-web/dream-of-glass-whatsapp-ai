@@ -36,6 +36,23 @@ def write_state(cursor, phone, state):
                    (phone, json.dumps(state, ensure_ascii=False)))
 
 
+def reset_sales_handoff(cursor, phone, now, expected_revision=None):
+    """Reset dialogue control atomically without lifting operator ownership."""
+    phone_lock(cursor, phone)
+    previous = read_state(cursor, phone)
+    if expected_revision is not None and previous['revision'] != expected_revision:
+        raise HandoffError('Conversation changed during reset')
+    result = dict(new_state(), revision=previous['revision'] + 1,
+                  owner=previous['owner'], resume_at=previous['resume_at'],
+                  handoff_generation=previous['handoff_generation'] + 1,
+                  echo_verified=previous['echo_verified'], updated_at=now,
+                  conversation_started_at=now)
+    capture_suppression(cursor, phone, result)
+    write_state(cursor, phone, result)
+    cursor.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='conversation_reset',completed_at=now() WHERE phone=%s AND status='pending'", (phone,))
+    return result
+
+
 def owner_action(cursor, phone, revision, action, now):
     phone_lock(cursor, phone)
     cursor.execute('SELECT 1 FROM glass_leads WHERE phone=%s', (phone,))
