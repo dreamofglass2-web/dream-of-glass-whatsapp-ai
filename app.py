@@ -3111,6 +3111,7 @@ def process_message(phone, body, batch_rows=None):
 
             # Photos are optional illustrations, never sent just to push a sale.
             failed_photos = []
+            sent_count = 0
             for photo in photos:
                 try:
                     send_whatsapp(phone, image_url=photo['url'], caption=photo.get('caption') or ('דוגמה לזכוכית ' + photo['glass']))
@@ -3190,7 +3191,9 @@ def process_message(phone, body, batch_rows=None):
             if ordinary_turn:
                 reply = personal_service_value(reply, customer_request, history, product=merged_pricing.get('product') or ('מקלחון' if is_shower else None))
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
-            if (HANDOFF_ENABLED and without_emojis(reply)==without_emojis(previous_answer)
+            # A requested image accepted by the sender is meaningful progress, even
+            # when the short accompanying text matches the previous gallery reply.
+            if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)
                     and (not quote_intent(customer_request) or price_objection(customer_request))):
                 if has_new_messages(phone,batch_rows):
                     return False

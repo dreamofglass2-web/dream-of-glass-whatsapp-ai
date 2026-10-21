@@ -231,6 +231,48 @@ class ConversationSimulation(unittest.TestCase):
                 self.assertTrue(pictures[0][0].endswith(asset))
                 self.assertIn(name, pictures[0][1])
 
+    def test_requested_towel_photo_is_progress_even_with_the_same_gallery_text(self):
+        caption = 'מצרף דוגמה לידית שביקשת; בתמונה אפשר לראות אותה על המקלחון.'
+        self.memory[self.phone] = ([
+            {'role':'user','content':'כפתור יש לך דוגמאות?'},
+            {'role':'assistant','content':caption}],
+            {'product':'מקלחון','handles':['ידית כפתור'],'sales_discovery_completed':True})
+        pictures = []
+        def capture(phone, body=None, image_url=None, caption=None):
+            self.sent.append(body or '[TEST_IMAGE]')
+            if image_url:
+                pictures.append((image_url,caption))
+        catalog=[dict(url='https://res.cloudinary.com/yovjswn9/image/upload/glass_009.jpeg',
+                      product='מקלחון',glass='שקופה',handle='מגבת')]
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'), \
+             patch.object(yossi,'db_connection',return_value=MagicMock()), \
+             patch.object(yossi,'phone_lock'),patch.object(yossi,'read_handoff_state',return_value=new_state()), \
+             patch.object(yossi,'automatic_reply_allowed',return_value=True), \
+             patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp',side_effect=capture), \
+             patch.object(yossi,'pause_for_owner') as pause:
+            reply = self.step('תשלח לי גם דוגמא של מגבת',self.model(caption))
+            pause.assert_not_called()
+        self.assertEqual(reply,caption)
+        self.assertEqual(len(pictures),1)
+        self.assertTrue(pictures[0][0].endswith('glass_009.jpeg'))
+        self.assertIn('מגבת',pictures[0][1])
+        self.assertEqual(self.memory[self.phone][0][-1]['content'],caption)
+
+    def test_repeated_final_text_without_a_sent_photo_still_escalates(self):
+        previous = 'נבדוק את האפשרויות יחד.'
+        self.memory[self.phone] = ([{'role':'assistant','content':previous}],
+                                  {'product':'מראה','sales_discovery_completed':True})
+        self.ai.queue.append(self.model('אפשר להסביר את האפשרויות.',product='מראה'))
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'), \
+             patch.object(yossi,'db_connection',return_value=MagicMock()), \
+             patch.object(yossi,'phone_lock'),patch.object(yossi,'read_handoff_state',return_value=new_state()), \
+             patch.object(yossi,'automatic_reply_allowed',return_value=True), \
+             patch.object(yossi,'sales_response_quality_guard',return_value=previous), \
+             patch.object(yossi,'pause_for_owner',return_value=True) as pause:
+            self.assertTrue(yossi.process_message(self.phone,'אפשר להסביר?'))
+        pause.assert_called_once_with(self.phone,'אפשר להסביר?','התשובה הסופית חזרה ללא התקדמות בשיחה')
+        self.assertEqual(self.sent,[])
+
     def test_naor_glass_options_price_and_white_followup_do_not_loop(self):
         self.memory[self.phone] = (
             [{"role": "user", "content": "מקלחון חזית 180 בבית אחרי שיפוץ"},
