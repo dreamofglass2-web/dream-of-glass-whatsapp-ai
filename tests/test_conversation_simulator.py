@@ -2278,3 +2278,36 @@ class DocumentOnlyOrderTests(unittest.TestCase):
             reply=yossi.price_free_reply('המחיר 2690 ש״ח לפני מע״מ. אלירן מגיע בעצמו למדידה ולהתקנה. מה חשוב לך בהשוואה?')
         self.assertFalse(yossi.contains_ils_amount(reply))
         self.assertIn('אלירן מגיע בעצמו',reply)
+
+
+class RoseGoldAliasTests(unittest.TestCase):
+    setUp = ConversationSimulation.setUp
+    load = ConversationSimulation.load
+    save = ConversationSimulation.save
+    send = ConversationSimulation.send
+    reset = ConversationSimulation.reset
+    step = ConversationSimulation.step
+    model = ConversationSimulation.model
+
+    def test_actual_rose_gold_request_uses_bronze_without_model_or_false_handoff(self):
+        self.memory[self.phone]=([{'role':'user','content':'בית חדש'}],{'product':'מקלחון','customer_name':'מיכאל'})
+        with patch.object(yossi.client.responses,'create') as model,patch.object(yossi,'pause_for_owner') as pause:
+            reply=self.step('אני רוצה מקלחון צבע רוז גולד כמו הברזים שלח')
+        model.assert_not_called();pause.assert_not_called()
+        self.assertIn('ברונזה',reply)
+        self.assertIn('תמונה של הברזים',reply)
+        self.assertNotIn('זהה',reply)
+        self.assertEqual(self.memory[self.phone][1]['finish'],'ברונזה')
+
+    def test_alias_normalization_uses_existing_finish_not_new_price_catalog(self):
+        from sales_reply import canonical_finish_text, normalize_sales_fields
+        for alias in ('רוז גולד','רוז-גולד','רוזגולד','Rose Gold','rose-gold'):
+            self.assertEqual(canonical_finish_text(alias),'ברונזה')
+            self.assertEqual(normalize_sales_fields({'finish':alias},set(),{},yossi.FINISH_MULTIPLIERS)['finish'],'ברונזה')
+        self.assertNotIn('רוז גולד',yossi.FINISH_MULTIPLIERS)
+
+    def test_negated_rose_gold_does_not_select_bronze(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון'})
+        reply=self.step('אני לא רוצה רוז גולד',self.model('איזה גוון תעדיף?'))
+        self.assertFalse(self.memory[self.phone][1].get('finish'))
+        self.assertIn('איזה גוון',reply)

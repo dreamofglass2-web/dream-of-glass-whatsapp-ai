@@ -175,3 +175,51 @@ class OwnerReturnPostgres(unittest.TestCase):
         self.assertEqual(post.call_count,1)
         self.assertEqual(self.status(),'canceled')
         escalation.assert_not_called()
+
+
+    def test_reset_clears_private_context_and_cancels_queued_continuation(self):
+        previous=self.enqueue()
+        yossi._delivery_scope.current={'handoff_revision':previous['revision']}
+        self.assertTrue(yossi.reset_conversation_for_phone(self.phone))
+        self.assertEqual(self.status(),'canceled')
+        with connect() as db:
+            with db.cursor() as cur:
+                fresh=yossi.read_handoff_state(cur,self.phone)
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],[])
+        self.assertEqual(fresh['owner'],'yossi')
+        self.assertEqual(fresh['revision'],previous['revision']+1)
+        self.assertEqual(fresh['handoff_generation'],previous['handoff_generation']+1)
+        self.assertEqual(fresh['summary'],'')
+        self.assertEqual(fresh['instructions'],'')
+        self.assertEqual(fresh['messages'],[])
+        self.assertNotIn('escalation',fresh)
+        self.assertEqual(yossi._delivery_scope.current['handoff_revision'],fresh['revision'])
+        with yossi.authorized_send(connect,self.phone,fresh['revision']):
+            pass
+        with self.assertRaises(HandoffError):
+            with yossi.authorized_send(connect,self.phone,previous['revision']):
+                self.fail('Old generation was authorized')
+
+    def test_reset_never_releases_operator_ownership(self):
+        self.assertTrue(yossi.reset_conversation_for_phone(self.phone))
+        with connect() as db:
+            with db.cursor() as cur:
+                fresh=yossi.read_handoff_state(cur,self.phone)
+        self.assertEqual(fresh['owner'],'operator')
+        self.assertEqual(fresh['revision'],4)
+        self.assertEqual(fresh['summary'],'')
+        with self.assertRaises(HandoffError):
+            with yossi.authorized_send(connect,self.phone,4):
+                self.fail('Reset released an operator-owned chat')
+
+    def test_stale_reset_rolls_back_dialogue_and_owner_notes(self):
+        yossi._delivery_scope.current={'handoff_revision':2}
+        self.assertFalse(yossi.reset_conversation_for_phone(self.phone))
+        with connect() as db:
+            with db.cursor() as cur:
+                fresh=yossi.read_handoff_state(cur,self.phone)
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],self.history)
+        self.assertEqual(fresh['revision'],3)
+        self.assertEqual(fresh['summary'],'הלקוח בחר כפתור')

@@ -130,7 +130,8 @@ def automatic_reply_allowed(state, now):
 def resume_context(state):
     validate(state)
     messages = state['messages']
-    cutoff = state.get('silenced_inbound_at')
+    cutoffs = [v for v in (state.get('silenced_inbound_at'), state.get('conversation_started_at')) if v]
+    cutoff = max(cutoffs, key=instant) if cutoffs else None
     if cutoff:
         messages = [m for m in messages if instant(m['at']) >= instant(cutoff)]
     return {'owner_summary': state['summary'], 'owner_instructions': state['instructions'],

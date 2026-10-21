@@ -139,6 +139,7 @@ class FollowupPostgresIntegration(unittest.TestCase):
         finally:
             with test_connection() as db:
                 with db.cursor() as cur:
+                    cur.execute("DELETE FROM yossi_handoffs WHERE phone=%s", (phone,))
                     cur.execute("DELETE FROM glass_leads WHERE phone=%s", (phone,))
 
     def test_meta_provenance_gate_in_disposable_database(self):
