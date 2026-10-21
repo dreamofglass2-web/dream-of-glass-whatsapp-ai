@@ -40,7 +40,7 @@ class OwnerContinuationTests(unittest.TestCase):
         self.assertEqual(send.call_args_list[2].kwargs['body'],data['reply'])
         request=model.call_args.kwargs
         self.assertIn(self.state['instructions'],request['input'][1]['content'])
-        self.assertEqual(request['input'][2:],[{'role':'user','content':self.history[0]['content']}])
+        self.assertEqual(request['input'][2:-1],[{'role':'user','content':self.history[0]['content']}])
         saved=save.call_args.args[1]
         self.assertEqual([m for m in saved if m['role']=='user'],self.history)
         self.assertNotIn(self.state['instructions'],str(saved))
@@ -56,6 +56,47 @@ class OwnerContinuationTests(unittest.TestCase):
              patch.object(yossi,'authorized_send',return_value=nullcontext()):
             yossi.process_owner_continuation(self.phone,self.state)
         send.assert_called_once_with(self.phone,body=data['reply'])
+
+    def test_confirmed_choice_overrides_old_request_and_retains_real_customer_message(self):
+        self.state.update(summary='הלקוח בחר ידית כפתור תמשיך את השיחה משם',
+                          instructions='הלקוח בחר ידית כפתור תמשיך את השיחה משם',
+                          silenced_inbound_at='2026-10-21T13:13:56Z', messages=[
+            {'id':'old','role':'customer','text':'old unrelated request', 'at':'2026-10-12T10:00:00Z'},
+            {'id':'choice','role':'customer','text':'אוקי אז נלך על כפתור', 'at':'2026-10-21T13:14:43Z'}])
+        data={'reply':'מה הרוחב של המקלחון השני?', 'needs_human':False,
+              'send_handle_images':False,'send_glass_images':False}
+        with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \
+             patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(data))) as model, \
+             patch.object(yossi,'send_whatsapp') as send, patch.object(yossi,'save_conversation') as save, \
+             patch.object(yossi,'authorized_send',return_value=nullcontext()):
+            yossi.process_owner_continuation(self.phone,self.state)
+        send.assert_called_once_with(self.phone,body=data['reply'])
+        request=model.call_args.kwargs
+        self.assertNotIn('old unrelated request',str(request))
+        self.assertEqual(request['input'][-2],{'role':'user','content':'אוקי אז נלך על כפתור'})
+        self.assertIn(self.state['instructions'],request['input'][-1]['content'])
+        for flag in ('send_handle_images','send_glass_images'):
+            self.assertEqual(request['text']['format']['schema']['properties'][flag]['enum'],[False])
+        saved=save.call_args.args[1]
+        choice=next(m for m in saved if m.get('source_message_id')=='choice')
+        self.assertEqual(choice['at'],'2026-10-21T13:14:43Z')
+        self.assertEqual(yossi.owner_continuation_history(saved,yossi.resume_context(self.state)),saved)
+
+    def test_backend_rejects_unrequested_photo_even_if_model_breaks_schema(self):
+        self.state['instructions']='הלקוח בחר כפתור תמשיך משם'
+        with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \
+             patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(
+                 {'reply':'מצרף דוגמה','send_handle_images':True}))), \
+             patch.object(yossi,'send_whatsapp') as send:
+            with self.assertRaisesRegex(ValueError,'not authorized'):
+                yossi.process_owner_continuation(self.phone,self.state)
+        send.assert_not_called()
+
+    def test_completed_or_negated_examples_do_not_authorize_media(self):
+        for instruction in ('הלקוח בחר כפתור תמשיך', 'כבר שלחתי דוגמאות תמשיך',
+                            'אל תשלח דוגמאות', 'לא צריך לשלוח תמונות'):
+            self.assertFalse(yossi.owner_requests_new_examples({'instructions':instruction}))
+        self.assertTrue(yossi.owner_requests_new_examples({'instructions':'תשלח לו דוגמאות של כפתור ומגבת'}))
 
     def test_unverified_price_is_not_sent_from_owner_summary(self):
         with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \

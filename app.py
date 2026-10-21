@@ -3400,6 +3400,35 @@ def pending_batch_message_ids(phone, rows):
             return {row[0] for row in cur.fetchall()}
 
 
+def owner_requests_new_examples(state):
+    """Only a current owner command authorizes proactive media."""
+    instruction = str(state.get('instructions') or state.get('summary') or '')
+    for clause in re.split(r'[,;.!?\n]', instruction):
+        if re.search(r'(?:^|\s)(?:לא|אל|אין צורך|כבר)(?:\s|$)', clause):
+            continue
+        if (re.search(r'(?:^|\s)(?:שלח|תשלח|לשלוח|צרף|תצרף|לצרף|הצג|תציג|להציג|הראה|תראה)(?:\s|$)', clause)
+                and re.search(r'דוגמ|תמונ|המחשה', clause)):
+            return True
+    return False
+
+
+def owner_continuation_history(history, owner_context):
+    """Include actual customer choices received during operator ownership."""
+    result = list(history)
+    for message in owner_context['manual_conversation']:
+        if message.get('role') != 'customer':
+            continue
+        text = str(message.get('text') or '')
+        if not text or any((message.get('id') and m.get('source_message_id') == message['id']) or
+                           (m.get('role') == 'user' and m.get('content') == text
+                            and m.get('at') == message.get('at')) for m in result):
+            continue
+        result.append({'role':'user', 'content':text, 'at':message['at'],
+                       'source_message_id':message['id']})
+    return sorted(result, key=lambda m: datetime.fromisoformat(m['at'].replace('Z', '+00:00'))
+                  if m.get('at') else datetime.max.replace(tzinfo=timezone.utc))
+
+
 def process_owner_continuation(phone, state):
     """One owner-authorized turn using existing sales policy and delivery guards.
 
@@ -3411,6 +3440,12 @@ def process_owner_continuation(phone, state):
         raise HandoffError('Owner continuation requires delivery context')
     scope['existing_count'] = len(history)
     owner_context = resume_context(state)
+    history = owner_continuation_history(history, owner_context)
+    media_allowed = owner_requests_new_examples(state)
+    output_format = sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)
+    if not media_allowed:
+        for field in ('send_handle_images', 'send_glass_images'):
+            output_format['schema']['properties'][field]['enum'] = [False]
     approved = quote_facts_for_turn(prior, '', calculate_quote) if SEND_QUOTES else None
     context = {
         'owner_handoff': owner_context, 'prior_state': prior,
@@ -3427,15 +3462,24 @@ def process_owner_continuation(phone, state):
         'אין לטעון שתיאמת, שמרת פנייה, קיבלת אישור לקוח או נתת הנחה שלא בוצעו. '
         'אל תאשר מחיר, תצורה או מדידה בשם הלקוח. כללי העסק, המחיר והבטיחות נשארים בתוקף. '
         'כתוב תשובה טבעית ללקוח והחזר JSON לפי החוזה. נתוני הבקרה המאומתים:\n')
+    latest_directive = ('הנחיית בעל העסק העדכנית קובעת את ההמשך: ' +
+        str(state.get('instructions') or state.get('summary') or '') +
+        '. בחירה שכבר אושרה היא החלטה. המשך לפרט הבא שחסר או לשלב המכירה הבא. '
+        'אין לחזור לבקשת תמונות ישנה או לשאול שוב על בחירה שכבר התקבלה. ' +
+        ('מותר לשלוח דוגמאות לפי הבקשה הנוכחית.' if media_allowed else
+         'לא התבקשה כעת שליחת דוגמאות. דגלי התמונות חייבים להיות false; אל תכתוב שאתה מצרף תמונה.'))
     response = client.responses.create(
         model=MODEL, reasoning={'effort':'medium'}, timeout=90.0,
         instructions=compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS),
         input=[{'role':'developer','content':'Return a valid JSON object using the sales output contract.'},
                {'role':'developer','content':directive + json.dumps(context, ensure_ascii=False)}] +
               [{'role':m['role'],'content':str(m.get('content') or '')} for m in history[-36:]
-               if m.get('role') in ('user','assistant')],
-        text={'format':sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)})
+               if m.get('role') in ('user','assistant')] +
+              [{'role':'developer','content':latest_directive}],
+        text={'format':output_format})
     data = normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS)
+    if not media_allowed and (data.get('send_handle_images') or data.get('send_glass_images')):
+        raise ValueError('Owner continuation media was not authorized by the current instruction')
     reply = polish_reply(str(data.get('reply') or ''), history)
     if not reply or data.get('needs_human'):
         raise ValueError('Owner continuation needs professional review')

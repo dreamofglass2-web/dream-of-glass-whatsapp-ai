@@ -129,9 +129,13 @@ def automatic_reply_allowed(state, now):
 
 def resume_context(state):
     validate(state)
+    messages = state['messages']
+    cutoff = state.get('silenced_inbound_at')
+    if cutoff:
+        messages = [m for m in messages if instant(m['at']) >= instant(cutoff)]
     return {'owner_summary': state['summary'], 'owner_instructions': state['instructions'],
-            'manual_conversation': deepcopy(state['messages'][-36:]),
-            'older_manual_messages_omitted': max(0, len(state['messages'])-36),
+            'manual_conversation': deepcopy(messages[-36:]),
+            'older_manual_messages_omitted': len(state['messages']) - len(messages[-36:]),
             'app_messages_verified': state['echo_verified'],
             'generation': state['handoff_generation']}
 
