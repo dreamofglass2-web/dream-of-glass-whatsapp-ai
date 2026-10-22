@@ -18,8 +18,8 @@ from sales_items import item_context, save_item, combined_quote, bundle_offer, b
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
-from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff
-from handoff_state import automatic_reply_allowed, resume_context, HandoffError
+from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff, clear_sales_dialogue
+from handoff_state import automatic_reply_allowed, resume_context, HandoffError, requests_new_conversation
 from handoff_api import register_routes as register_handoff_routes
 from contextlib import nullcontext, closing
 HANDOFF_ENABLED = os.getenv('HANDOFF_ENABLED', 'false').lower() == 'true'
@@ -818,9 +818,7 @@ def customer_written_text(body):
 
 def starts_new_customer_conversation(text):
     """Explicit opt-in reset for testing a new lead on an existing WhatsApp number."""
-    return bool(re.fullmatch(
-        r'\s*(?:התחל|תתחיל|פתיחת|פתח|בוא נתחיל)\s+(?:שיחה|שיחת לקוח)\s+(?:חדשה|מחדש)\s*[!?.]*\s*',
-        str(text or ''), flags=re.IGNORECASE))
+    return requests_new_conversation(text)
 
 
 def customer_boundary(text):
@@ -887,20 +885,9 @@ def reset_conversation_for_phone(phone):
                 with conn.cursor() as cur:
                     ensure_handoff_tables(cur)
                     phone_lock(cur, phone)
-                    cur.execute("""
-                        UPDATE glass_leads SET conversation='[]'::jsonb,
-                          context=jsonb_strip_nulls(jsonb_build_object(
-                            'simulation_recipient_id',context->'simulation_recipient_id',
-                            'meta_leads',context->'meta_leads',
-                            'whatsapp_referral',context->'whatsapp_referral',
-                            'no_followups',context->'no_followups',
-                            'no_phone_calls',context->'no_phone_calls'))
-                        WHERE phone=%s RETURNING context
-                    """, (phone,))
-                    row = cur.fetchone()
-                    if row is None:
+                    retained = clear_sales_dialogue(cur, phone)
+                    if retained is None:
                         return False
-                    retained = row[0]
                     reset_state = reset_sales_handoff(cur, phone, datetime.now(timezone.utc).isoformat(),
                         expected_revision=(scope or {}).get('handoff_revision'))
         except Exception:
@@ -3470,10 +3457,25 @@ def process_owner_continuation(phone, state):
 
     Owner notes are private control context, never a fabricated customer inbound.
     """
-    history, prior = load_conversation(phone)
     scope = getattr(_delivery_scope, 'current', None)
     if not scope:
         raise HandoffError('Owner continuation requires delivery context')
+    if scope.get('resume_kind') == 'conversation_reset':
+        # The signed CRM return already cleared both records atomically. This
+        # durable job kind survives restart and never asks the model to improvise a reset.
+        with lock:
+            histories.pop(phone, None)
+            customer_context.pop(phone, None)
+        history, prior = load_conversation(phone)
+        if history:
+            raise HandoffError('Reset conversation changed before greeting')
+        scope['existing_count'] = 0
+        reply = 'מתחילים מחדש 🙂 היי, אני יוסי מחלומות מזכוכית. במה אפשר לעזור?'
+        send_whatsapp(phone, body=reply)
+        with authorized_send(db_connection, phone, state['revision'], resume_job_id=scope['resume_job_id']):
+            save_conversation(phone, [{'role':'assistant','content':reply}], prior)
+        return
+    history, prior = load_conversation(phone)
     scope['existing_count'] = len(history)
     owner_context = resume_context(state)
     history = owner_continuation_history(history, owner_context)
@@ -3579,11 +3581,11 @@ def process_next_owner_resume():
         return False
     with db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id,phone,expected_revision FROM yossi_resume_jobs WHERE status='pending' AND available_at<=now() ORDER BY available_at,id LIMIT 1")
+            cur.execute("SELECT id,phone,expected_revision,reason FROM yossi_resume_jobs WHERE status='pending' AND available_at<=now() ORDER BY available_at,id LIMIT 1")
             job = cur.fetchone()
     if not job:
         return False
-    job_id, phone, revision = job
+    job_id, phone, revision, resume_kind = job
     claim = claim_phone_processing(phone)
     if claim is None:
         return False
@@ -3613,7 +3615,7 @@ def process_next_owner_resume():
                                          'המשך מהסיכום כבר ניסה לשלוח הודעה; נדרשת בדיקה למניעת כפילות')
             return True
         _delivery_scope.current = {'fingerprint':fingerprint, 'ordinal':0, 'existing_count':0,
-                                   'handoff_revision':revision, 'resume_job_id':job_id}
+                                   'handoff_revision':revision, 'resume_job_id':job_id, 'resume_kind':resume_kind}
         try:
             process_owner_continuation(phone, state)
             finish_owner_resume(job_id, 'done')

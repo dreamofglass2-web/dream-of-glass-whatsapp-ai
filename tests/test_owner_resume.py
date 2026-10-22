@@ -115,6 +115,22 @@ class OwnerContinuationTests(unittest.TestCase):
         self.assertFalse(yossi.contains_ils_amount(reply))
         self.assertEqual(save.call_args.args[2]['expected_sales_item_count'],2)
 
+    def test_reset_job_sends_fresh_greeting_without_model_or_old_name(self):
+        yossi._delivery_scope.current['resume_kind']='conversation_reset'
+        yossi.histories[self.phone]=[{'role':'user','content':'מיכאל'}]
+        yossi.customer_context[self.phone]={'customer_name':'מיכאל'}
+        with patch.object(yossi,'load_conversation',return_value=([],{'no_phone_calls':True})), \
+             patch.object(yossi.client.responses,'create') as model, \
+             patch.object(yossi,'send_whatsapp') as send,patch.object(yossi,'save_conversation') as save, \
+             patch.object(yossi,'authorized_send',return_value=nullcontext()):
+            yossi.process_owner_continuation(self.phone,self.state)
+        model.assert_not_called();send.assert_called_once()
+        reply=send.call_args.kwargs['body']
+        self.assertIn('מתחילים מחדש',reply);self.assertNotIn('מיכאל',reply)
+        self.assertEqual(save.call_args.args[1],[{'role':'assistant','content':reply}])
+        self.assertEqual(save.call_args.args[2],{'no_phone_calls':True})
+        self.assertNotIn(self.phone,yossi.customer_context)
+
     def test_unverified_price_is_not_sent_from_owner_summary(self):
         with patch.object(yossi,'load_conversation',return_value=(self.history,self.prior)), \
              patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps({'reply':'המחיר 999 ₪','needs_human':False}))), \

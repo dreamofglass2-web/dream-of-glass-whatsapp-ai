@@ -21,6 +21,13 @@ def instant(value):
         raise HandoffError('Invalid timestamp') from exc
 
 
+def requests_new_conversation(text):
+    """Only an explicit complete reset command, never a mention or negation."""
+    return bool(re.fullmatch(
+        r'\s*(?:התחל|תתחיל|פתיחת|פתח|בוא נתחיל)\s+(?:שיחה|שיחת לקוח)\s+(?:חדשה|מחדש)\s*[!?.]*\s*',
+        str(text or ''), flags=re.IGNORECASE))
+
+
 def new_state():
     return {'revision': 0, 'owner': 'yossi', 'summary': '', 'instructions': '',
             'resume_at': None, 'updated_at': None, 'messages': [],
