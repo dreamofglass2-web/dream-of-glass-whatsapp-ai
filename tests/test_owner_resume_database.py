@@ -293,3 +293,25 @@ class OwnerReturnPostgres(unittest.TestCase):
                 cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
                 self.assertEqual(cur.fetchone()[0],self.history)
         self.assertEqual(returned['summary'],'הלקוח בחר כפתור')
+
+
+    def test_unpriced_reply_creates_real_owner_request_even_without_model_human_flag(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                write_state(cur,self.phone,dict(new_state(),revision=3))
+                cur.execute('UPDATE glass_leads SET context=%s::jsonb WHERE phone=%s',
+                            (json.dumps({'product':'מראה','customer_name':'מיכאל'}),self.phone))
+        response={'reply':'מיכאל, הפרטים להכנת ההצעה קיימים, אבל עדיין אין לי מחיר מחושב ולכן קובץ ההצעה עוד לא מוכן.',
+                  'product':'מראה','needs_human':False}
+        with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(response))), \
+             patch.object(yossi,'send_whatsapp') as send,patch.object(yossi,'has_new_messages',return_value=False):
+            self.assertTrue(yossi.process_message(self.phone,'תודה מחכה להצעה'))
+        send.assert_not_called()
+        with connect() as db:
+            with db.cursor() as cur:
+                held=yossi.read_handoff_state(cur,self.phone)
+        self.assertEqual(held['owner'],'operator')
+        self.assertTrue(held['escalation']['active'])
+        self.assertIn('מחיר',held['escalation']['reason'])
+        self.assertEqual(held['escalation']['customerText'],'תודה מחכה להצעה')
+        self.assertEqual(held['escalation']['notificationStatus'],'not_configured')

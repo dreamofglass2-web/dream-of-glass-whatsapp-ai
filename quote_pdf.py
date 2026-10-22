@@ -70,17 +70,26 @@ def create_quote_pdf(offer, customer, issued_at=None):
     y-=43
     for item,amount in zip(items,amounts):
         s=item['specification'];number=item['number']
-        size=str(s['width_cm'])+((' על '+str(s['second_width_cm'])) if s.get('second_width_cm') else '')
-        label={'1':'הראשון','2':'השני','3':'השלישי'}.get(number,number)
-        product='אמבטיון' if 'אמבטיון' in str(s.get('product') or '')+str(s.get('configuration') or '') else 'מקלחון'
-        desc=f"{product} {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ."
-        detail=f"זכוכית {s['glass_type']}, פרזול {s['finish']}, "+', '.join(s.get('handles') or [])
+        if offer.get('kind') == 'kitchen_cladding':
+            desc='חיפוי זכוכית למטבח, ' + s['cladding_type']
+            detail='גוון: ' + s['cladding_color']
+            if s.get('width_cm') and s.get('height_cm'):
+                detail += f", אורך {s['width_cm']:g} ס״מ, גובה {s['height_cm']:g} ס״מ."
+            detail += (f" כולל {s['socket_count']} פתחים לשקעים." if s.get('socket_count') is not None else ' כולל פתחים לשקעים.')
+        else:
+            size=str(s['width_cm'])+((' על '+str(s['second_width_cm'])) if s.get('second_width_cm') else '')
+            label={'1':'הראשון','2':'השני','3':'השלישי'}.get(number,number)
+            product='אמבטיון' if 'אמבטיון' in str(s.get('product') or '')+str(s.get('configuration') or '') else 'מקלחון'
+            desc=f"{product} {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ."
+            detail=f"זכוכית {s['glass_type']}, פרזול {s['finish']}, "+', '.join(s.get('handles') or [])
         lines=wrap(desc,260,9)+wrap(detail,260,9)
         height=max(48,len(lines)*15+17)
         if y-height<290:
             c.showPage();y=header(True)-45
         for n,line in enumerate(lines):text(line,545,y-n*15,9)
-        text('1',267,y,9);text(f'₪{amount:,.2f}',194,y,9);text(f'₪{amount:,.2f}',113,y,9)
+        quantity=f"{s['area_m2']:g} מ״ר" if offer.get('kind') == 'kitchen_cladding' else '1'
+        unit=Decimal(str(s['rate_ils_per_m2'])) if offer.get('kind') == 'kitchen_cladding' else amount
+        text(quantity,267,y,9);text(f'₪{unit:,.2f}',194,y,9);text(f'₪{amount:,.2f}',113,y,9)
         y-=height;c.setStrokeColorRGB(.84,.85,.88);c.line(40,y+10,555,y+10)
     y-=7
     for label,number in [('סך הכל לפני מע״מ',subtotal),('מע״מ 18%',vat),('סך הכל לתשלום',total)]:
@@ -100,6 +109,13 @@ def create_quote_pdf(offer, customer, issued_at=None):
         offer_height_note(offer),
         'לאחר אישור ההצעה, אלירן ייצור קשר לתיאום מדידה.',
         'אישור ההצעה אינו תיאום מועד מדידה או התקנה.']
+    if offer.get('kind') == 'kitchen_cladding':
+        notes=[
+            'המחיר כולל פתחים לשקעים, מדידה, הובלה והרכבה.',
+            'ההצעה מבוססת על השטח המשוער שנמסר; המידות ומיקומי השקעים הסופיים ייבדקו בשטח.',
+            'הגוון המדויק או קובץ ההדפסה יאושרו לפני הייצור. שינוי במידות או במפרט עשוי לשנות את המחיר.',
+            'לאחר אישור ההצעה, אלירן ייצור קשר לתיאום מדידה.',
+            'אישור ההצעה אינו תיאום מועד מדידה או התקנה.']
     for note in notes:
         for line in wrap(note,505,9):
             if y<55:c.showPage();y=header(True)-25

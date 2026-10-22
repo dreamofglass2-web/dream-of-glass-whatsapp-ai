@@ -24,6 +24,8 @@ def escalation_reason(customer, data=None, reply=None, history=()):
         return 'יוסי לא הפיק תשובה תקינה'
     if re.search(r'אין לי (?:מידע|תשובה|נתונים|תנאי אחריות).*מאומת|לא יודע|איני יודע|צריך לבדוק את (?:תנאי|הכיסוי)|אין לי כרגע תנאי אחריות', answer):
         return 'חסר מידע מאומת לתשובת הלקוח'
+    if re.search(r'אין לי(?: כרגע| עדיין)? (?:מחיר(?: מחושב| מאומת)|תשובה(?: בטוחה| כרגע)?|מידע מאומת)|(?:קובץ ההצעה|הצעת המחיר).{0,20}(?:עוד לא מוכנ|עוד לא מוכן|טרם הוכן)', answer):
+        return 'אין מחיר או הצעה מאומתים להשלמת בקשת הלקוח'
     previous = [str(m.get('content') or '').strip() for m in history if m.get('role') == 'assistant']
     if len(previous) >= 2 and answer == previous[-1] == previous[-2]:
         return 'השיחה נכנסה לחזרה ללא התקדמות'

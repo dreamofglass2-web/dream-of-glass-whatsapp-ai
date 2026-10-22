@@ -163,6 +163,8 @@ def offer_height_note(offer):
 
 
 def offer_document_caption(offer):
+    if offer.get('kind') == 'kitchen_cladding':
+        return 'מצורפת הצעת המחיר לחיפוי המטבח. המפרט, המחיר והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה?'
     if len(offer['items']) > 1:
         return 'מצורפת הצעת המחיר המלאה למקלחונים שבחרנו. המפרטים, המחירים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
     s = offer['items'][0]['specification']
