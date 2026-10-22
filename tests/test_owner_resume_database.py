@@ -223,3 +223,73 @@ class OwnerReturnPostgres(unittest.TestCase):
                 self.assertEqual(cur.fetchone()[0],self.history)
         self.assertEqual(fresh['revision'],3)
         self.assertEqual(fresh['summary'],'הלקוח בחר כפתור')
+
+
+    def test_crm_reset_return_clears_old_persona_before_restart_safe_greeting(self):
+        protected={'meta_leads':{'lead-1':{'source':'meta_instant_form'}},'no_phone_calls':True}
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('UPDATE glass_leads SET context=%s::jsonb WHERE phone=%s',
+                            (json.dumps(dict(protected,customer_name='מיכאל',handles=['ידית כפתור'],width_cm=166)),self.phone))
+                original=yossi.read_handoff_state(cur,self.phone)
+                original.update(summary='התחל שיחה חדשה',instructions='התחל שיחה חדשה')
+                write_state(cur,self.phone,original)
+                cur.execute('SELECT last_inbound_at FROM glass_leads WHERE phone=%s',(self.phone,))
+                inbound=cur.fetchone()[0]
+        returned=self.enqueue()
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation,context,last_inbound_at FROM glass_leads WHERE phone=%s',(self.phone,))
+                history,context,current_inbound=cur.fetchone()
+                cur.execute('SELECT reason,expected_revision FROM yossi_resume_jobs WHERE id=%s',(self.job_id,))
+                self.assertEqual(cur.fetchone(),('conversation_reset',returned['revision']))
+        self.assertEqual(history,[]);self.assertEqual(context,protected)
+        self.assertEqual(current_inbound,inbound)
+        self.assertEqual(returned['summary'],'');self.assertEqual(returned['instructions'],'')
+        self.assertEqual(returned['messages'],[])
+        yossi.histories[self.phone]=[{'role':'user','content':'מיכאל'}]
+        yossi.customer_context[self.phone]={'customer_name':'מיכאל'}
+        with patch.object(yossi.client.responses,'create') as model,patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_next_owner_resume())
+            self.assertFalse(yossi.process_next_owner_resume())
+        model.assert_not_called();send.assert_called_once()
+        reply=send.call_args.kwargs['body']
+        self.assertIn('מתחילים מחדש',reply);self.assertNotIn('מיכאל',reply)
+        self.assertEqual(self.status(),'done')
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation,context FROM glass_leads WHERE phone=%s',(self.phone,))
+                history,context=cur.fetchone()
+        self.assertEqual(len(history),1);self.assertEqual(history[0]['role'],'assistant')
+        self.assertEqual(context,protected)
+
+    def test_paused_whatsapp_reset_is_applied_only_on_owner_return(self):
+        # The command is recorded while paused, without releasing the operator.
+        with patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message(self.phone,'התחל שיחה חדשה'))
+        send.assert_not_called()
+        with connect() as db:
+            with db.cursor() as cur:
+                held=yossi.read_handoff_state(cur,self.phone)
+                self.assertEqual(held['owner'],'operator')
+                self.assertEqual(held['messages'][-1]['text'],'התחל שיחה חדשה')
+                returned=owner_action(cur,self.phone,held['revision'],{'type':'returnToYossi'},datetime.now(timezone.utc).isoformat())
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],[])
+        self.assertEqual(returned['owner'],'yossi');self.assertEqual(returned['summary'],'')
+        with patch.object(yossi.client.responses,'create') as model,patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_next_owner_resume())
+        model.assert_not_called();self.assertIn('מתחילים מחדש',send.call_args.kwargs['body'])
+
+    def test_negated_owner_reset_instruction_preserves_sales_history(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                original=yossi.read_handoff_state(cur,self.phone)
+                original['instructions']='אל תתחיל שיחה חדשה'
+                write_state(cur,self.phone,original)
+        returned=self.enqueue()
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0],self.history)
+        self.assertEqual(returned['summary'],'הלקוח בחר כפתור')

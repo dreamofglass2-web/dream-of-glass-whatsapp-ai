@@ -1,8 +1,9 @@
 """Durable operator ownership and WhatsApp Business echoes, without sending."""
 import json
+import re
 from contextlib import contextmanager, closing
 from datetime import datetime, timezone
-from handoff_state import new_state, validate, transition, append_verified_message, automatic_reply_allowed, HandoffError
+from handoff_state import new_state, validate, transition, append_verified_message, automatic_reply_allowed, HandoffError, requests_new_conversation
 
 
 def ensure_tables(cursor):
@@ -36,6 +37,29 @@ def write_state(cursor, phone, state):
                    (phone, json.dumps(state, ensure_ascii=False)))
 
 
+def clear_sales_dialogue(cursor, phone):
+    """Clear sales memory while retaining channel authorization and opt-outs."""
+    cursor.execute("""UPDATE glass_leads SET conversation='[]'::jsonb,
+        context=jsonb_strip_nulls(jsonb_build_object(
+            'simulation_recipient_id',context->'simulation_recipient_id',
+            'meta_leads',context->'meta_leads',
+            'whatsapp_referral',context->'whatsapp_referral',
+            'no_followups',context->'no_followups',
+            'no_phone_calls',context->'no_phone_calls'))
+        WHERE phone=%s RETURNING context""", (phone,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def owner_requested_reset(state):
+    instruction = state.get('instructions') or state.get('summary') or ''
+    latest_customer = next((m for m in reversed(state['messages']) if m['role']=='customer'),None)
+    if re.search(r'(?:אל|לא)\s+(?:תתחיל|להתחיל|התחל|תפתח|לפתוח)', instruction):
+        return False
+    return requests_new_conversation(instruction) or bool(
+        latest_customer and requests_new_conversation(latest_customer['text']))
+
+
 def reset_sales_handoff(cursor, phone, now, expected_revision=None):
     """Reset dialogue control atomically without lifting operator ownership."""
     phone_lock(cursor, phone)
@@ -58,16 +82,24 @@ def owner_action(cursor, phone, revision, action, now):
     cursor.execute('SELECT 1 FROM glass_leads WHERE phone=%s', (phone,))
     if not cursor.fetchone():
         raise HandoffError('Customer not found')
-    result = transition(read_state(cursor, phone), revision, action, now)
+    previous = read_state(cursor, phone)
+    result = transition(previous, revision, action, now)
+    reset = action.get('type') == 'returnToYossi' and owner_requested_reset(previous)
+    if reset:
+        clear_sales_dialogue(cursor, phone)
+        fresh = reset_sales_handoff(cursor, phone, now, expected_revision=revision)
+        fresh.update(owner=result['owner'], resume_at=result['resume_at'])
+        result = fresh
     if action.get('type') == 'takeover':
         capture_suppression(cursor, phone, result)
     write_state(cursor, phone, result)
     if action.get('type') == 'returnToYossi':
         import hashlib
         identity = hashlib.sha256(('owner-resume:' + phone + ':' + str(result['revision'])).encode()).hexdigest()
-        cursor.execute('''INSERT INTO yossi_resume_jobs(id,phone,expected_revision,available_at)
-            VALUES(%s,%s,%s,%s::timestamptz) ON CONFLICT(id) DO NOTHING''',
-            (identity, phone, result['revision'], result.get('resume_at') or now))
+        cursor.execute('''INSERT INTO yossi_resume_jobs(id,phone,expected_revision,available_at,reason)
+            VALUES(%s,%s,%s,%s::timestamptz,%s) ON CONFLICT(id) DO NOTHING''',
+            (identity, phone, result['revision'], result.get('resume_at') or now,
+             'conversation_reset' if reset else ''))
     elif action.get('type') in ('takeover', 'notes'):
         cursor.execute("UPDATE yossi_resume_jobs SET status='canceled',reason='owner_changed',completed_at=now() WHERE phone=%s AND status='pending'", (phone,))
     return result
