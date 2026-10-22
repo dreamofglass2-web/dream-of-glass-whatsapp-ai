@@ -145,6 +145,9 @@ def sales_output_format(configurations, glass_types, finishes):
         properties[field]={'type':['string','null'],'enum':list(values)+[None]}
     for field in ('width_cm','second_width_cm','height_cm'):
         properties[field]={'type':['number','null']}
+    properties['cladding_type']={'type':['string','null'],'enum':['צבע','הדפסה',None]}
+    properties['cladding_color']={'type':['string','null']}
+    properties['socket_count']={'type':['integer','null'],'minimum':0}
     properties['handles']={'type':['array','null'],'items':{'type':'string','enum':['ידית כפתור','ידית מגבת']}}
     for field in ('quote_requested','solution_agreed','needs_human','send_handle_images','send_glass_images'):
         properties[field]={'type':'boolean'}

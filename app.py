@@ -14,6 +14,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
+from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
@@ -753,7 +754,7 @@ PROFESSIONAL_GLASS_GUIDANCE = """
 
 מראות: הבן מראה מרובעת, מלבנית, עגולה, אובלית, אסימטרית, לפי מידה, עם מסגרת או בלי, עם לד או בלי; אין צורך שצורה מסוימת תופיע בקטלוג כדי לדון בה. שאל מה חשוב ללקוח (מידה, מקום, עיצוב, שימוש, תאורה) לפי הקשר ולא בבת אחת. מחיר בסיס מראה קריסטל בלגי 5 מ״מ 700 ₪ למ״ר כולל התקנה; מסגרת מוסיפה 250 ₪ למ״ר ותאורת לד עוד 250 ₪ למ״ר, לפני מע״מ וללא מינימום הזמנה. אין להבטיח מראה מורכבת או פתרון חשמלי בלי בדיקה מתאימה.
 
-חיפוי זכוכית למטבח: עזור להבין שטח, גוון, הדפסה, שקעים ופתחים. מחיר בסיס 1,100 ₪ למ״ר לפי הכללים המאושרים; חיתוכים ופתחים מיוחדים או הדפסות מחייבים אישור. דלתות ומעקות זכוכית: הסבר עקרונות והצע כיוון, אבל אל תקבע תקן, עובי בטיחות, עיגון, סוג זכוכית הנדסי או מחיר ללא בדיקה מקצועית; אם צריך, הצע בקשת חזרה מאלירן ושמור אותה במסד.
+חיפוי זכוכית למטבח: עזור להבין שטח, גוון, הדפסה, שקעים ופתחים. צבע לבחירת הלקוח 1,100 ₪ למ״ר, הדפסה 1,500 ₪ למ״ר, לפני מע״מ; כולל פתחים לשקעים, מדידה, הובלה והרכבה. חיתוכים מיוחדים לבדיקה מקצועית. דלתות ומעקות זכוכית: הסבר עקרונות והצע כיוון, אבל אל תקבע תקן, עובי בטיחות, עיגון, סוג זכוכית הנדסי או מחיר ללא בדיקה מקצועית; אם צריך, הצע בקשת חזרה מאלירן ושמור אותה במסד.
 
 סוגי זכוכית מאושרים: שקופה (קליר), אקסטרה קליר (א.קליר), אנטיסן אפור, אנטיסן ברונזה, פיפיטה, חלבי, אסיד, גלינה קליר, אסיד קליר. 'גלינה א קליר' פירושו גלינה קליר, לא שקוף רגיל. צבע הזכוכית, צבע הפרזול וסוג הגומיות הם שלושה דברים נפרדים. ייתכנו גומיות שקופות או שחורות, ידיות כפתור או מגבת, וכל צבעי הפרזול המוגדרים. אל תניח מפרט מתוך צילום או מתוך שם תצורה שאינו מוכיח אותו.
 
@@ -1173,7 +1174,7 @@ SYSTEM = '''אתה איש המכירות והיועץ המקצועי של "חל�
 חשוב במיוחד: אל תציע ללקוח לשלוח "המלצות קצרות" כשהוא כבר ביקש ייעוץ. תן ייעוץ מועיל בעצמך. אל תשאל "מה אתה מעדיף" לפני שנתת ללקוח בסיס להבין את הבחירה. אל תדחוף שאלות שאינן נדרשות להחלטה הקרובה. זכור שהלקוח אינו צריך להוביל אותך; אתה מוביל בעדינות, מקצועיות ואמינות.
 
 עובדות עסקיות מחייבות: אנחנו מרמלה ואין לנו אולם תצוגה. אין כתובת לאולם, אין שעות ביקור ואין אפשרות לתאם ביקור באולם. אם בעבר אמרת בטעות שיש אולם, תקן את הטעות במפורש והתנצל בקצרה. אל תמציא כתובות, שעות, מלאי, זמינות, הבטחות לחזרה, פנייה לנציג או תיאום שבוצע. כשלא ידוע פרט עסקי, אמור שאינך יודע אותו. אל תציג מידע פנימי על קוד, מערכות או תמחור אוטומטי ללקוח.
-מחירון לקוח למוצרים שאינם מקלחונים: מראה קריסטל בלגי 5 מ״מ 700 ש״ח למטר רבוע כולל התקנה, תוספת מסגרת 250 ש״ח למטר רבוע, תוספת לד 250 ש״ח למטר רבוע. מחיצת זכוכית 10 מ״מ שקופה 700 ש״ח למטר רבוע כולל מדידה הובלה והתקנה, מחיצת 5+5 1000 ש״ח למטר רבוע, דלת למחיצה תוספת 3500 ש״ח. חיפוי זכוכית למטבח 1100 ש״ח למטר רבוע, עבודות מורכבות לבדיקה. אין מינימום הזמנה. המחיר הסופי חייב להיות מבוסס על מפרט וחישוב מאושרים. מחירים אלה לפני מע״מ אלא אם העסק אישר אחרת. אל תמציא מחיר סופי בלי חישוב מאומת.
+מחירון לקוח למוצרים שאינם מקלחונים: מראה קריסטל בלגי 5 מ״מ 700 ש״ח למטר רבוע כולל התקנה, תוספת מסגרת 250 ש״ח למטר רבוע, תוספת לד 250 ש״ח למטר רבוע. מחיצת זכוכית 10 מ״מ שקופה 700 ש״ח למטר רבוע כולל מדידה הובלה והתקנה, מחיצת 5+5 1000 ש״ח למטר רבוע, דלת למחיצה תוספת 3500 ש״ח. חיפוי מטבח בצבע לבחירת הלקוח 1100 ש״ח למ״ר, הדפסה 1500 ש״ח למ״ר, כולל פתחים לשקעים מדידה הובלה והרכבה; עבודות מורכבות לבדיקה. אין מינימום הזמנה. המחיר הסופי חייב להיות מבוסס על מפרט וחישוב מאושרים. מחירים אלה לפני מע״מ אלא אם העסק אישר אחרת. אל תמציא מחיר סופי בלי חישוב מאומת.
 כשלקוח שואל שאלה חברתית, ענה בחום ובקלילות בלי לסיים בכל פעם בשאלת שירות. אפשר להמשיך שיחת חולין קצרה בלי ללחוץ על מכירה. אל תטען שיש לך חיים פרטיים או יום עבודה אישי. כשלקוח עובר לנושא מקצועי, עבור איתו באופן טבעי. אל תסיק שמראה מיועדת לפרויקט בנייה רק משום שהלקוח עובד בבנייה.
 אל תסיים שתי הודעות רצופות באותה שאלת שירות. אל תחזור על כל המפרט בכל תשובה. כאשר לקוח מבקש מחיר, התייחס לבקשה לפני הצעות לתיאום. כשלקוח מבקש המלצה, תן המלצה רלוונטית ולא רק רשימת אפשרויות.
 
@@ -1909,6 +1910,38 @@ def deliver_order_offer(phone,offer,state,history):
     state['quote_document']={'filename':filename,'offer_fingerprint':offer['fingerprint'],'sent_at':datetime.now(timezone.utc).isoformat()}
     return reply
 
+def respond_to_kitchen_quote(phone, body, history, prior, batch_rows=None):
+    state = kitchen_state(prior, history)
+    if state is None or not SEND_QUOTES or price_objection(body) or is_callback_request(body):
+        return None
+    previous = next((m['content'] for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+    accepting = bool(re.fullmatch(r'כן[.! ]*', body.strip()) and re.search(r'נתקדם להצעה|להכין.{0,15}הצעה',previous))
+    requested = quote_intent(body) or bool(re.search(r'מחכה.{0,15}להצעה|ממתין.{0,15}להצעה',body)) or accepting
+    approved = explicit_quote_approval(body) or bool(
+        re.fullmatch(r'כן[.! ]*',body.strip()) and 'לאשר את ההצעה' in previous
+        and (prior.get('kitchen_offer') or {}).get('issued'))
+    if not (requested or approved):
+        return None
+    if has_new_messages(phone,batch_rows):
+        return False
+    offer = kitchen_offer(state)
+    issued = prior.get('kitchen_offer') or {}
+    if approved and offer and issued.get('issued') and issued.get('fingerprint') == offer['fingerprint']:
+        state['kitchen_offer'] = dict(offer, issued=True, approved=True)
+        save_conversation(phone,history,state)
+        return pause_for_owner(phone,body,'הצעת חיפוי מטבח אושרה — נדרש תיאום מדידה') if HANDOFF_ENABLED else True
+    if offer is None:
+        reply = missing_kitchen_detail(state)
+        send_whatsapp(phone,body=reply)
+    else:
+        reply = deliver_order_offer(phone,offer,state,history)
+        state['kitchen_offer'] = dict(offer,issued=True,approved=False)
+        state['quote_requested'] = False
+    state['needs_human'] = False
+    save_conversation(phone,history+[{'role':'assistant','content':reply}],state)
+    return True
+
+
 def ensure_followup_table():
     """Durable planning only. No automated sending is enabled."""
     with db_connection() as conn:
@@ -2582,6 +2615,17 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=planning_reply)
             save_conversation(phone, history + [{'role':'assistant','content':planning_reply}], planning_context)
             return True
+        try:
+            kitchen_result = respond_to_kitchen_quote(phone, customer_request, history, prior, batch_rows)
+        except HandoffError:
+            return False
+        except Exception:
+            app.logger.exception('KITCHEN_QUOTE_FAILED')
+            if HANDOFF_ENABLED and not has_new_messages(phone,batch_rows):
+                return pause_for_owner(phone,body,'לא ניתן להכין הצעת חיפוי מטבח מאומתת')
+            return False
+        if kitchen_result is not None:
+            return kitchen_result
         compare_result = comparison_turn(history, prior, customer_request, calculate_quote, BOM, GLASS_COSTS, FINISH_MULTIPLIERS) if SEND_QUOTES else None
         if compare_result:
             if has_new_messages(phone, batch_rows):
@@ -2645,6 +2689,7 @@ def process_message(phone, body, batch_rows=None):
             'no_followups': bool((prior or {}).get('no_followups')),
             'meta_form_context': meta_lead_sales_context(prior),
             'owner_handoff': resume_context(handoff) if handoff is not None else None,
+            'kitchen_cladding_policy': KITCHEN_POLICY if 'חיפוי' in str(prior.get('product') or '') else None,
             'owner_verified_finish_aliases': {'רוז גולד / rose gold':'ברונזה; אין להבטיח התאמה מדויקת לברז של ספק אחר'},
             'quotes_enabled': SEND_QUOTES,
             'approved_quote_for_reply': (quote_facts_for_turn(prior, customer_request, calculate_quote)
@@ -3215,6 +3260,12 @@ def process_message(phone, body, batch_rows=None):
             if PDF_QUOTES_ENABLED and not issuing_order and contains_ils_amount(reply):
                 reply = price_free_reply(reply)
 
+            final_reason = escalation_reason(customer_request, data, reply, history)
+            if final_reason and HANDOFF_ENABLED and not issuing_order:
+                if has_new_messages(phone,batch_rows):
+                    return False
+                return pause_for_owner(phone,body,final_reason)
+
             document_state={}
             if issuing_order and complete_order:
                 reply=deliver_order_offer(phone,complete_order,document_state,history)
@@ -3240,6 +3291,9 @@ def process_message(phone, body, batch_rows=None):
             if quote_record.get('issued'):
                 next_context['validated_quote'] = quote_record
                 next_context['quote_requested'] = False
+            cladding = kitchen_state(next_context, history, data)
+            if cladding is not None:
+                next_context.update(cladding)
             if height_basis:
                 next_context['pricing_height_basis'] = height_basis
             save_item(next_context)
