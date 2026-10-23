@@ -76,3 +76,10 @@ jobs:
           DATABASE_URL: ""
           WHATSAPP_TOKEN: ""
         run: python -m unittest tests.test_kitchen_cladding -v
+
+      - name: Four-item inventory and sliding button-only handles
+        env:
+          OPENAI_API_KEY: sk-offline-test-only
+          DATABASE_URL: ""
+          WHATSAPP_TOKEN: ""
+        run: python -m unittest tests.test_four_item_order -v

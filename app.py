@@ -15,7 +15,7 @@ from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
-from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption
+from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -1534,6 +1534,9 @@ def calculate_quote(data):
             return None
         total_width = width
     if configuration in SLIDING:
+        expected_handles=slider_specs({'configuration':configuration})['handles']
+        if handles is not None and handles != expected_handles:
+            return None
         hardware = SLIDING[configuration] * FINISH_MULTIPLIERS[finish]
     else:
         bom = BOM[configuration]
@@ -1634,8 +1637,6 @@ def missing_quote_detail(data):
         return 'איזה גוון פרזול תרצו?'
     if not data.get('width_cm'):
         return 'מה הרוחב המשוער של המקלחון?'
-    if not data.get('height_cm'):
-        return 'איזה גובה תרצו?'
     if (config.startswith('פינתי') or config in ('הזזה 2 קבועים + 2 דלתות','חצי הרמוניקה + חצי קבוע + דלת')) and not data.get('second_width_cm'):
         return 'מה המידה המשוערת של הצלע השנייה?'
     if config in BOM:
@@ -2666,7 +2667,8 @@ def process_message(phone, body, batch_rows=None):
             competitor_exit = True
         showroom_question = ('אולם' in customer_request or 'תצוגה' in customer_request) and any(w in customer_request for w in ('יש', 'איפה', 'כתובת', 'שעות', 'לבוא', 'להגיע', 'ביקור', 'שלכם', 'האולם'))
         showroom_claimed = any('יש לנו אולם' in msg.get('content', '') or 'שעות האולם' in msg.get('content', '') for msg in history[:-1] if msg.get('role') == 'assistant')
-        image_ready = all(handle_photos(PHOTO_CATALOG, name, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL) for name in ('כפתור', 'מגבת'))
+        handle_names=('כפתור',) if 'הזזה' in str(prior.get('configuration') or '') else ('כפתור','מגבת')
+        image_ready = all(handle_photos(PHOTO_CATALOG, name, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL) for name in handle_names)
         glass_images_ready = bool(GLASS_SAMPLE_IMAGES or PHOTO_CATALOG)
         # Stable business policy is cached separately from private, changing context.
         if extract_customer_name(history):
@@ -2696,6 +2698,7 @@ def process_message(phone, body, batch_rows=None):
                                          if SEND_QUOTES and not discovery_question else None),
             'handle_images_available': bool(image_ready or any(p.get('handle') for p in PHOTO_CATALOG)),
             'quote_comparison': prior.get('quote_comparison'),
+            'slider_handle_policy':'במקלחון הזזה רק ידית כפתור לכל דלת; לא להציע מגבת ולא לשאול על סוג הידית.',
             'active_sales_item': prior.get('active_sales_item'),
             'sales_items': prior.get('sales_items', {}),
             'glass_images_available': sorted(set(GLASS_SAMPLE_IMAGES) | {p['glass'] for p in PHOTO_CATALOG}),
@@ -2729,6 +2732,12 @@ def process_message(phone, body, batch_rows=None):
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
             data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            if prior.get('sales_items') and prior.get('height_cm') is None and 'גובה' not in customer_request:
+                previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+                if not (re.fullmatch(r'\s*\d{2,3}\s*',customer_request) and 'גובה' in previous):
+                    data['height_cm']=None
+            if 'הזזה' in str(data.get('configuration') or prior.get('configuration') or ''):
+                data['handles']=slider_specs(dict(prior,**{k:v for k,v in data.items() if v is not None}))['handles']
             layout_specs = dict(prior)
             layout_specs.update({k: data[k] for k in ('stage','action','next_missing_fact','product',
                 'configuration','width_cm','second_width_cm','height_cm','glass_type','finish',
@@ -2893,7 +2902,7 @@ def process_message(phone, body, batch_rows=None):
                 if data.get(key) is not None:
                     merged_pricing[key] = data[key]
             if not prior.get("sales_items"):
-                merged_pricing = confirmed_corner_two_door_specs(history, merged_pricing)
+                merged_pricing = confirmed_corner_two_door_specs(history, merged_pricing) if not prior.get('sales_items') else merged_pricing
             # Any changed quote specification invalidates the previous offer.
             explicit_spec_change = bool(re.search(
                 r'בעצם|תיקון|תשנה|לשנות|תחליף|להחליף|במקום|לא\s+רוצה|החלטתי\s+על|מעכשיו|עדכנתי|'
@@ -3109,7 +3118,7 @@ def process_message(phone, body, batch_rows=None):
             photos = (consultation_photos(PHOTO_CATALOG, photo_context) if consultation_visual
                       else (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, photo_context)))
             if requested_handles:
-                photos = handle_photos(PHOTO_CATALOG, customer_request, photo_context,
+                photos = handle_photos(PHOTO_CATALOG, 'כפתור' if 'הזזה' in str(photo_context.get('configuration') or '') else customer_request, photo_context,
                                        HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
             if not missing_photo_request(customer_request, history) and not requested_handles and not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
                 if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
@@ -3131,7 +3140,9 @@ def process_message(phone, body, batch_rows=None):
                 # The model must not claim absent catalog types are attached.
                 # Only the photo sender's captions identify the images sent.
                 if requested_handles:
-                    reply = 'מצרף דוגמה לידית שביקשת; בתמונה אפשר לראות אותה על המקלחון.'
+                    reply = ('מצרף דוגמה לידית כפתור, שהיא הידית המתאימה למקלחון ההזזה שלנו.'
+                             if 'הזזה' in str(photo_context.get('configuration') or '') else
+                             'מצרף דוגמה לידית שביקשת; בתמונה אפשר לראות אותה על המקלחון.')
                 elif consultation_visual:
                     reply = consultation_photo_intro(photos, photo_context)
                 elif requests_portfolio_photos(customer_request):
@@ -3192,6 +3203,7 @@ def process_message(phone, body, batch_rows=None):
             quote_state.update({k:v for k,v in merged_pricing.items() if v is not None})
             quote_state['solution_agreed'] = data.get('solution_agreed') or quote_state.get('solution_agreed')
             save_item(quote_state)
+            group_choices(quote_state,history,data)
             complete_order=None
             issuing_order=False
             if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request):
@@ -3248,6 +3260,13 @@ def process_message(phone, body, batch_rows=None):
             reply = omit_unasked_readiness(reply, history)
             if ordinary_turn:
                 reply = personal_service_value(reply, customer_request, history, product=merged_pricing.get('product') or ('מקלחון' if is_shower else None))
+            if (re.search(r'(?:איזה|מה|באיזה).{0,15}גובה',reply) and 'גובה' not in customer_request
+                    and str(merged_pricing.get('product') or '').startswith(('מקלחון','אמבטיון'))):
+                specs=slider_specs(dict(merged_pricing,height_cm=preliminary_height(merged_pricing)))
+                reply=(partial_offer_reply(quote_state,calculate_quote,missing_quote_detail) or
+                       (missing_quote_detail(specs) if calculate_quote(specs) is None else
+                        f'לצורך ההצעה נחשב לפי גובה {specs["height_cm"]} ס״מ, והמידה הסופית תיבדק בשטח.'))
+            reply=slider_reply(reply, merged_pricing, customer_request)
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
@@ -3297,6 +3316,7 @@ def process_message(phone, body, batch_rows=None):
             if height_basis:
                 next_context['pricing_height_basis'] = height_basis
             save_item(next_context)
+            group_choices(next_context,history,data)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], next_context)
             return True
         except Exception:
@@ -3533,7 +3553,7 @@ def process_owner_continuation(phone, state):
     scope['existing_count'] = len(history)
     owner_context = resume_context(state)
     history = owner_continuation_history(history, owner_context)
-    prior = item_context(prior, history, '')
+    prior = slider_specs(item_context(prior, history, ''))
     pending_item_reply = partial_offer_reply(prior, calculate_quote, missing_quote_detail)
     media_allowed = owner_requests_new_examples(state)
     output_format = sales_output_format(SALES_CONFIGURATIONS, GLASS_COSTS, FINISH_MULTIPLIERS)
@@ -3543,6 +3563,7 @@ def process_owner_continuation(phone, state):
     approved = quote_facts_for_turn(prior, '', calculate_quote) if SEND_QUOTES else None
     context = {
         'owner_handoff': owner_context, 'prior_state': prior,
+        'slider_handle_policy':'במקלחון הזזה רק ידית כפתור לכל דלת. אין להציע או לשלוח דוגמאות למגבת.',
         'approved_quote_for_reply': approved,
         'handle_images_available': all(handle_photos(PHOTO_CATALOG, n, {}, HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
                                        for n in ('כפתור', 'מגבת')),
@@ -3584,6 +3605,9 @@ def process_owner_continuation(phone, state):
         raise ValueError('Owner continuation contains unverified price')
     if PDF_QUOTES_ENABLED and contains_ils_amount(reply):
         reply = price_free_reply(reply)
+    reply=slider_reply(reply,prior,str(state.get('instructions') or ''))
+    if 'הזזה' in str(prior.get('configuration') or ''):
+        data['handles']=prior['handles']
     photo_context = dict(prior)
     if data.get('handles'):
         photo_context['handles'] = data['handles']

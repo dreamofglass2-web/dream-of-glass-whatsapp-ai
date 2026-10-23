@@ -199,7 +199,7 @@ def consultation_plan(history, prior, customer):
         return {'step':'understand_request','question':None}
     messages=history
     if prior.get('active_sales_item'):
-        number={'1':'ראשון','2':'שני','3':'שלישי'}.get(prior['active_sales_item'])
+        number={'1':'ראשון','2':'שני','3':'שלישי','4':'רביעי','5':'חמישי','6':'שישי'}.get(prior['active_sales_item'])
         starts=[i for i,m in enumerate(history) if m.get('role')=='assistant' and re.search(r'נעבור.{0,25}'+str(number),str(m.get('content') or ''))]
         if starts:
             messages=history[starts[-1]:]
