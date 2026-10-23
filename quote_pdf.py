@@ -1,5 +1,5 @@
 """Private in-memory Hebrew quote PDF from calculator-authorized offer data."""
-from sales_items import offer_height_note
+from sales_items import offer_height_note, LABELS
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
@@ -16,7 +16,7 @@ ASSETS=Path(__file__).with_name('quote_assets')
 
 def create_quote_pdf(offer, customer, issued_at=None):
     items=offer.get('items') or []
-    if not items or len(items)>3:
+    if not items or len(items)>20:
         raise ValueError('Incomplete offer')
     amounts=[Decimal(str(item['amount_ils_pre_vat'])) for item in items]
     subtotal=sum(amounts)
@@ -78,7 +78,7 @@ def create_quote_pdf(offer, customer, issued_at=None):
             detail += (f" כולל {s['socket_count']} פתחים לשקעים." if s.get('socket_count') is not None else ' כולל פתחים לשקעים.')
         else:
             size=str(s['width_cm'])+((' על '+str(s['second_width_cm'])) if s.get('second_width_cm') else '')
-            label={'1':'הראשון','2':'השני','3':'השלישי'}.get(number,number)
+            label=LABELS.get(number,number)
             product='אמבטיון' if 'אמבטיון' in str(s.get('product') or '')+str(s.get('configuration') or '') else 'מקלחון'
             desc=f"{product} {label}, {s['configuration']}, {size} ס״מ, גובה {s['height_cm']} ס״מ."
             detail=f"זכוכית {s['glass_type']}, פרזול {s['finish']}, "+', '.join(s.get('handles') or [])

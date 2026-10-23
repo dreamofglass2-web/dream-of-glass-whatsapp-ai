@@ -1,11 +1,13 @@
 """Separate explicitly numbered shower items without another model call."""
 import re
 from copy import deepcopy
+import hashlib
+import json
 
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout')
+          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only')
 
 
 def preliminary_height(specs):
@@ -15,12 +17,90 @@ def preliminary_height(specs):
     return 140 if 'אמבטיון' in str(specs.get('product') or '') + str(specs.get('configuration') or '') else 200
 
 
+ORDINALS = {'ראשון':'1','שני':'2','שלישי':'3','רביעי':'4','חמישי':'5','שישי':'6'}
+LABELS = {v:'ה'+k for k,v in ORDINALS.items()}
+
+
+def slider_specs(specs):
+    result = deepcopy(specs)
+    if 'הזזה' in str(result.get('configuration') or ''):
+        result['handles'] = ['ידית כפתור'] * (2 if '2 דלתות' in result['configuration'] else 1)
+    return result
+
+
+def written_inventory(history):
+    """Expand an explicit multi-line quantity list, excluding image analysis."""
+    inventory, groups = {}, []
+    shared_glass=None
+    for message in history:
+        if message.get('role') != 'user':
+            continue
+        text = str(message.get('content') or '').split('[לקוח צירף',1)[0]
+        if not inventory and re.search(r'זכוכית\s+(?:אנטיסן\s+)?ברונזה',text):
+            shared_glass='אנטיסן ברונזה'
+        rows = re.findall(r'(?:^|\n)\s*([1-9])\s*(מקלחונים|מקלחון|אמבטיון|אמבטיוו)([^\n]*)',text)
+        if len(rows) < 2:
+            continue
+        inventory, groups = {}, []
+        for quantity,product,detail in rows:
+            group=[]
+            for _ in range(int(quantity)):
+                n=str(len(inventory)+1); group.append(n)
+                specs={'product':'אמבטיון' if product.startswith('אמבט') else 'מקלחון'}
+                pair=re.search(r'(\d{2,3})\s*[/xX×]\s*(\d{2,3})',detail)
+                if pair:
+                    specs.update(width_cm=int(pair[1]),second_width_cm=int(pair[2]))
+                elif 'פתח' in detail:
+                    width=re.search(r'פתח\s*(\d+(?:\.\d+)?)',detail)
+                    if width:
+                        value=float(width[1]);specs['width_cm']=int(value*100) if value<10 else value
+                if shared_glass:specs['glass_type']=shared_glass
+                inventory[n]=specs
+            if len(group)>1:groups.append(group)
+    return inventory,groups
+
+
+def group_choices(state, history, data):
+    """Apply a choice to identical items only when the customer said both."""
+    customer=str(history[-1].get('content') or '') if history else ''
+    previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+    group_request=bool(re.search(r'לשתיהם|לשניהם|לשתיהן|בשניהם|בשני המקלחונים|לשני המקלחונים',customer))
+    group_confirmation=bool(re.fullmatch(r'כן[.!\s]*',customer) and re.search(r'בשני המקלחונים|שני המקלחונים של',previous))
+    if not (group_request or group_confirmation):return state
+    active=str(state.get('active_sales_item') or '1')
+    group=next((g for g in state.get('sales_item_groups',[]) if active in g),[])
+    reference=customer+' '+previous if group_confirmation else customer
+    fields=[]
+    if re.search(r'פרזול|גוון',reference):fields.append('finish')
+    if 'זכוכית' in reference:fields.append('glass_type')
+    if re.search(r'ידית|ידיות|כפתור|מגבת',reference):fields.append('handles')
+    if group_confirmation and 'דלתות' in previous:fields += ['configuration','solution_agreed']
+    for n in group:
+        for key in fields:
+            if data.get(key) is not None:
+                state['sales_items'][n][key]=deepcopy(data[key])
+    return state
+
+
+def slider_reply(reply, specs, customer=''):
+    if 'הזזה' not in str(specs.get('configuration') or ''):
+        return reply
+    policy='במקלחון הזזה אנחנו מתקינים ידית כפתור בלבד.'
+    if 'מגבת' in str(reply):
+        parts=re.split(r'(?<=[.!?])\s+|\n+',str(reply))
+        reply=' '.join(p for p in parts if 'מגבת' not in p).strip()
+        return policy + (' '+reply if reply else '')
+    if 'מגבת' in customer and policy not in reply:
+        return policy+' '+reply
+    return reply
+
+
 def numbered_item(text):
     # A cardinal count of panels is not the ordinal second shower.
     if re.match(r'^\s*שני\s+(?:קבועים|מקלחונים|חלקים|צדדים|לוחות|דלתות)\b', text):
         return None
-    matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|^(?:ה)?)(ראשון|שני|שלישי)\b', text)
-    return {'ראשון': '1', 'שני': '2', 'שלישי': '3'}.get(matches[-1]) if matches else None
+    matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|אמבטיון\s*(?:ה)?|^(?:ה)?)(ראשון|שני|שלישי|רביעי|חמישי|שישי)\b', text)
+    return ORDINALS.get(matches[-1]) if matches else None
 
 
 def order_inventory(history):
@@ -30,6 +110,9 @@ def order_inventory(history):
         if message.get('role') != 'user':
             continue
         text = str(message.get('content') or '').split('[לקוח צירף', 1)[0]
+        explicit=re.search(r'(?<!\d)(\d{1,2}|ארבעה|ארבע)\s*מקלחונים',text)
+        if explicit:
+            count=max(count,int(explicit[1]) if explicit[1].isdigit() else 4)
         if re.search(r'(?:3|שלושה)\s*מקלחונים', text):
             count = max(count, 3)
         elif re.search(r'(?:2|שני|שתי)\s*מקלחונים|מקלחונים\s+(?:ל|ב)?(?:שני|שתי|שניי?ם|2)\s*(?:ה)?חדרים', text):
@@ -39,7 +122,8 @@ def order_inventory(history):
         if bath and shower:
             count = max(count, 2)
             mixed = ('אמבטיון', 'מקלחון') if bath.start() < shower.start() else ('מקלחון', 'אמבטיון')
-    return count, mixed
+    inventory,_=written_inventory(history)
+    return max(count,len(inventory)), mixed
 
 
 def item_context(prior, history, customer):
@@ -47,13 +131,21 @@ def item_context(prior, history, customer):
     last_reply = next((str(m.get('content') or '') for m in reversed(history[:-1])
                        if m.get('role') == 'assistant'), '')
     count, mixed = order_inventory(history)
+    inventory,groups=written_inventory(history)
+    seed=hashlib.sha256(json.dumps(inventory,sort_keys=True,ensure_ascii=False).encode()).hexdigest() if inventory else None
+    fresh_inventory=bool(seed and state.get('inventory_seed')!=seed)
     count = max(count, int(state.get('expected_sales_item_count') or 1), len(state.get('sales_items') or {}))
     target = numbered_item(str(customer))
+    baths=[n for n,s in inventory.items() if s.get('product')=='אמבטיון']
+    if len(baths)==1 and ('אמבטיון' in str(customer) or
+            re.search(r'נעבור.{0,15}אמבטיון|לאמבטיון|באמבטיון',last_reply) or
+            (state.get('product')=='אמבטיון' and inventory.get(str(state.get('active_sales_item')),{}).get('product')!='אמבטיון')):
+        target=baths[0]
     if mixed and 'אמבטיון' in str(customer):
         target = str(mixed.index('אמבטיון') + 1)
     elif mixed and re.search(r'מקלחון\s+(?:בשירותים|ה?שירותים)', str(customer)):
         target = str(mixed.index('מקלחון') + 1)
-    if not target and not re.search(r'יקר|זול|להשוות|השוואה|הצעה אחרת|תקציב|מאשר|מאשרת', str(customer)) and len(set(re.findall(r'מקלחון (?:ה)?(?:ראשון|שני|שלישי)',last_reply)))<2 and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
+    if not target and not re.search(r'יקר|זול|להשוות|השוואה|הצעה אחרת|תקציב|מאשר|מאשרת', str(customer)) and len(set(re.findall(r'מקלחון (?:ה)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)',last_reply)))<2 and re.search(r'נעבור|למקלחון|במקלחון|מה.{0,15}מקלחון', last_reply):
         target = numbered_item(last_reply)
     multiple = bool(count > 1 or state.get('sales_items') or target or re.search(
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
@@ -65,9 +157,23 @@ def item_context(prior, history, customer):
         items[active] = {k: deepcopy(state[k]) for k in FIELDS if k in state}
     count = max(count, int(target or active))
     state['expected_sales_item_count'] = count
+    if groups:state['sales_item_groups']=groups
     for number in range(1, count + 1):
         item = items.setdefault(str(number), {})
-        if mixed:
+        if str(number) in inventory:
+            old_product=item.get('product')
+            if fresh_inventory and old_product and old_product!=inventory[str(number)]['product']:
+                group=next((g for g in groups if str(number) in g),[])
+                sibling=next((items[n] for n in group if n!=str(number) and n in items),{})
+                confirmed=any(m.get('role')=='user' and re.fullmatch(r'כן[.!\s]*',str(m.get('content') or ''))
+                    and i>0 and re.search(r'בשני המקלחונים.{0,100}בלי.{0,40}קבוע',str(history[i-1].get('content') or ''))
+                    for i,m in enumerate(history))
+                if confirmed and sibling.get('solution_agreed') and sibling.get('configuration')==item.get('configuration'):
+                    item['solution_agreed']=True
+            if fresh_inventory:item['product']=inventory[str(number)]['product']
+            else:item.setdefault('product',inventory[str(number)]['product'])
+            for k,v in inventory[str(number)].items():item.setdefault(k,deepcopy(v))
+        if mixed and not inventory:
             item.setdefault('product', mixed[number - 1] if number <= len(mixed) else 'מקלחון')
             if item.get('product') == 'מקלחון':
                 for message in history:
@@ -77,6 +183,18 @@ def item_context(prior, history, customer):
                     service = re.search(r'מקלחון\s+(?:בשירותים|ה?שירותים)', written)
                     if service and 'קבוע' in written[service.start():] and 'מתקפל' in written[service.start():]:
                         item.setdefault('requested_layout', 'צד קבוע וצד מתקפל')
+    if len(baths)==1:
+        previous=''
+        for m in history:
+            text=str(m.get('content') or '').split('[לקוח צירף',1)[0]
+            if m.get('role')=='user' and re.search(r'רק\s*(?:את\s*)?(?:הצד\s*)?(?:הארוך|תארוך|ארוך)',text):
+                items[baths[0]]['front_only']=True
+            if m.get('role')=='user' and 'אמבטיון' in previous and not re.search(r'ארון|אסלה|גובה',previous+text):
+                value=re.search(r'(\d+\.\d+|\d{2,3})(?!\d)',text)
+                if value:
+                    width=float(value[1]);items[baths[0]].setdefault('width_cm',int(width*100) if width<10 else width)
+            previous=text
+    if seed:state['inventory_seed']=seed
     target = target or active
     if target != active:
         for key in FIELDS:
@@ -86,6 +204,11 @@ def item_context(prior, history, customer):
     if count > 1 and len((state.get('combined_offer') or {}).get('items') or []) < count:
         state.pop('combined_offer', None)
         state.pop('validated_quote', None)
+    if state.get('product')=='אמבטיון' and state.get('front_only'):
+        state.pop('second_width_cm',None)
+        if str(state.get('configuration') or '').startswith('פינתי'):
+            state.pop('configuration',None);state['solution_agreed']=False
+    state=slider_specs(state)
     return state
 
 
@@ -128,9 +251,6 @@ def combined_quote(state, history, customer, calculator):
             'גובה שלא נמדד חושב לפי 140 ס״מ לאמבטיון ו־200 ס״מ למקלחון לצורך תמחור בלבד. המידות הסופיות ייבדקו בשטח, '
             'ושינוי במידות או במפרט עשוי לשנות את המחיר.')
 
-import hashlib
-import json
-
 
 def bundle_offer(state, calculator, allow_single=False):
     """Calculate every selected item; never issue an incomplete order total."""
@@ -139,7 +259,7 @@ def bundle_offer(state, calculator, allow_single=False):
         return None
     offers=[]
     for number, original in sorted(items.items(),key=lambda pair:int(pair[0])):
-        specs=deepcopy(original)
+        specs=slider_specs(original)
         if not specs.get('solution_agreed'):
             return None
         specs['height_cm']=preliminary_height(specs)
@@ -165,6 +285,8 @@ def offer_height_note(offer):
 def offer_document_caption(offer):
     if offer.get('kind') == 'kitchen_cladding':
         return 'מצורפת הצעת המחיר לחיפוי המטבח. המפרט, המחיר והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה?'
+    if len(offer['items']) > 1 and any('אמבטיון' in str(i['specification'].get('product') or '') for i in offer['items']):
+        return 'מצורפת הצעת המחיר המלאה לכל הפריטים שבחרנו. המפרטים, המחירים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
     if len(offer['items']) > 1:
         return 'מצורפת הצעת המחיר המלאה למקלחונים שבחרנו. המפרטים, המחירים והתנאים נמצאים בקובץ. מתאים לך לאשר את ההצעה המלאה?'
     s = offer['items'][0]['specification']
@@ -206,8 +328,15 @@ def partial_offer_reply(state, calculator, missing_detail):
         return None
     number, other = unfinished
     product = 'האמבטיון' if 'אמבטיון' in str(specs.get('product') or specs.get('configuration') or '') else 'המקלחון'
-    label = {'1':'הראשון','2':'השני','3':'השלישי'}.get(number, number)
+    label = LABELS.get(number, number)
     layout = (' עם ' + str(other['requested_layout']) + ' שביקשת') if other.get('requested_layout') else ''
+    other=slider_specs(dict(other,height_cm=preliminary_height(other)))
     question = ('מה המידות המשוערות שלו?' if not other.get('width_cm') else missing_detail(other))
+    if (not other.get('handles') and specs.get('handles')==['ידית כפתור','ידית כפתור']
+            and other.get('configuration')==specs.get('configuration')
+            and other.get('width_cm')==specs.get('width_cm') and other.get('finish')==specs.get('finish')):
+        question='גם כאן תרצה שתי ידיות כפתור?'
+    next_product='אמבטיון' if 'אמבטיון' in str(other.get('product') or '') else 'מקלחון'
+    scope='לשניהם' if len(items)==2 else 'לכל הפריטים'
     return (f'סיכמנו את פרטי {product} שבחרת. '
-            f'נמשיך למקלחון {label}{layout} כדי להשלים את ההצעה לשניהם. ' + question)
+            f'נמשיך ל{next_product} {label}{layout} כדי להשלים את ההצעה {scope}. ' + question)
