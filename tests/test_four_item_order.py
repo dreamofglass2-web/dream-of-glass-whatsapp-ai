@@ -112,3 +112,19 @@ class SliderConversationTests(unittest.TestCase):
         urls=[call.kwargs['image_url'] for call in send.call_args_list if call.kwargs.get('image_url')]
         self.assertEqual(urls,['https://example.test/button'])
         self.assertIn('כפתור בלבד',reply)
+
+
+    def test_cabinet_answer_cannot_overwrite_front_only_bath_opening(self):
+        specs={'product':'אמבטיון','front_only':True,'width_cm':130,'glass_type':'אנטיסן ברונזה',
+               'sales_discovery_completed':True,'active_sales_item':'4','expected_sales_item_count':4,
+               'sales_items':{'4':{'product':'אמבטיון','front_only':True,'width_cm':130}}}
+        h=history()+[{'role':'assistant','content':'האם 40 ס״מ הוא רוחב הארון?' }]
+        self.memory[self.phone]=(h,specs)
+        reply=self.step('זה רוחב הארון, תן לי הצעה',self.model('נשלים את חלוקת האמבטיון.',
+            product='אמבטיון',configuration='פינתי 2 דלתות',width_cm=40,second_width_cm=90,
+            height_cm=200,quote_requested=True))
+        state=self.memory[self.phone][1]
+        self.assertEqual(state['width_cm'],130)
+        self.assertNotEqual(state.get('configuration'),'פינתי 2 דלתות')
+        self.assertNotIn('גובה',reply)
+        self.assertEqual(self.documents,[])

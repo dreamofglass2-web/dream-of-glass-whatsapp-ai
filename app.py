@@ -2732,6 +2732,14 @@ def process_message(phone, body, batch_rows=None):
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
             data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            if prior.get('product')=='אמבטיון' and prior.get('front_only'):
+                data['second_width_cm']=None
+                if str(data.get('configuration') or '').startswith('פינתי'):
+                    data['configuration']=prior.get('configuration')
+                    data['solution_agreed']=bool(prior.get('solution_agreed'))
+                previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+                if 'ארון' in customer_request or ('ארון' in previous and re.fullmatch(r'\s*\d+(?:\.\d+)?\s*',customer_request)):
+                    data['width_cm']=prior.get('width_cm')
             if prior.get('sales_items') and prior.get('height_cm') is None and 'גובה' not in customer_request:
                 previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
                 if not (re.fullmatch(r'\s*\d{2,3}\s*',customer_request) and 'גובה' in previous):

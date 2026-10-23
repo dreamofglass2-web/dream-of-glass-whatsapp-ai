@@ -7,7 +7,7 @@ import json
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout')
+          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only')
 
 
 def preliminary_height(specs):
@@ -187,8 +187,10 @@ def item_context(prior, history, customer):
         previous=''
         for m in history:
             text=str(m.get('content') or '').split('[לקוח צירף',1)[0]
-            if m.get('role')=='user' and 'אמבטיון' in previous and not re.search(r'ארון|אסלה',previous+text):
-                value=re.search(r'(\d+(?:\.\d+)?)',text)
+            if m.get('role')=='user' and re.search(r'רק\s*(?:את\s*)?(?:הצד\s*)?(?:הארוך|תארוך|ארוך)',text):
+                items[baths[0]]['front_only']=True
+            if m.get('role')=='user' and 'אמבטיון' in previous and not re.search(r'ארון|אסלה|גובה',previous+text):
+                value=re.search(r'(\d+\.\d+|\d{2,3})(?!\d)',text)
                 if value:
                     width=float(value[1]);items[baths[0]].setdefault('width_cm',int(width*100) if width<10 else width)
             previous=text
@@ -202,7 +204,7 @@ def item_context(prior, history, customer):
     if count > 1 and len((state.get('combined_offer') or {}).get('items') or []) < count:
         state.pop('combined_offer', None)
         state.pop('validated_quote', None)
-    if state.get('product')=='אמבטיון':
+    if state.get('product')=='אמבטיון' and state.get('front_only'):
         state.pop('second_width_cm',None)
         if str(state.get('configuration') or '').startswith('פינתי'):
             state.pop('configuration',None);state['solution_agreed']=False
