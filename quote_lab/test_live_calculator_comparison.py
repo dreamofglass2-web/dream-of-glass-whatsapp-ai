@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from quote_lab.builder import NamedPanel, price_proposed_layout
+from sliding_policy import disallowed_slider
 
 
 def isolated_production_calculator():
@@ -26,6 +27,7 @@ def isolated_production_calculator():
             calculate = node
     if set(constants) != names or calculate is None:
         raise AssertionError("Production calculator structure changed; review comparison")
+    constants["disallowed_slider"] = disallowed_slider
     exec(compile(ast.Module(body=[calculate], type_ignores=[]), "<offline pricing comparison>", "exec"), constants)
     return constants["calculate_quote"]
 
