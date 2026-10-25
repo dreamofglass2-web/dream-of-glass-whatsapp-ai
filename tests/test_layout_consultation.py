@@ -111,6 +111,42 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertEqual(self.memory[self.phone][1]['sales_items']['1']['glass_type'],'אנטיסן ברונזה')
 
 
+    def test_finished_first_of_three_advances_without_partial_offer_or_document(self):
+        specs={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,
+               'glass_type':'אנטיסן ברונזה','finish':'שחור','solution_agreed':True}
+        self.memory[self.phone]=([{'role':'user','content':'צריך 3 מקלחונים'},{'role':'assistant','content':'איזה ידיות תרצה לשתי הדלתות?'}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='1',expected_sales_item_count=3,
+                 sales_items={'1':dict(specs),'2':{},'3':{}}))
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('כפתור בשתי הדלתות',self.model('אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.',
+                **dict(specs,handles=['ידית כפתור','ידית כפתור'],quote_requested=True)))
+        self.assertIn('השני',reply)
+        self.assertFalse(self.documents)
+        self.assertNotIn('validated_quote',self.memory[self.phone][1])
+        self.assertNotIn('אפשר לחשב',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        reply=self.step('בפינה',self.model('מה המידות המשוערות של שני הצדדים?',quote_requested=True))
+        saved=self.memory[self.phone][1]
+        self.assertEqual(saved['active_sales_item'],'2')
+        self.assertEqual(saved['sales_items']['1']['handles'],['ידית כפתור','ידית כפתור'])
+        self.assertNotIn('handles',saved['sales_items']['2'])
+
+
+    def test_combined_document_is_sent_only_after_third_item_is_complete(self):
+        specs={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,
+               'glass_type':'אנטיסן ברונזה','finish':'שחור','handles':['ידית כפתור','ידית כפתור'],'solution_agreed':True}
+        third=dict(specs);third.pop('handles')
+        self.memory[self.phone]=([{'role':'user','content':'צריך 3 מקלחונים'},{'role':'assistant','content':'במקלחון השלישי, איזה ידיות תרצה?'}],
+            dict(third,sales_discovery_completed=True,quote_requested=True,active_sales_item='3',expected_sales_item_count=3,
+                 sales_items={'1':dict(specs),'2':dict(specs),'3':dict(third)}))
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('כפתור בשתי הדלתות',self.model('הנה ההצעה.',**dict(specs,quote_requested=True)))
+        self.assertEqual(len(self.documents),1)
+        self.assertEqual(len(self.documents[0]['items']),3)
+        self.assertEqual(self.documents[0]['amount_ils_pre_vat'],sum(i['amount_ils_pre_vat'] for i in self.documents[0]['items']))
+        self.assertFalse(yossi.contains_ils_amount(reply))
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))

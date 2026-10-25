@@ -2928,6 +2928,10 @@ def process_message(phone, body, batch_rows=None):
             if quote_changed:
                 quote_record = {}
                 prior_quote = False
+            multi_item_order = max(len(prior.get('sales_items') or {}), int(prior.get('expected_sales_item_count') or 1)) > 1
+            if multi_item_order:
+                quote_record = {}
+                prior_quote = False
             current_product = merged_pricing.get('product')
             is_shower = (str(current_product).startswith(('מקלחון', 'אמבטיון')) if current_product else
                          'מקלחון' in ' '.join(customer_written_text(m.get('content', ''))
@@ -2962,7 +2966,7 @@ def process_message(phone, body, batch_rows=None):
                                    'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.'))
                 else:
                     reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
-            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer and (
+            elif ordinary_turn and is_shower and not multi_item_order and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer and (
                     quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
                 if verified_price is not None and (data.get('solution_agreed') is True or
@@ -3301,6 +3305,17 @@ def process_message(phone, body, batch_rows=None):
                 reply=current_options_reply
                 data['needs_human']=False
             reply=slider_reply(reply, merged_pricing, customer_request)
+            # Completing one item advances the order; it never authorizes a
+            # per-item offer or a dead-end invitation to calculate that item.
+            incomplete_multi = multi_item_order and bundle_offer(quote_state, calculate_quote) is None
+            if incomplete_multi:
+                quote_record = {}
+                issuing_order = False
+                next_item_reply = partial_offer_reply(quote_state, calculate_quote, missing_quote_detail)
+                if (next_item_reply and ordinary_turn and not sent_count and not current_options_reply
+                        and not price_objection(customer_request)
+                        and not re.search(r'[?？]|איך|מה |דוגמ|תמונ|אחריות|אפשר לראות', customer_request)):
+                    reply = next_item_reply
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             # The multi-item quote fallback must not overwrite a request for guidance
             # with the same technical configuration question and then escalate it.
@@ -3336,6 +3351,8 @@ def process_message(phone, body, batch_rows=None):
             # Preserve known facts and issued quote across subsequent messages.
             next_context = dict(prior or {})
             next_context.update(document_state)
+            if incomplete_multi:
+                next_context.pop('validated_quote', None)
             if data.get('needs_human') is not True:
                 next_context['planning_clarification_count'] = 0
             if issuing_order and complete_order:
