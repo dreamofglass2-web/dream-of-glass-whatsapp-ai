@@ -24,6 +24,24 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertFalse(self.documents)
         self.assertFalse(self.memory[self.phone][1].get('solution_agreed'))
 
+    def test_corner_answer_survives_multi_item_quote_fallback_and_next_turn(self):
+        h=[{'role':'user','content':'צריך 3 מקלחונים'},
+           {'role':'assistant','content':'במקלחון הראשון צריך לסגור צד אחד בין קירות או שני צדדים בפינה?'}]
+        self.memory[self.phone]=(h,{'product':'מקלחון','sales_discovery_completed':True,
+            'quote_requested':True,'expected_sales_item_count':3,'active_sales_item':'1',
+            'sales_items':{'1':{'product':'מקלחון'}}})
+        reply=self.step('בפינה',self.model('צריך לסגור צד אחד בין שני קירות, או שני צדדים שנפגשים בפינה?',quote_requested=True))
+        self.assertIn('מידות',reply)
+        saved=self.memory[self.phone][1]
+        self.assertEqual(saved['sales_items']['1']['layout_geometry'],'corner')
+        self.assertNotIn('configuration',saved['sales_items']['1'])
+        from sales_items import item_context,save_item
+        switched=item_context(saved,h+[{'role':'user','content':'נעבור למקלחון השני'}],'נעבור למקלחון השני')
+        self.assertNotIn('layout_geometry',switched)
+        self.assertNotIn('layout_geometry',switched['sales_items']['2'])
+        self.assertEqual(switched['sales_items']['1']['layout_geometry'],'corner')
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -32,3 +50,9 @@ class LayoutAdviceRules(unittest.TestCase):
         self.assertIn('בין שני קירות',yossi.missing_quote_detail({}))
     def test_bath_advice_does_not_assume_corner_shower(self):
         self.assertIn('אמבטיה',layout_consultation_reply('לא יודע',{'product':'אמבטיון'}))
+
+class GeometryRules(unittest.TestCase):
+    def test_negated_and_ambiguous_geometry_do_not_become_facts(self):
+        from layout_consultation import capture_layout_geometry
+        for text in ['לא בפינה','אולי בפינה','מה עדיף פינתי או חזיתי','בפינה יש ארון']:
+            self.assertEqual(capture_layout_geometry({},text),{})

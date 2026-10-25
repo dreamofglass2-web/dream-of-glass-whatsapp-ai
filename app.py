@@ -1,5 +1,5 @@
 import os
-from layout_consultation import layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
+from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
 import json
 import logging
@@ -1632,7 +1632,7 @@ def proposed_layout_guidance(history):
 def missing_quote_detail(data):
     config = data.get('configuration')
     if config not in BOM and config not in SLIDING:
-        return 'צריך לסגור צד אחד בין שני קירות, או שני צדדים שנפגשים בפינה?'
+        return missing_layout_detail(data)
     if not data.get('glass_type'):
         return 'איזה סוג זכוכית תרצו למקלחון?'
     if not data.get('finish'):
