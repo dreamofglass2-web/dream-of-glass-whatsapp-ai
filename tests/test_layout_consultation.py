@@ -6,6 +6,24 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_competitor_amount_does_not_erase_the_qualitative_price_answer(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        offer=yossi.bundle_offer({'sales_items':{'1':specs}},yossi.calculate_quote,allow_single=True)
+        self.memory[self.phone]=([{'role':'assistant','content':'תרצי לבדוק גוון אחר?'}],
+            dict(specs,sales_discovery_completed=True,combined_offer=dict(offer,issued=True),
+                 validated_quote=dict(specs,issued=True,amount_ils_pre_vat=offer['amount_ils_pre_vat'])))
+        answer=('ההצעה שקיבלת היא 1800 ש״ח כולל מע״מ. נשמור על הפרזול השחור שבחרת. '
+                'אלירן מודד ומתקין בעצמו בלי קבלני משנה ונשאר כתובת שמכירה את העבודה. חשוב לך הליווי האישי הזה?')
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('אני לא רוצה לשנות את השחור. מתחרה נותן לי אותו מפרט ב1800 כולל מעמ',self.model(answer,**specs))
+        self.assertIn('נשמור על הפרזול השחור',reply)
+        self.assertIn('הליווי האישי',reply)
+        self.assertNotIn('המחיר מפורט בהצעת',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertFalse(self.documents)
+        self.assertEqual(self.memory[self.phone][1]['combined_offer']['fingerprint'],offer['fingerprint'])
+
     def test_short_six_mm_insistence_closes_without_discovery_or_model_call(self):
         initial=self.step('כמה עולה מקלחון 6 ממ?')
         self.assertIn('קשיחה יותר',initial)

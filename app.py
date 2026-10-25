@@ -3095,6 +3095,12 @@ def process_message(phone, body, batch_rows=None):
                 quote_record.get('issued') and ordinary_turn and
                 re.search(r'מתחר|הצעה\s+(?:זולה|זול)|זול\s+ב|פחות\s+מ|הציעו\s+לי', customer_request)
             )
+            # An objection can acknowledge the customer's budget or competitor
+            # amount without offering that amount as our price. Remove numeric
+            # chat sentences before price validation can erase useful advice.
+            if (PDF_QUOTES_ENABLED and ordinary_turn and price_objection(customer_request)
+                    and contains_ils_amount(reply)):
+                reply = price_free_reply(reply)
             # Even after issuing a quote, an unrelated AI amount must not replace it.
             if ordinary_turn and is_shower and quote_record.get('issued') and contains_ils_amount(reply):
                 saved_amount = quote_record.get('amount_ils_pre_vat')
