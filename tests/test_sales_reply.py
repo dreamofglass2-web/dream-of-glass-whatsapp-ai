@@ -80,6 +80,13 @@ class PriceGapAcknowledgementTests(unittest.TestCase):
 
 
 class PersonalServiceValueTests(unittest.TestCase):
+    def test_hardware_word_is_not_a_cheaper_price_objection(self):
+        from sales_reply import is_price_objection
+        self.assertFalse(is_price_objection('פרזול שחור וידית כפתור, רוצה הצעה'))
+        for text in ('זול יותר','הצעה זולה','המחירים זולים','אפשר להוזיל?','תעשה לי הנחה'):
+            with self.subTest(text=text):
+                self.assertTrue(is_price_objection(text))
+
     def test_need_based_live_answer_is_completed_without_repeating_owner_pitch(self):
         from sales_reply import personal_service_value
         model=('הדלת הנפתחת מאפשרת גישה נוחה לניקוי הזכוכית משני הצדדים. '
@@ -94,6 +101,17 @@ class PersonalServiceValueTests(unittest.TestCase):
         self.assertLess(len(answer),450)
         self.assertEqual(answer.count('?'),1)
         self.assertTrue(answer.endswith('מה התקציב שתכננת למקלחון?'))
+
+    def test_owner_remaining_the_contact_is_already_a_customer_benefit(self):
+        from sales_reply import personal_service_value
+        model=('הדלת הנפתחת מאפשרת גישה לניקוי משני הצדדים. '
+               'אלירן מודד ומתקין בעצמו ונשאר הכתובת גם אחרי העבודה. מה התקציב שתכננת?')
+        answer=personal_service_value(model,'יקר לי',[],product='מקלחון')
+        self.assertEqual(answer.count('כתובת'),1)
+        self.assertEqual(answer.count('אלירן'),1)
+        self.assertIn('בלי קבלני משנה',answer)
+        self.assertIn('7 שנות אחריות על הפרזול',answer)
+        self.assertTrue(answer.endswith('מה התקציב שתכננת?'))
 
     def test_value_is_added_without_replacing_other_benefits(self):
         from sales_reply import personal_service_value
