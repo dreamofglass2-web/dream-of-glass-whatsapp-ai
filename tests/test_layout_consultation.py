@@ -92,6 +92,25 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertFalse(self.documents)
 
 
+    def test_recommended_bronze_picture_then_customer_choice_advances(self):
+        previous='עם אריחי בז וברזים שחורים הייתי ממליץ על אנטיסן ברונזה. אנטיסן אפור הוא חלופה. נלך על ברונזה למקלחון הראשון?'
+        specs={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,'solution_agreed':True}
+        self.memory[self.phone]=([{'role':'user','content':'צריך 3 מקלחונים'},{'role':'assistant','content':previous}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='1',expected_sales_item_count=3,sales_items={'1':dict(specs)}))
+        catalog=[dict(url='https://example.test/bronze',glass='אנטיסן ברונזה',product='מקלחון',configuration='חזית'),
+                 dict(url='https://example.test/grey',glass='אנטיסן אפור',product='מקלחון',configuration='פינתי')]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'send_whatsapp',side_effect=self.send) as send:
+            reply=self.step('אפשר לראות איך זה נראה ?',self.model('איזה סוג זכוכית תרצו למקלחון?',quote_requested=True,configuration='פינתי 2 דלתות',solution_agreed=True))
+        images=[c.kwargs['image_url'] for c in send.call_args_list if c.kwargs.get('image_url')]
+        self.assertEqual(images,['https://example.test/bronze'])
+        self.assertIn('מה דעתך על הגוון',reply)
+        self.assertNotIn('נשלים את פרטי',reply)
+        self.assertNotIn('glass_type',self.memory[self.phone][1]['sales_items']['1'])
+        reply=self.step('נלך על ברונזה',self.model('איזה גוון פרזול תרצה?',glass_type='אנטיסן ברונזה',configuration='פינתי 2 דלתות',solution_agreed=True,quote_requested=True))
+        self.assertIn('פרזול',reply)
+        self.assertEqual(self.memory[self.phone][1]['sales_items']['1']['glass_type'],'אנטיסן ברונזה')
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -121,3 +140,12 @@ class ContextOptionsRules(unittest.TestCase):
         self.assertIn('כפתור',contextual_options_reply('מה האפשרויות?','איזה סוג ידית?',{}))
         self.assertNotIn('מגבת',contextual_options_reply('מה האפשרויות?','איזה סוג ידית?',{'configuration':'הזזה קבוע + דלת'}))
         self.assertIsNone(contextual_options_reply('מה האפשרויות?','מה רוחב הפתח?',{}))
+
+class VisualReferenceRules(unittest.TestCase):
+    def test_latest_recommendation_only_and_no_automatic_acceptance(self):
+        from sales_visuals import referenced_glass_sample,implicit_visual_request
+        self.assertTrue(implicit_visual_request('אפשר לראות איך זה נראה?'))
+        history=[{'role':'assistant','content':'ממליץ על אנטיסן ברונזה. אפור חלופה.'},{'role':'user','content':'אפשר לראות איך זה נראה?'}]
+        self.assertEqual(referenced_glass_sample(history[-1]['content'],history,{}),'אנטיסן ברונזה')
+        self.assertIsNone(referenced_glass_sample('לא צריך תמונות',history,{}))
+        self.assertIsNone(referenced_glass_sample('אפשר לראות איך זה נראה?',[{'role':'assistant','content':'ידית כפתור או מגבת?'},{'role':'user','content':'אפשר לראות איך זה נראה?'}],{}))
