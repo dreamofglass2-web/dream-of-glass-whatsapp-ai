@@ -1,4 +1,5 @@
 import os
+from sliding_policy import narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
@@ -16,7 +17,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
-YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY
+YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POLICY
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
@@ -1511,6 +1512,8 @@ def guard_corner_shower_advice(reply, customer_request, history):
 
 
 def calculate_quote(data):
+    if disallowed_slider(data):
+        return None
     configuration = data.get('configuration')
     glass_type = data.get('glass_type')
     finish = data.get('finish')
@@ -2544,6 +2547,10 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone,history+[{'role':'assistant','content':reply}],alias_context)
             return True
         prior = item_context(prior, history, customer_request)
+        rejected_prior_slider=disallowed_slider(prior)
+        if rejected_prior_slider:
+            prior=clear_disallowed_slider(prior)
+            save_item(prior)
         clearance_result = respond_to_bath_entry_constraint(phone, body, history, prior, batch_rows)
         if clearance_result is not None:
             return clearance_result
@@ -2747,6 +2754,11 @@ def process_message(phone, body, batch_rows=None):
                 previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
                 if not (re.fullmatch(r'\s*\d{2,3}\s*',customer_request) and 'גובה' in previous):
                     data['height_cm']=None
+            current_slider_specs=dict(prior,**{k:v for k,v in data.items() if v is not None})
+            rejected_slider=rejected_prior_slider or disallowed_slider(current_slider_specs)
+            if rejected_slider:
+                data['configuration']=None
+                data['solution_agreed']=False
             if 'הזזה' in str(data.get('configuration') or prior.get('configuration') or ''):
                 data['handles']=slider_specs(dict(prior,**{k:v for k,v in data.items() if v is not None}))['handles']
             layout_specs = dict(prior)
@@ -3326,6 +3338,12 @@ def process_message(phone, body, batch_rows=None):
                 if layout_advice:
                     reply = layout_advice
                     data['needs_human'] = False
+            if (ordinary_turn and narrow_opening(merged_pricing) and not sent_count and not quote_record.get('issued')
+                    and (rejected_slider or 'הזזה' in reply or 'הזזה' in customer_request)):
+                reply=sliding_limit_reply(merged_pricing)
+                quote_record={}
+                issuing_order=False
+                data['needs_human']=False
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
             if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)
@@ -3665,6 +3683,8 @@ def process_owner_continuation(phone, state):
         raise ValueError('Owner continuation contains unverified price')
     if PDF_QUOTES_ENABLED and contains_ils_amount(reply):
         reply = price_free_reply(reply)
+    if narrow_opening(prior) and 'הזזה' in reply:
+        reply=sliding_limit_reply(prior)
     reply=slider_reply(reply,prior,str(state.get('instructions') or ''))
     if 'הזזה' in str(prior.get('configuration') or ''):
         data['handles']=prior['handles']
