@@ -186,6 +186,21 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertNotIn('customer_photo_unavailable',switched)
 
 
+    def test_completed_single_sends_document_despite_model_asking_about_extra_shower(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','solution_agreed':True}
+        self.memory[self.phone]=([{'role':'user','content':'כמה עולה מקלחון'},{'role':'assistant','content':'איזה ידית תרצה?'}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True))
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('כפתור',self.model('סיכמנו חזית קבועה ודלת עם כפתור. יש מקלחון נוסף שצריך לתמחר?',
+                **dict(specs,handles=['ידית כפתור'],quote_requested=True)))
+        self.assertEqual(len(self.documents),1)
+        self.assertEqual(len(self.documents[0]['items']),1)
+        self.assertIn('מצורפת הצעת המחיר',reply)
+        self.assertNotIn('אפשר לחשב',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
