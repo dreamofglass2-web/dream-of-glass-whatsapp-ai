@@ -266,12 +266,16 @@ class NoDiscountPolicyTests(unittest.TestCase):
                       'במזומן נוריד 5 אחוז.', 'אפשר להוריד את המחיר.', 'יש קופון בשבילך'):
             with self.subTest(reply=reply):
                 result=no_discount_reply(reply)
-                self.assertIn('לא נותנים הנחות', result)
+                self.assertEqual('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.', result)
                 self.assertNotIn('אבדוק',result)
                 self.assertNotIn('%',result)
-                self.assertIn('שינוי במפרט', result)
 
     def test_specification_alternative_and_warranty_are_preserved(self):
         from sales_reply import no_discount_reply
         reply='אפשר לבחון גוון אחר ולחשב הצעה חדשה. יש 7 שנות אחריות לפרזול.'
         self.assertEqual(no_discount_reply(reply),reply)
+
+    def test_contextual_firm_refusal_does_not_restart_specification_question(self):
+        from sales_reply import no_discount_reply
+        reply='אין הנחות, גם לא דרך אלירן.'
+        self.assertEqual(no_discount_reply(reply),'אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.')
