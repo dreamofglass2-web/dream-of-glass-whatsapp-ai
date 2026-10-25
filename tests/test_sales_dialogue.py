@@ -4,6 +4,17 @@ from sales_dialogue import dialogue_context, sales_turn_context, api_usage_metri
 
 
 class ConsultationStateTests(unittest.TestCase):
+    def test_replacement_and_renovation_context_is_not_reasked_in_feminine_or_plural(self):
+        from sales_dialogue import consultation_plan
+        for project in ('מחליפה מקלחון ישן','מחליפים מקלחון ישן','מחליפות מקלחון ישן','משפצת את הבית','משפצים את הבית'):
+            with self.subTest(project=project):
+                text=project+'. חשוב לי שיהיה נוח לנקות'
+                plan=consultation_plan([{'role':'user','content':text}],{'product':'מקלחון'},text)
+                self.assertIsNone(plan['question'])
+        text='אני מחליפה מקלחון ישן'
+        plan=consultation_plan([{'role':'user','content':text}],{'product':'מקלחון','customer_name':'דנה'},text)
+        self.assertIn('המקלחון הקודם',plan['question'])
+
     def test_customer_confusion_is_not_unfinished_renovation(self):
         history = [
             {'role': 'user', 'content': 'מימין כיור ומשמאל אסלה'},

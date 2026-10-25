@@ -1,6 +1,6 @@
 """Compact consultation context and observable API usage; no delivery or pricing actions."""
 import re
-from sales_reply import EXPENSIVE_WORD
+from sales_reply import EXPENSIVE_WORD, is_price_objection
 
 CONSULTANT = """
 אתה יוסי, יועץ המכירות של חלומות מזכוכית. נהל שיחת WhatsApp טבעית בעברית: הקשב, הבן את הצורך, הצע כיוון שימושי וקדם צעד מתאים. תשובה בדרך כלל 1–3 משפטים ושאלה אחת לכל היותר; גם תשובה בלי שאלה טובה כשאין מידע חשוב שחסר.
@@ -77,7 +77,7 @@ def sales_turn_context(customer_request, history, prior):
         focus = 'respect_boundary'
     elif re.search(r'להתייעץ|אתייעץ|אשאל|צריך לשאול|עוד מישהו|(?:אשתי|בעלי|שותפ).{0,15}מחליט', text):
         focus = 'joint_decision'
-    elif re.search(EXPENSIVE_WORD + r'|זול|חשבתי.{0,25}(?:מחיר|פחות)|תקציב|מחיר.{0,15}(גבוה|נמוך)|הציעו לי|מתחר.{0,35}(?:נותן|מציע|אותו|זהה)', text):
+    elif is_price_objection(text):
         phase, focus = 'decision', 'understand_price_objection'
     elif re.search(r'מפחד|חושש|חוששת|לא סומך|לא סומכת|שירות אחרי|פעם.{0,15}נכוו', text):
         phase, focus = 'decision', 'understand_trust_concern'
@@ -206,7 +206,7 @@ def consultation_plan(history, prior, customer):
     # Project context belongs to the customer, not to the active shower item.
     project_users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
     users=' '.join(str(m.get('content') or '') for m in messages if m.get('role')=='user')
-    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
+    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
     needs=bool(re.search(r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|להפריד.{0,15}(?:חלל|חדר)',users))
     for i,m in enumerate(messages):
         if m.get('role')!='assistant' or not any(x.get('role')=='user' for x in messages[i+1:i+2]):
@@ -225,7 +225,7 @@ def consultation_plan(history, prior, customer):
     if not named and not form_named and not asked_name and not needs:
         return {'step':'customer_name','question':'מה שמך?'}
     if not needs:
-        replacing=bool(re.search(r'מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון',users)) and not re.search(r'לא היה|אין לי|ראשון',users)
+        replacing=bool(re.search(r'מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון',users)) and not re.search(r'לא היה|אין לי|ראשון',users)
         return {'step':'experience_and_needs','question':('איך המקלחון הקודם היה לך בשימוש, ומה היית רוצה לשפר?' if shower and replacing else 'מה הכי חשוב לך בתוצאה, או משהו שהיית רוצה לשפר לעומת מה שיש היום?')}
     return {'step':'connect_recommendation_to_customer','question':None}
 
