@@ -8,7 +8,7 @@ import json
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry')
+          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry', 'door_obstruction')
 
 
 def preliminary_height(specs):
@@ -151,7 +151,7 @@ def item_context(prior, history, customer):
     multiple = bool(count > 1 or state.get('sales_items') or target or re.search(
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
     if not multiple:
-        return capture_layout_geometry(state, customer)
+        return capture_layout_geometry(state, customer, last_reply)
     active = str(state.get('active_sales_item') or '1')
     items = state.setdefault('sales_items', {})
     if active not in items or any(key in state for key in ('configuration','width_cm','glass_type')):
@@ -209,9 +209,9 @@ def item_context(prior, history, customer):
         state.pop('second_width_cm',None)
         if str(state.get('configuration') or '').startswith('פינתי'):
             state.pop('configuration',None);state['solution_agreed']=False
-    state=capture_layout_geometry(slider_specs(state), customer)
-    if state.get('layout_geometry'):
-        items[target]['layout_geometry']=state['layout_geometry']
+    state=capture_layout_geometry(slider_specs(state), customer, last_reply if target==active else '')
+    for key in ('layout_geometry','door_obstruction'):
+        if key in state:items[target][key]=state[key]
     return state
 
 
