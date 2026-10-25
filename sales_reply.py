@@ -6,6 +6,13 @@ from sales_items import preliminary_height
 EXPENSIVE_WORD = r'(?<![א-ת])(?:יקר(?:ה|ים|ות)?|התייקר(?:ה|ו)?)(?![א-ת])'
 
 
+def is_price_objection(text):
+    return bool(re.search(EXPENSIVE_WORD +
+        r'|זול|תקציב|הנחה|הנחות|להוזיל|תוזיל|תוריד.{0,15}מחיר|תעשה.{0,15}מחיר|'
+        r'יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות|עד\s*\d)|'
+        r'מחיר.{0,15}(?:גבוה|נמוך)|הציעו לי|מתחר.{0,35}(?:נותן|מציע|אותו|זהה)',str(text or '')))
+
+
 def quote_facts_for_turn(prior, customer, calculator):
     prior = prior or {}
     if not str(prior.get('product') or '').startswith(('מקלחון', 'אמבטיון')):

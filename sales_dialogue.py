@@ -1,6 +1,6 @@
 """Compact consultation context and observable API usage; no delivery or pricing actions."""
 import re
-from sales_reply import EXPENSIVE_WORD
+from sales_reply import EXPENSIVE_WORD, is_price_objection
 
 CONSULTANT = """
 אתה יוסי, יועץ המכירות של חלומות מזכוכית. נהל שיחת WhatsApp טבעית בעברית: הקשב, הבן את הצורך, הצע כיוון שימושי וקדם צעד מתאים. תשובה בדרך כלל 1–3 משפטים ושאלה אחת לכל היותר; גם תשובה בלי שאלה טובה כשאין מידע חשוב שחסר.
@@ -77,7 +77,7 @@ def sales_turn_context(customer_request, history, prior):
         focus = 'respect_boundary'
     elif re.search(r'להתייעץ|אתייעץ|אשאל|צריך לשאול|עוד מישהו|(?:אשתי|בעלי|שותפ).{0,15}מחליט', text):
         focus = 'joint_decision'
-    elif re.search(EXPENSIVE_WORD + r'|זול|חשבתי.{0,25}(?:מחיר|פחות)|תקציב|מחיר.{0,15}(גבוה|נמוך)|הציעו לי|מתחר.{0,35}(?:נותן|מציע|אותו|זהה)', text):
+    elif is_price_objection(text):
         phase, focus = 'decision', 'understand_price_objection'
     elif re.search(r'מפחד|חושש|חוששת|לא סומך|לא סומכת|שירות אחרי|פעם.{0,15}נכוו', text):
         phase, focus = 'decision', 'understand_trust_concern'

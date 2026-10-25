@@ -6,6 +6,22 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_discount_request_is_an_objection_not_a_duplicate_document(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        offer=yossi.bundle_offer({'sales_items':{'1':specs}},yossi.calculate_quote,allow_single=True)
+        for request in ('חשבתי עד 2000 כולל מעמ, אתה יכול לעשות לי הנחה?','יש אפשרות להנחה?','תעשה לי מחיר טוב'):
+            with self.subTest(request=request):
+                self.memory[self.phone]=([{'role':'assistant','content':'מה התקציב שתכננת?'}],
+                    dict(specs,sales_discovery_completed=True,combined_offer=dict(offer,issued=True)))
+                with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+                    reply=self.step(request,self.model('אפשר לבדוק שינוי בגוון הפרזול, בלי לשנות את המבנה שקל לך לנקות. תרצי לבדוק חלופה?',quote_requested=True,**specs))
+                self.assertTrue(yossi.price_objection(request))
+                self.assertFalse(self.documents)
+                self.assertIn('לבדוק חלופה',reply)
+                self.assertFalse(yossi.contains_ils_amount(reply))
+                self.assertEqual(self.memory[self.phone][1]['combined_offer']['fingerprint'],offer['fingerprint'])
+
     def test_single_shower_keeps_toilet_side_and_advances_to_clearance(self):
         question='אין בעיה, אפשר להתחיל מתיאור. האסלה נמצאת מימין או משמאל לפתח המקלחת כשעומדים מולו?'
         self.memory[self.phone]=([{'role':'user','content':'אין לי צילום'},

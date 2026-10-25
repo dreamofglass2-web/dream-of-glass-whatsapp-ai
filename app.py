@@ -21,7 +21,7 @@ YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POL
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import EXPENSIVE_WORD, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
+from sales_reply import EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff, clear_sales_dialogue
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError, requests_new_conversation
@@ -1564,7 +1564,7 @@ def calculate_quote(data):
 
 
 def price_objection(text):
-    return bool(re.search(EXPENSIVE_WORD + r'|זול|תקציב|יש מה לעשות.{0,20}מחיר|חשבתי.{0,30}(?:מחיר|פחות)|מתחר.{0,35}(?:נותן|מציע|אותו|זהה)',str(text or '')))
+    return is_price_objection(text)
 
 
 def budget_answer(text, history, prior=None):
