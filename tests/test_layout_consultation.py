@@ -147,6 +147,18 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertFalse(yossi.contains_ils_amount(reply))
 
 
+    def test_narrow_front_with_toilet_cannot_become_a_sliding_offer(self):
+        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120}
+        self.memory[self.phone]=([{'role':'user','content':'מקלחון בין שני קירות 120'},{'role':'assistant','content':'יש אסלה קרובה?'}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='2',expected_sales_item_count=3,sales_items={'1':{},'2':dict(specs),'3':{}}))
+        reply=self.step('כן יש אסלה קרובה',self.model('ממליץ על קבוע ודלת הזזה. נתקדם?',configuration='הזזה קבוע + דלת',quote_requested=True))
+        self.assertIn('רק מ־140',reply)
+        self.assertIn('צילום',reply)
+        self.assertNotIn('ממליץ על קבוע',reply)
+        self.assertNotIn('configuration',self.memory[self.phone][1]['sales_items']['2'])
+        self.assertFalse(self.documents)
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -185,3 +197,11 @@ class VisualReferenceRules(unittest.TestCase):
         self.assertEqual(referenced_glass_sample(history[-1]['content'],history,{}),'אנטיסן ברונזה')
         self.assertIsNone(referenced_glass_sample('לא צריך תמונות',history,{}))
         self.assertIsNone(referenced_glass_sample('אפשר לראות איך זה נראה?',[{'role':'assistant','content':'ידית כפתור או מגבת?'},{'role':'user','content':'אפשר לראות איך זה נראה?'}],{}))
+
+class SlidingMinimumTests(unittest.TestCase):
+    def test_owner_minimum_boundary_is_enforced_by_calculator(self):
+        specs={'product':'מקלחון','configuration':'הזזה קבוע + דלת','glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'height_cm':200}
+        for width in [120,139,139.9]:
+            self.assertIsNone(yossi.calculate_quote(dict(specs,width_cm=width)))
+        self.assertIsNotNone(yossi.calculate_quote(dict(specs,width_cm=140)))
+        self.assertIsNotNone(yossi.calculate_quote(dict(specs,width_cm=150)))
