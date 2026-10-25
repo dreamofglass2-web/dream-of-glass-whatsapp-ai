@@ -1,7 +1,7 @@
 """Separate explicitly numbered shower items without another model call."""
 import re
 from layout_consultation import capture_layout_geometry
-from sliding_policy import no_customer_photo, capture_spatial_answer
+from sliding_policy import no_customer_photo, capture_spatial_answer, unknown_width_slider_reply
 from copy import deepcopy
 import hashlib
 import json
@@ -85,6 +85,7 @@ def group_choices(state, history, data):
 
 
 def slider_reply(reply, specs, customer=''):
+    reply=unknown_width_slider_reply(reply,specs)
     if 'הזזה' not in str(specs.get('configuration') or ''):
         return reply
     policy='במקלחון הזזה אנחנו מתקינים ידית כפתור בלבד.'
@@ -214,8 +215,6 @@ def item_context(prior, history, customer):
     state=capture_layout_geometry(slider_specs(state), customer, last_reply if target==active else '')
     state=capture_spatial_answer(state, customer, last_reply if target==active else '')
     if no_customer_photo(customer):state['customer_photo_unavailable']=True
-    if 'האסלה' in last_reply and 'מימין או משמאל' in last_reply and str(customer).strip().rstrip('.!?') in ('מימין','משמאל'):
-        state['obstacle_side']=str(customer).strip().rstrip('.!?')
     for key in ('layout_geometry','door_obstruction','customer_photo_unavailable','obstacle_side','obstacle_clearance_cm','shower_depth_cm'):
         if key in state:items[target][key]=state[key]
     return state

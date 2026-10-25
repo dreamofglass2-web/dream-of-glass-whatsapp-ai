@@ -6,6 +6,32 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_single_shower_keeps_toilet_side_and_advances_to_clearance(self):
+        question='אין בעיה, אפשר להתחיל מתיאור. האסלה נמצאת מימין או משמאל לפתח המקלחת כשעומדים מולו?'
+        self.memory[self.phone]=([{'role':'user','content':'אין לי צילום'},
+            {'role':'assistant','content':question}],
+            {'product':'מקלחון','layout_geometry':'front','customer_photo_unavailable':True,'sales_discovery_completed':True})
+        reply=self.step('משמאל',self.model('אפשר לשלוח צילום?'))
+        self.assertIn('כמה מרווח',reply)
+        self.assertNotIn('מימין או משמאל',reply)
+        self.assertEqual(self.memory[self.phone][1]['obstacle_side'],'משמאל')
+        reply=self.step('20 בערך',self.model('אפשר לשלוח צילום?',width_cm=20))
+        self.assertIn('עומק',reply)
+        self.assertEqual(self.memory[self.phone][1]['obstacle_clearance_cm'],20)
+        self.assertNotIn('width_cm',self.memory[self.phone][1])
+        self.assertFalse(self.documents)
+
+    def test_unknown_width_does_not_become_a_sliding_recommendation(self):
+        self.memory[self.phone]=([{'role':'user','content':'אין לי מידות'},
+            {'role':'assistant','content':'יש אסלה קרובה?'}],
+            {'product':'מקלחון','layout_geometry':'front','sales_discovery_completed':True})
+        reply=self.step('כן',self.model('בגלל האסלה כדאי לבחון הזזה עם מסילה עליונה. באיזו עיר ההתקנה?'))
+        self.assertIn('רק מ־140',reply)
+        self.assertNotIn('בגלל האסלה כדאי',reply)
+        self.assertTrue(reply.endswith('באיזו עיר ההתקנה?'))
+        self.assertNotIn('configuration',self.memory[self.phone][1])
+        self.assertFalse(self.documents)
+
     def test_personal_price_answer_survives_issued_document_guards(self):
         specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
                'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
@@ -246,6 +272,16 @@ class LayoutAdviceRules(unittest.TestCase):
         self.assertIn('אמבטיה',layout_consultation_reply('לא יודע',{'product':'אמבטיון'}))
 
 class GeometryRules(unittest.TestCase):
+    def test_unknown_width_guard_preserves_explanation_and_known_widths(self):
+        from sales_items import slider_reply
+        explanation='בהזזה הדלת נעה הצידה במקום להיפתח קדימה.'
+        self.assertEqual(slider_reply(explanation,{'product':'מקלחון'}),explanation)
+        advice='אפשר לבחון הזזה, אבל צריך לבדוק את החלוקה בשטח.'
+        for width in (140,150):
+            self.assertEqual(slider_reply(advice,{'product':'מקלחון','width_cm':width}),advice)
+        from sales_items import item_context
+        self.assertNotIn('obstacle_side',item_context({},[{'role':'assistant','content':'איזה גוון פרזול?'},{'role':'user','content':'משמאל'}],'משמאל'))
+
     def test_plain_front_answers_are_geometry_not_an_approved_configuration(self):
         from layout_consultation import capture_layout_geometry
         for text in ['רק בחזית','בחזית','חזית','זכוכית רק בחזית']:
