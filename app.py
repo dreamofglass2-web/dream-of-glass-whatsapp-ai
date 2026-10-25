@@ -1,4 +1,5 @@
 import os
+from layout_consultation import layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
 import json
 import logging
@@ -14,6 +15,7 @@ from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
+YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
@@ -1630,7 +1632,7 @@ def proposed_layout_guidance(history):
 def missing_quote_detail(data):
     config = data.get('configuration')
     if config not in BOM and config not in SLIDING:
-        return 'כדי לתת מחיר אמין צריך לוודא את תצורת המקלחון. איך מחולקות הזכוכיות והדלתות?'
+        return 'צריך לסגור צד אחד בין שני קירות, או שני צדדים שנפגשים בפינה?'
     if not data.get('glass_type'):
         return 'איזה סוג זכוכית תרצו למקלחון?'
     if not data.get('finish'):
@@ -3276,6 +3278,15 @@ def process_message(phone, body, batch_rows=None):
                         f'לצורך ההצעה נחשב לפי גובה {specs["height_cm"]} ס״מ, והמידה הסופית תיבדק בשטח.'))
             reply=slider_reply(reply, merged_pricing, customer_request)
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+            # The multi-item quote fallback must not overwrite a request for guidance
+            # with the same technical configuration question and then escalate it.
+            if (ordinary_turn and is_shower and not quote_record.get('issued')
+                    and not issuing_order and not callback_requested and not callback_followup
+                    and not requires_specialist_review(customer_request)):
+                layout_advice = layout_consultation_reply(customer_request, merged_pricing, previous_answer)
+                if layout_advice:
+                    reply = layout_advice
+                    data['needs_human'] = False
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
             if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)
