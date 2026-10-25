@@ -3333,6 +3333,18 @@ def process_message(phone, body, batch_rows=None):
                         and not price_objection(customer_request)
                         and not re.search(r'[?？]|איך|מה |דוגמ|תמונ|אחריות|אפשר לראות', customer_request)):
                     reply = next_item_reply
+            # A complete single-item specification must deliver the requested
+            # document, even if the model asks about an unrequested extra item.
+            if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and not multi_item_order
+                    and not prior_quote and not sent_count and not current_options_reply
+                    and (prior.get('quote_requested') or quote_intent(customer_request))
+                    and merged_pricing.get('solution_agreed') is True
+                    and not price_objection(customer_request)
+                    and not re.search(r'[?？]|איך|מה |למה|אפשר|אחריות|תמונ|דוגמ',customer_request)):
+                ready_single=bundle_offer({'sales_items':{'1':merged_pricing}},calculate_quote,allow_single=True)
+                if ready_single:
+                    complete_order=ready_single
+                    issuing_order=True
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             # The multi-item quote fallback must not overwrite a request for guidance
             # with the same technical configuration question and then escalate it.
@@ -3355,7 +3367,7 @@ def process_message(phone, body, batch_rows=None):
                     data['needs_human']=True
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
-            if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)
+            if (HANDOFF_ENABLED and not sent_count and not issuing_order and without_emojis(reply)==without_emojis(previous_answer)
                     and (not quote_intent(customer_request) or price_objection(customer_request))):
                 if has_new_messages(phone,batch_rows):
                     return False
