@@ -61,6 +61,22 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertEqual(self.memory[self.phone][1]['sales_items']['1']['configuration'],'פינתי 2 דלתות')
 
 
+    def test_glass_options_typo_is_answered_instead_of_repeated_quote_question(self):
+        question='איזה סוג זכוכית תרצו למקלחון?'
+        specs={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,'solution_agreed':True}
+        for request in ['מה האפשרויות?','מה האפשרוית ?','מה האופציות?']:
+            self.memory[self.phone]=([{'role':'user','content':'צריך 3 מקלחונים'},{'role':'assistant','content':question}],
+                dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='1',
+                     expected_sales_item_count=3,sales_items={'1':dict(specs)}))
+            with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'read_handoff_state',return_value=new_state()),patch.object(yossi,'pause_for_owner') as pause:
+                reply=self.step(request,self.model(question,configuration='פינתי 2 דלתות',quote_requested=True,solution_agreed=True))
+            pause.assert_not_called()
+            self.assertIn('אקסטרה קליר',reply)
+            self.assertIn('פרטיות',reply)
+            self.assertNotIn('נשלים את פרטי',reply)
+            self.assertFalse(self.documents)
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -82,3 +98,11 @@ class ObstructionRules(unittest.TestCase):
         self.assertEqual(capture_layout_geometry({},'לא','רוצה זכוכית שקופה?'),{})
         state=capture_layout_geometry({},'כן','יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?')
         self.assertIs(state['door_obstruction'],True)
+
+class ContextOptionsRules(unittest.TestCase):
+    def test_options_bind_to_last_subject_and_slider_has_no_towel_offer(self):
+        from consultation_options import contextual_options_reply
+        self.assertIn('ברזים',contextual_options_reply('מה האפשרויות?','איזה גוון פרזול תרצה?',{}))
+        self.assertIn('כפתור',contextual_options_reply('מה האפשרויות?','איזה סוג ידית?',{}))
+        self.assertNotIn('מגבת',contextual_options_reply('מה האפשרויות?','איזה סוג ידית?',{'configuration':'הזזה קבוע + דלת'}))
+        self.assertIsNone(contextual_options_reply('מה האפשרויות?','מה רוחב הפתח?',{}))

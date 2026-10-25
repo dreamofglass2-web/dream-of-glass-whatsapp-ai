@@ -1,4 +1,5 @@
 import os
+from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
 import json
@@ -2934,6 +2935,9 @@ def process_message(phone, body, batch_rows=None):
             thickness_advice = shower_thickness_reply(customer_request, current_product or ('מקלחון' if is_shower else None))
             ordinary_turn = not (thickness_advice or direct_identity or showroom_question or competitor_exit or
                                  callback_requested or callback_followup or automatic_handoff)
+            previous_question=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+            current_options_reply=contextual_options_reply(customer_request,previous_question,merged_pricing)
+            answer_current_question=bool(current_options_reply or asks_for_options(customer_request)) and not quote_intent(customer_request)
             if ordinary_turn and prior_quote and closing_intent(customer_request):
                 if explicit_quote_approval(customer_request):
                     quote_record['approved'] = True
@@ -2946,7 +2950,7 @@ def process_message(phone, body, batch_rows=None):
                                    'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.'))
                 else:
                     reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
-            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and (
+            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and (
                     quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
                 if verified_price is not None and (data.get('solution_agreed') is True or
@@ -3216,7 +3220,7 @@ def process_message(phone, body, batch_rows=None):
             group_choices(quote_state,history,data)
             complete_order=None
             issuing_order=False
-            if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request):
+            if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question:
                 complete_order=bundle_offer(quote_state,calculate_quote)
                 if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
                     reply=bundle_offer_reply(complete_order)
@@ -3276,6 +3280,9 @@ def process_message(phone, body, batch_rows=None):
                 reply=(partial_offer_reply(quote_state,calculate_quote,missing_quote_detail) or
                        (missing_quote_detail(specs) if calculate_quote(specs) is None else
                         f'לצורך ההצעה נחשב לפי גובה {specs["height_cm"]} ס״מ, והמידה הסופית תיבדק בשטח.'))
+            if ordinary_turn and current_options_reply and not issuing_order:
+                reply=current_options_reply
+                data['needs_human']=False
             reply=slider_reply(reply, merged_pricing, customer_request)
             previous_answer=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             # The multi-item quote fallback must not overwrite a request for guidance
