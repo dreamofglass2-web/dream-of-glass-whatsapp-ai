@@ -6,6 +6,41 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_personal_price_answer_survives_issued_document_guards(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        offer=yossi.bundle_offer({'sales_items':{'1':specs}},yossi.calculate_quote,allow_single=True)
+        self.memory[self.phone]=([{'role':'user','content':'חשוב לי שיהיה קל לנקות ושלא יצאו מים'},
+            {'role':'assistant','content':'מצורפת ההצעה הראשונית שבחרנו.'}],
+            dict(specs,sales_discovery_completed=True,combined_offer=dict(offer,issued=True)))
+        answer=('מבין שחשוב לך לבדוק את ההוצאה. בחרנו קבוע ודלת בלי מסילת הזזה לניקוי, עם סגירה שעוזרת לצמצם התזות. '
+                'אלירן מגיע בעצמו בלי קבלני משנה למדידה ולהתקנה ונשאר כתובת אחת לשירות. '
+                'ההצעה כוללת פליז פרימיום, 7 שנות אחריות לפרזול ושנה על ההתקנה. מה התקציב שתכננת?')
+        reply=self.step('יקר לי',self.model(answer,**specs))
+        self.assertIn('בלי מסילת הזזה לניקוי',reply)
+        self.assertIn('לצמצם התזות',reply)
+        self.assertIn('כתובת אחת',reply)
+        self.assertTrue(reply.endswith('מה התקציב שתכננת?'))
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertFalse(self.documents)
+        self.assertEqual(self.memory[self.phone][1]['combined_offer']['fingerprint'],offer['fingerprint'])
+
+    def test_front_answer_survives_later_uncertainty_about_toilet_clearance(self):
+        question='המקלחון בפינה עם שני צדדי זכוכית, או עם זכוכית רק בחזית?'
+        self.memory[self.phone]=([{'role':'user','content':'אין לי מידות ואני לא בבית'},
+            {'role':'assistant','content':question}], {'product':'מקלחון','sales_discovery_completed':True})
+        advice='בחזית אפשר לבחון דלת ציר לפי המרווח. יש אסלה או ארון קרובים שמפריעים?'
+        self.step('רק בחזית',self.model(advice))
+        self.assertEqual(self.memory[self.phone][1].get('layout_geometry'),'front')
+        self.assertNotIn('configuration',self.memory[self.phone][1])
+        followup='כשתהיה בבית נבדוק רוחב ומרווח ליד האסלה לפני בחירת פתיחה. בינתיים אפשר לבחור זכוכית לפרטיות.'
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'read_handoff_state',return_value=new_state()),patch.object(yossi,'pause_for_owner') as pause:
+            reply=self.step('יש אסלה ממש קרובה ואני לא יודע כמה מקום נשאר',self.model(followup))
+        pause.assert_not_called()
+        self.assertEqual(reply,followup)
+        self.assertFalse(self.documents)
+        self.assertNotIn('width_cm',self.memory[self.phone][1])
+
     def test_three_item_price_fallback_becomes_helpful_guidance_without_owner_alert(self):
         h=[{'role':'user','content':'אני צריך 3 מקלחונים'},
            {'role':'assistant','content':'מה שמך?'},{'role':'user','content':'אלירן'},
@@ -211,6 +246,17 @@ class LayoutAdviceRules(unittest.TestCase):
         self.assertIn('אמבטיה',layout_consultation_reply('לא יודע',{'product':'אמבטיון'}))
 
 class GeometryRules(unittest.TestCase):
+    def test_plain_front_answers_are_geometry_not_an_approved_configuration(self):
+        from layout_consultation import capture_layout_geometry
+        for text in ['רק בחזית','בחזית','חזית','זכוכית רק בחזית']:
+            with self.subTest(text=text):
+                self.assertEqual(capture_layout_geometry({},text),{'layout_geometry':'front'})
+
+    def test_known_geometry_does_not_restart_discovery_on_other_uncertainty(self):
+        for geometry in ('front','corner'):
+            with self.subTest(geometry=geometry):
+                self.assertIsNone(layout_consultation_reply('לא יודע כמה מקום נשאר',{'layout_geometry':geometry}))
+
     def test_negated_and_ambiguous_geometry_do_not_become_facts(self):
         from layout_consultation import capture_layout_geometry
         for text in ['לא בפינה','אולי בפינה','מה עדיף פינתי או חזיתי','בפינה יש ארון']:

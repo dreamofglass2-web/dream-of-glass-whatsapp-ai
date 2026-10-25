@@ -7,7 +7,8 @@ def layout_advice_request(text):
     return bool(re.search(r'אין לי מושג|לא (?:כל כך )?(?:יודע|יודעת|מבין|מבינה)|מה (?:אתה |את |היית )?ממליץ|מה כדאי|תמליץ', str(text or '')))
 
 def layout_consultation_reply(text, specs, previous=''):
-    if not layout_advice_request(text) or specs.get('configuration'):
+    if (not layout_advice_request(text) or specs.get('configuration')
+            or specs.get('layout_geometry') in ('front', 'corner')):
         return None
     if str(specs.get('product') or '').startswith('אמבטיון'):
         return 'אעזור לך לבחור לפי האמבטיה. אפשר לשלוח תמונה שלה כדי לראות איזה צד צריך לסגור ומה נמצא לידו?'
@@ -21,7 +22,7 @@ def capture_layout_geometry(state, customer, previous=''):
     text=str(customer or '').strip().rstrip('.!?').strip()
     if re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:בפינה|פינתי|שני צדדים בפינה)',text):
         state['layout_geometry']='corner'
-    elif re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:חזיתי|בין (?:שני |2 )?קירות|צד אחד בין (?:שני )?קירות)',text):
+    elif re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:חזיתי|חזית|בחזית|רק בחזית|זכוכית רק בחזית|בין (?:שני |2 )?קירות|צד אחד בין (?:שני )?קירות)',text):
         state['layout_geometry']='front'
     obstruction_question = 'יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?' in previous
     if obstruction_question:
