@@ -80,6 +80,21 @@ class PriceGapAcknowledgementTests(unittest.TestCase):
 
 
 class PersonalServiceValueTests(unittest.TestCase):
+    def test_need_based_live_answer_is_completed_without_repeating_owner_pitch(self):
+        from sales_reply import personal_service_value
+        model=('הדלת הנפתחת מאפשרת גישה נוחה לניקוי הזכוכית משני הצדדים. '
+               'ההצעה כוללת מדידה, הובלה והתקנה, ואלירן מודד ומתקין בעצמו ונשאר כתובת שמכירה את העבודה. '
+               'מה התקציב שתכננת למקלחון?')
+        answer=personal_service_value(model,'יקר לי',[],product='מקלחון')
+        self.assertEqual(answer.count('אלירן'),1)
+        self.assertEqual(answer.count('כתובת'),1)
+        self.assertIn('ניקוי הזכוכית משני הצדדים',answer)
+        for fact in ('פליז פרימיום','7 שנות אחריות על הפרזול','שנה אחריות על ההתקנה','בלי קבלני משנה'):
+            self.assertIn(fact,answer)
+        self.assertLess(len(answer),450)
+        self.assertEqual(answer.count('?'),1)
+        self.assertTrue(answer.endswith('מה התקציב שתכננת למקלחון?'))
+
     def test_value_is_added_without_replacing_other_benefits(self):
         from sales_reply import personal_service_value
         for text in ['יקר לי','רוצה להשוות להצעה אחרת','מתחרה הציע לי פחות']:

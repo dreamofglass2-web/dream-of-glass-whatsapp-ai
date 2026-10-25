@@ -251,11 +251,16 @@ def personal_service_value(reply, customer, history, product=None):
             facts.append('שנה אחריות על ההתקנה')
     if facts:
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
-    if not any('אלירן' in answer and re.search(r'קבלני משנה|מגיע בעצמו', answer) for answer in answers):
+    personal_execution=any('אלירן' in answer and re.search(
+        r'קבלני משנה|מגיע בעצמו|מודד.{0,20}מתקין בעצמו|מתקין.{0,20}מודד בעצמו',answer)
+        for answer in answers)
+    if not personal_execution:
         additions.append(PERSONAL_SERVICE_VALUE)
+    elif not any('קבלני משנה' in answer for answer in answers):
+        additions.append('העבודה מתבצעת בלי קבלני משנה.')
     # A fact list alone does not explain why the customer should choose this service.
     benefit_explained = any(re.search(
-        r'כתובת אחת|אותו אדם.{0,70}(?:מכיר|אחראי|מטפל)|בלי שתצטרך לתאם|'
+        r'כתובת אחת|כתובת שמכירה את העבודה|אותו אדם.{0,70}(?:מכיר|אחראי|מטפל)|בלי שתצטרך לתאם|'
         r'(?:כך|לכן|כדי|בשבילך|עבורך).{0,70}(?:שקט|תיאום|כתובת|מכיר.{0,15}העבודה)', answer)
         for answer in answers + additions)
     if not benefit_explained:
