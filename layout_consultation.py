@@ -16,21 +16,37 @@ def layout_consultation_reply(text, specs, previous=''):
     return 'אעזור לך לבחור לפי המקום. צריך לסגור צד אחד בין שני קירות, או שני צדדים שנפגשים בפינה?'
 
 
-def capture_layout_geometry(state, customer):
+def capture_layout_geometry(state, customer, previous=''):
     """A shape is not a bill-of-materials configuration or customer approval."""
     text=str(customer or '').strip().rstrip('.!?').strip()
     if re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:בפינה|פינתי|שני צדדים בפינה)',text):
         state['layout_geometry']='corner'
     elif re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:חזיתי|בין (?:שני |2 )?קירות|צד אחד בין (?:שני )?קירות)',text):
         state['layout_geometry']='front'
+    obstruction_question = 'יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?' in previous
+    if obstruction_question:
+        if re.fullmatch(r'לא|אין|אין הפרעה|אין ארון או אסלה|אין שם כלום',text):
+            state['door_obstruction']=False
+        elif re.fullmatch(r'כן|יש|יש ארון|יש אסלה',text):
+            state['door_obstruction']=True
+    # Approval is bound to the exact layout proposed, not any earlier yes/no.
+    if CORNER_PROPOSAL in previous and re.fullmatch(r'כן|מתאים|נשמע טוב|בסדר',text):
+        state['configuration']='פינתי 2 דלתות'
+        state['solution_agreed']=True
     return state
 
+
+CORNER_PROPOSAL='אפשר לשקול שתי דלתות שנפגשות בפינה, בלי חלקים קבועים'
 
 def missing_layout_detail(specs):
     if specs.get('layout_geometry')=='corner':
         if not specs.get('width_cm') or not specs.get('second_width_cm'):
             return 'מה המידות המשוערות של שני צדי המקלחת בפינה?'
-        return 'יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?'
+        if specs.get('door_obstruction') is False:
+            return CORNER_PROPOSAL + ', כדי לאפשר כניסה משני הצדדים. ההתאמה הסופית תיבדק במדידה. זה כיוון שמתאים לך?'
+        if specs.get('door_obstruction') is True:
+            return 'באיזה צד נמצא הארון או האסלה, וכמה מרווח בערך נשאר בינם לבין המקלחת?'
+        return 'יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?' 
     if specs.get('layout_geometry')=='front':
         if not specs.get('width_cm'):
             return 'מה רוחב הפתח המשוער בין הקירות?'

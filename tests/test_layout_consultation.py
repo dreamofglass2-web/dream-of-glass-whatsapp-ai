@@ -42,6 +42,25 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertEqual(switched['sales_items']['1']['layout_geometry'],'corner')
 
 
+    def test_no_obstruction_leads_to_proposal_then_acceptance_moves_to_glass(self):
+        question='יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?'
+        specs={'product':'מקלחון','layout_geometry':'corner','width_cm':90,'second_width_cm':90}
+        self.memory[self.phone]=([{'role':'user','content':'90 על 90'},{'role':'assistant','content':question}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='1',
+                 expected_sales_item_count=3,sales_items={'1':dict(specs)}))
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'read_handoff_state',return_value=new_state()),patch.object(yossi,'pause_for_owner') as pause:
+            reply=self.step('לא',self.model(question,quote_requested=True))
+        pause.assert_not_called()
+        self.assertIn('שתי דלתות שנפגשות בפינה',reply)
+        saved=self.memory[self.phone][1]
+        self.assertIs(saved['sales_items']['1']['door_obstruction'],False)
+        self.assertFalse(saved['sales_items']['1'].get('solution_agreed'))
+        reply=self.step('כן',self.model('איזה סוג זכוכית תרצה?',configuration='פינתי 2 דלתות',solution_agreed=True,quote_requested=True))
+        self.assertIn('זכוכית',reply)
+        self.assertNotIn('ארון או אסלה',reply)
+        self.assertEqual(self.memory[self.phone][1]['sales_items']['1']['configuration'],'פינתי 2 דלתות')
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -56,3 +75,10 @@ class GeometryRules(unittest.TestCase):
         from layout_consultation import capture_layout_geometry
         for text in ['לא בפינה','אולי בפינה','מה עדיף פינתי או חזיתי','בפינה יש ארון']:
             self.assertEqual(capture_layout_geometry({},text),{})
+
+class ObstructionRules(unittest.TestCase):
+    def test_no_is_only_bound_to_the_actual_obstruction_question(self):
+        from layout_consultation import capture_layout_geometry
+        self.assertEqual(capture_layout_geometry({},'לא','רוצה זכוכית שקופה?'),{})
+        state=capture_layout_geometry({},'כן','יש ליד המקלחת ארון או אסלה שעלולים להפריע לפתיחת הדלתות?')
+        self.assertIs(state['door_obstruction'],True)
