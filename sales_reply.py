@@ -267,7 +267,7 @@ def personal_service_value(reply, customer, history, product=None):
         additions.append('העבודה מתבצעת בלי קבלני משנה.')
     # A fact list alone does not explain why the customer should choose this service.
     benefit_explained = any(re.search(
-        r'כתובת אחת|כתובת שמכירה את העבודה|אותו אדם.{0,70}(?:מכיר|אחראי|מטפל)|בלי שתצטרך לתאם|'
+        r'כתובת אחת|כתובת שמכירה את העבודה|(?:נשאר|נשארת|יש לך|תהיה לך).{0,25}ה?כתובת|אותו אדם.{0,70}(?:מכיר|אחראי|מטפל)|בלי שתצטרך לתאם|'
         r'(?:כך|לכן|כדי|בשבילך|עבורך).{0,70}(?:שקט|תיאום|כתובת|מכיר.{0,15}העבודה)', answer)
         for answer in answers + additions)
     if not benefit_explained:

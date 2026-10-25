@@ -102,6 +102,17 @@ class PersonalServiceValueTests(unittest.TestCase):
         self.assertEqual(answer.count('?'),1)
         self.assertTrue(answer.endswith('מה התקציב שתכננת למקלחון?'))
 
+    def test_owner_remaining_the_contact_is_already_a_customer_benefit(self):
+        from sales_reply import personal_service_value
+        model=('הדלת הנפתחת מאפשרת גישה לניקוי משני הצדדים. '
+               'אלירן מודד ומתקין בעצמו ונשאר הכתובת גם אחרי העבודה. מה התקציב שתכננת?')
+        answer=personal_service_value(model,'יקר לי',[],product='מקלחון')
+        self.assertEqual(answer.count('כתובת'),1)
+        self.assertEqual(answer.count('אלירן'),1)
+        self.assertIn('בלי קבלני משנה',answer)
+        self.assertIn('7 שנות אחריות על הפרזול',answer)
+        self.assertTrue(answer.endswith('מה התקציב שתכננת?'))
+
     def test_value_is_added_without_replacing_other_benefits(self):
         from sales_reply import personal_service_value
         for text in ['יקר לי','רוצה להשוות להצעה אחרת','מתחרה הציע לי פחות']:
