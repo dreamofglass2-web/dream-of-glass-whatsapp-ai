@@ -21,7 +21,7 @@ YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POL
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
+from sales_reply import no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff, clear_sales_dialogue
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError, requests_new_conversation
@@ -1410,7 +1410,7 @@ def is_not_ready_for_measurement(text):
 BUSINESS_UPDATES = """
 עובדות עסקיות מאושרות: לא עובדים ביום שישי. כל המחירים לפני מע״מ, אלא אם נאמר אחרת. מקלחונים בזכוכית מחוסמת 8 מ״מ, עם התקנה כלולה. הפרזול עשוי פליז פרימיום. יש 7 שנות אחריות על הפרזול, ושנה אחריות על ההתקנה. אל תייחס 7 שנות אחריות להתקנה או לזכוכית; אין אחריות על הזכוכית. אין להמציא התחייבות או חריג למדיניות זו.
 זמני התקנה משוערים, לא התחייבות: מקלחון אחד כשעה, שתי יחידות כשעתיים, שלוש יחידות כשלוש שעות, בהתאמה למורכבות. מראה אחת כחצי שעה, שתי מראות כשעה. מחיצת זכוכית כשתיים עד שלוש שעות ליחידה; מספר מחיצות או עבודות מורכבות מחייבים בירור נוסף, ואין להבטיח זמן סופי בלי פרטי השטח. אם יש מספר סוגי מוצרים, אפשר לחבר את הערכות הזמנים ולציין שהן משוערות.
-הנחה: ניתן לשקול עד 7 אחוזים בלבד, ורק בשלב מתקדם כאשר כבר הוסבר הערך, טופלו התנגדויות ויש מחיר מחושב מאומת והלקוח עדיין מהסס לסגור. אין להציע הנחה בתחילת השיחה, אין להציג אותה כאוטומטית, אין לעבור את 7 האחוזים, אין מינימום הזמנה. אין להמציא מחיר כדי לחשב ממנו הנחה.
+מדיניות מחיר: אין הנחות כלל. אין להציע, לחשב, להבטיח או לבדוק הנחה מול אלירן, גם לאחר טיפול בהתנגדויות או לבקשת לקוח. המחיר הוא המחיר המחושב למפרט. אפשר לבחון שינוי מפרט בהסכמת הלקוח ולחשב הצעה חדשה, בלי הבטחת הוזלה. אין מינימום הזמנה.
 כשלקוח אומר 'תודה, אני אחשוב על זה', שאל בעדינות פעם אחת אם יש משהו מסוים שמפריע לו להתקדם, למשל מחיר או התאמה. אם הוא לא מעוניין, ביקש להפסיק או בחר ספק אחר, כבד וסיים ללא לחץ.
 אם מבקשים לדבר עם אדם, שאל 'בשמחה, מתי נוח לך שנחזור אליך?' ורשום בקשת חזרה במערכת הפנימית רק אם אכן נשמרה. אל תבטיח שהשיחה נקבעה או שנציג כבר קיבל אותה אם לא קיים מנגנון התראות פעיל.
 תמונות דוגמאות: שלח תמונות אמיתיות רק אם כתובות תמונה מאושרות הוגדרו במערכת. אם אין תמונות מוגדרות, אל תטען שנשלחו. תמונה של לקוח: אין לקבוע מה מופיע בה בלי שהמדיה הועברה ונותחה בפועל; אם לא ניתן להבין, יש לבקש הבהרה ולהציע בדיקה אנושית. אל תעמיד פנים שראית תמונה שלא נותחה.
@@ -3385,6 +3385,8 @@ def process_message(phone, body, batch_rows=None):
             if PDF_QUOTES_ENABLED and not issuing_order and contains_ils_amount(reply):
                 reply = price_free_reply(reply)
 
+            reply = no_discount_reply(reply)
+
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
@@ -3715,6 +3717,7 @@ def process_owner_continuation(phone, state):
         reply = price_free_reply(reply)
     if narrow_opening(prior) and 'הזזה' in reply:
         reply=sliding_limit_reply(prior)
+    reply=no_discount_reply(reply)
     reply=respect_missing_customer_photo(reply,prior,str(state.get('instructions') or ''))
     reply=slider_reply(reply,prior,str(state.get('instructions') or ''))
     if 'הזזה' in str(prior.get('configuration') or ''):

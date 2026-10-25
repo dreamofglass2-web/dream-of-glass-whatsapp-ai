@@ -341,3 +341,12 @@ def shower_six_mm_choice(customer, product, policy_replies=()):
             or re.fullmatch(r'\s*(?:אני\s+)?8mm[.!?\s]*', positive_eight)):
         return 'accept_eight'
     return None
+
+
+def no_discount_reply(reply):
+    """The owner removed discounts; stale history cannot authorize an offer."""
+    text = str(reply or '')
+    if re.search(r'הנח(?:ה|ות)|קופון|\d+\s*(?:%|אחוז)|(?:להוריד|להפחית|להוריד לך|להפחית לך)\s+(?:את\s+)?ה?מחיר', text):
+        return ('אנחנו לא נותנים הנחות. המחיר בהצעה הוא למפרט שבחרת, כולל מדידה, הובלה והתקנה. '
+                'אפשר לבחון שינוי במפרט ולחשב הצעה חדשה. איזה חלק במפרט חשוב לך לשמור?')
+    return reply

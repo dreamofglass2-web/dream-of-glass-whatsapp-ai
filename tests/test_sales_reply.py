@@ -257,3 +257,21 @@ class EquivalentCompetitorOfferTests(unittest.TestCase):
         self.assertIn('כתובת אחת', reply)
         self.assertNotIn('איכות נמוכה', reply)
         self.assertNotIn('יחסוך', reply)
+
+
+class NoDiscountPolicyTests(unittest.TestCase):
+    def test_old_policy_and_owner_check_cannot_offer_discount(self):
+        from sales_reply import no_discount_reply
+        for reply in ('אפשר להציע הנחה עד 7%.', 'אבדוק הנחה מול אלירן.',
+                      'במזומן נוריד 5 אחוז.', 'אפשר להוריד את המחיר.', 'יש קופון בשבילך'):
+            with self.subTest(reply=reply):
+                result=no_discount_reply(reply)
+                self.assertIn('לא נותנים הנחות', result)
+                self.assertNotIn('אבדוק',result)
+                self.assertNotIn('%',result)
+                self.assertIn('שינוי במפרט', result)
+
+    def test_specification_alternative_and_warranty_are_preserved(self):
+        from sales_reply import no_discount_reply
+        reply='אפשר לבחון גוון אחר ולחשב הצעה חדשה. יש 7 שנות אחריות לפרזול.'
+        self.assertEqual(no_discount_reply(reply),reply)
