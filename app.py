@@ -1,5 +1,5 @@
 import os
-from sliding_policy import narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
+from sliding_policy import respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
@@ -3344,6 +3344,8 @@ def process_message(phone, body, batch_rows=None):
                 quote_record={}
                 issuing_order=False
                 data['needs_human']=False
+            if ordinary_turn and not sent_count and not issuing_order:
+                reply=respect_missing_customer_photo(reply, merged_pricing, customer_request)
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
             if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)
@@ -3685,6 +3687,7 @@ def process_owner_continuation(phone, state):
         reply = price_free_reply(reply)
     if narrow_opening(prior) and 'הזזה' in reply:
         reply=sliding_limit_reply(prior)
+    reply=respect_missing_customer_photo(reply,prior,str(state.get('instructions') or ''))
     reply=slider_reply(reply,prior,str(state.get('instructions') or ''))
     if 'הזזה' in str(prior.get('configuration') or ''):
         data['handles']=prior['handles']

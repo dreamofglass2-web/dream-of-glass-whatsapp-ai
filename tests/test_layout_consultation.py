@@ -159,6 +159,25 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         self.assertFalse(self.documents)
 
 
+    def test_unavailable_photo_switches_to_verbal_question_and_persists_per_item(self):
+        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120}
+        self.memory[self.phone]=([{'role':'user','content':'בין שני קירות 120'},{'role':'assistant','content':'אפשר לשלוח צילום של הפתח והאסלה?'}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='2',expected_sales_item_count=3,sales_items={'1':{},'2':dict(specs),'3':{}}))
+        reply=self.step('אין לי תמונה כרגע',self.model('ב־120 לא מתאים הזזה, אפשר לשלוח צילום?',quote_requested=True))
+        self.assertIn('מימין או משמאל',reply)
+        self.assertNotIn('לשלוח צילום',reply)
+        saved=self.memory[self.phone][1]
+        self.assertTrue(saved['sales_items']['2']['customer_photo_unavailable'])
+        reply=self.step('משמאל',self.model('אפשר לשלוח צילום של האסלה?',quote_requested=True))
+        self.assertIn('כמה מרווח',reply)
+        self.assertNotIn('מימין או משמאל',reply)
+        saved=self.memory[self.phone][1]
+        self.assertFalse(self.documents)
+        from sales_items import item_context
+        switched=item_context(saved,self.memory[self.phone][0]+[{'role':'user','content':'למקלחון השלישי'}],'למקלחון השלישי')
+        self.assertNotIn('customer_photo_unavailable',switched)
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
@@ -205,3 +224,11 @@ class SlidingMinimumTests(unittest.TestCase):
             self.assertIsNone(yossi.calculate_quote(dict(specs,width_cm=width)))
         self.assertIsNotNone(yossi.calculate_quote(dict(specs,width_cm=140)))
         self.assertIsNotNone(yossi.calculate_quote(dict(specs,width_cm=150)))
+
+class MissingPhotoRules(unittest.TestCase):
+    def test_missing_photo_does_not_replace_a_useful_non_photo_followup(self):
+        from sliding_policy import respect_missing_customer_photo,no_customer_photo
+        state={'customer_photo_unavailable':True}
+        self.assertEqual(respect_missing_customer_photo('כמה מרווח בערך יש מהאסלה לפתח?',state,'משמאל'),'כמה מרווח בערך יש מהאסלה לפתח?')
+        self.assertFalse(no_customer_photo('יש לי תמונה'))
+        self.assertIn('מימין או משמאל',respect_missing_customer_photo('אפשר לשלוח תמונה?',state,'משמאל'))

@@ -1,6 +1,7 @@
 """Separate explicitly numbered shower items without another model call."""
 import re
 from layout_consultation import capture_layout_geometry
+from sliding_policy import no_customer_photo
 from copy import deepcopy
 import hashlib
 import json
@@ -8,7 +9,7 @@ import json
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry', 'door_obstruction')
+          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry', 'door_obstruction', 'customer_photo_unavailable', 'obstacle_side')
 
 
 def preliminary_height(specs):
@@ -151,6 +152,7 @@ def item_context(prior, history, customer):
     multiple = bool(count > 1 or state.get('sales_items') or target or re.search(
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
     if not multiple:
+        if no_customer_photo(customer):state['customer_photo_unavailable']=True
         return capture_layout_geometry(state, customer, last_reply)
     active = str(state.get('active_sales_item') or '1')
     items = state.setdefault('sales_items', {})
@@ -210,7 +212,10 @@ def item_context(prior, history, customer):
         if str(state.get('configuration') or '').startswith('פינתי'):
             state.pop('configuration',None);state['solution_agreed']=False
     state=capture_layout_geometry(slider_specs(state), customer, last_reply if target==active else '')
-    for key in ('layout_geometry','door_obstruction'):
+    if no_customer_photo(customer):state['customer_photo_unavailable']=True
+    if 'האסלה' in last_reply and 'מימין או משמאל' in last_reply and str(customer).strip().rstrip('.!?') in ('מימין','משמאל'):
+        state['obstacle_side']=str(customer).strip().rstrip('.!?')
+    for key in ('layout_geometry','door_obstruction','customer_photo_unavailable','obstacle_side'):
         if key in state:items[target][key]=state[key]
     return state
 
