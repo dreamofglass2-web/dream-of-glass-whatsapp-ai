@@ -521,7 +521,7 @@ class ConversationSimulation(unittest.TestCase):
                      handles=['ידית מגבת'], solution_agreed=True, quote_requested=True)
         self.step('תחשב מחיר', self.model('בודק', **specs))
         for customer, answer in [('אני צריך לחשוב','קח את הזמן, אני כאן אם תרצה לברר משהו.'),
-                                 ('תעשה לי 30 אחוז הנחה','אין אפשרות להנחה של 30 אחוז. מה התקציב שלך?'),
+                                 ('תעשה לי 30 אחוז הנחה','אנחנו לא נותנים הנחות. המחיר בהצעה הוא למפרט שבחרת, כולל מדידה, הובלה והתקנה. אפשר לבחון שינוי במפרט ולחשב הצעה חדשה. איזה חלק במפרט חשוב לך לשמור?'),
                                  ('אין צורך בתמונות או עוד הסברים','בסדר, אשאיר את הפרטים כאן.')]:
             with self.subTest(customer=customer):
                 actual = self.step(customer, self.model(answer, quote_requested=True))

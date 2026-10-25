@@ -34,6 +34,8 @@ class ConsultationStateTests(unittest.TestCase):
     def test_business_policy_is_compact_and_has_no_internal_cost_table(self):
         prompt = compact_instructions('עובדות אתר', ['שקופה'], ['פינתי 2 דלתות'])
         self.assertLess(len(prompt), 10000)
+        self.assertIn('אין הנחות כלל',prompt)
+        self.assertNotIn('הנחה עד 7',prompt)
         self.assertIn('מחיר סופי רק מחישוב', prompt)
         self.assertIn('אין למדוד בס״מ', prompt)
 
