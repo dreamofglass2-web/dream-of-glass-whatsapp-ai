@@ -57,6 +57,7 @@ def implicit_visual_request(text):
     return bool(re.search(
         r'קשה\s+לי\s+לדמיין|לא\s+(?:מצליח|מצליחה|יכול|יכולה)\s+לדמיין'
         r'|לא\s+(?:מבין|מבינה)\s+איך\s+זה\s+(?:ייראה|יראה|נראה)'
+        r'|(?:אפשר|תוכל|תוכלי)\s+(?:לי\s+)?לראות\s+איך\s+זה\s+(?:ייראה|יראה|נראה)'
         r'|(?:צריך|צריכה|רוצה)\s+לראות\s+איך\s+זה\s+(?:ייראה|יראה|נראה)', text))
 
 
@@ -91,3 +92,16 @@ def consultation_photo_intro(photos, context):
     if configuration and photos and all(p.get('configuration') == configuration for p in photos):
         return f'הנה דוגמאות לתצורה {configuration}, כדי להמחיש את הכיוון שדיברנו עליו. אלה עבודות להמחשה; את ההתאמה לשטח שלך נבדוק בנפרד.'
     return 'הנה דוגמאות להמחשה. המבנה והגימור בתמונות יכולים להיות שונים מהפתרון שלך; את ההתאמה לשטח שלך נבדוק בנפרד.'
+
+
+def referenced_glass_sample(text, history, context):
+    """Resolve 'show me how it looks' to the latest explicit recommendation only."""
+    if not implicit_visual_request(text):
+        return None
+    last=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+    if re.search(r'ידית|ידיות|כפתור|מגבת',last) and not re.search(r'זכוכית|אנטיסן',last):
+        return None
+    recommended=re.search(r'(?:ממליץ|ממליצה|ממליצים)\s+על\s+(?:זכוכית\s+)?(?:אנטיסן\s+)?(ברונזה|אפור)',last)
+    if recommended:
+        return 'אנטיסן '+recommended.group(1)
+    return (context or {}).get('glass_type')
