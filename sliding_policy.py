@@ -60,6 +60,29 @@ def spatial_answer(customer, previous):
     return None
 
 def capture_spatial_answer(state, customer, previous):
+    if ('האסלה' in previous and 'מימין או משמאל' in previous
+            and str(customer).strip().rstrip('.!?') in ('מימין','משמאל')):
+        state['obstacle_side']=str(customer).strip().rstrip('.!?')
     answer=spatial_answer(customer,previous)
     if answer:state[answer[0]]=answer[1]
     return state
+
+
+def unknown_width_slider_reply(reply, specs):
+    """An unknown width permits explanation, not a sliding recommendation."""
+    import re
+    width=specs.get('width_cm')
+    if type(width) in (int,float) and math.isfinite(width) and width>0:
+        return reply
+    if not str(specs.get('product') or '').startswith(('מקלחון','אמבטיון')):
+        return reply
+    parts=re.split(r'(?<=[.!?])\s+|\n+',str(reply or ''))
+    def recommends(part):
+        return ('הזזה' in part and not re.search(r'לא (?:כדאי|מתאי[םמה]|ממליץ)',part)
+                and re.search(r'ממליץ|כדאי|כיוון|מתאי[םמה]|חלוקת ההזזה|לבחור',part))
+    if not any(recommends(part) for part in parts):
+        return reply
+    caveat=('לפני המלצה על הזזה צריך לדעת את רוחב הפתח. אצלנו בוחנים הזזה רק מ־140 ס״מ ומעלה, '
+            'וגם אז ההתאמה תלויה במרווחים בשטח.')
+    rest=' '.join(part for part in parts if not recommends(part))
+    return caveat+(' '+rest if rest else '')
