@@ -2330,7 +2330,7 @@ def process_message(phone, body, batch_rows=None):
             closing = thickness_choice == 'close'
             reply = ('מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ, ולכן לא נוכל לבצע את המקלחון שביקשת. תודה שפנית אלינו.'
                      if closing else
-                     'מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ. אנחנו מבצעים מקלחונים בזכוכית מחוסמת 8 מ״מ. תרצה להתקדם עם 8 מ״מ?')
+                     'מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ. אנחנו מבצעים מקלחונים בזכוכית מחוסמת 8 מ״מ, שבאותן מידות ותמיכות קשיחה יותר ומתכופפת פחות. תרצה להתקדם עם 8 מ״מ?')
             safe_context = dict(prior, sales_closed=closing)
             if closing:
                 safe_context['quote_requested'] = False
