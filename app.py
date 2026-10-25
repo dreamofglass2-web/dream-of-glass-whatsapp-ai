@@ -1,5 +1,5 @@
 import os
-from sliding_policy import respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
+from sliding_policy import FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
@@ -2754,6 +2754,11 @@ def process_message(phone, body, batch_rows=None):
                 previous=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
                 if not (re.fullmatch(r'\s*\d{2,3}\s*',customer_request) and 'גובה' in previous):
                     data['height_cm']=None
+            previous_spatial_question=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
+            if spatial_answer(customer_request, previous_spatial_question):
+                # A clearance or room depth is not a glass opening dimension.
+                for key in ('width_cm','second_width_cm','height_cm'):
+                    data[key]=prior.get(key)
             current_slider_specs=dict(prior,**{k:v for k,v in data.items() if v is not None})
             rejected_slider=rejected_prior_slider or disallowed_slider(current_slider_specs)
             if rejected_slider:
@@ -3345,7 +3350,9 @@ def process_message(phone, body, batch_rows=None):
                 issuing_order=False
                 data['needs_human']=False
             if ordinary_turn and not sent_count and not issuing_order:
-                reply=respect_missing_customer_photo(reply, merged_pricing, customer_request)
+                reply=respect_missing_customer_photo(reply, dict(merged_pricing,_previous_spatial_question=previous_spatial_question), customer_request)
+                if reply==FIT_REVIEW_REPLY:
+                    data['needs_human']=True
             # A requested image accepted by the sender is meaningful progress, even
             # when the short accompanying text matches the previous gallery reply.
             if (HANDOFF_ENABLED and not sent_count and without_emojis(reply)==without_emojis(previous_answer)

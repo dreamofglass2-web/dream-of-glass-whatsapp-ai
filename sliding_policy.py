@@ -29,6 +29,10 @@ def no_customer_photo(text):
     return bool(re.search(r'אין\s+(?:לי\s+)?(?:כרגע\s+)?(?:תמונה|צילום)|לא\s+(?:יכול|יכולה|מצליח|מצליחה)\s+לצלם',str(text or '')))
 
 def verbal_clearance_question(specs):
+    if specs.get('obstacle_side') and specs.get('obstacle_clearance_cm') is not None:
+        if specs.get('shower_depth_cm') is not None:
+            return FIT_REVIEW_REPLY
+        return 'מה העומק המשוער של המקלחת מהפתח עד הקיר שמולו?'
     if specs.get('obstacle_side'):
         return 'כמה מרווח בערך יש בין האסלה לפתח המקלחת? גם הערכה גסה תעזור להבין מה עוד צריך לבדוק.'
     return 'אין בעיה, אפשר להתחיל מתיאור. האסלה נמצאת מימין או משמאל לפתח המקלחת כשעומדים מולו?'
@@ -38,6 +42,24 @@ def respect_missing_customer_photo(reply, specs, customer):
     """Do not demand the same unavailable input; it never proves fit or a price."""
     import re
     if (specs.get('customer_photo_unavailable') and
-            (no_customer_photo(customer) or (specs.get('obstacle_side') and str(customer).strip().rstrip('.!?') in ('מימין','משמאל')) or re.search(r'תשלח.{0,25}(?:תמונה|צילום)|שלוח.{0,25}(?:צילום|תמונה)|אפשר.{0,20}צילום|אפשר.{0,20}תמונה|לצלם',reply))):
+            (no_customer_photo(customer) or spatial_answer(customer, specs.get('_previous_spatial_question','')) or (specs.get('obstacle_side') and str(customer).strip().rstrip('.!?') in ('מימין','משמאל')) or re.search(r'תשלח.{0,25}(?:תמונה|צילום)|שלוח.{0,25}(?:צילום|תמונה)|אפשר.{0,20}צילום|אפשר.{0,20}תמונה|לצלם',reply))):
         return verbal_clearance_question(specs)
     return reply
+
+FIT_REVIEW_REPLY='כדי לא לאשר פתיחה שעלולה להפריע לאסלה, נדרשת בדיקת התאמה של אלירן לפי התיאור והמרווחים שמסרת.'
+
+def spatial_answer(customer, previous):
+    import re
+    match=re.fullmatch(r'\s*(?:בערך\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:בערך|ס[״\"]?מ)?\s*[.!]?\s*',str(customer or ''))
+    if not match or not 0<float(match[1])<=500:
+        return None
+    if 'כמה מרווח' in previous and 'אסלה' in previous:
+        return ('obstacle_clearance_cm',float(match[1]))
+    if re.search(r'מה העומק|עומק.{0,25}מהפתח',previous):
+        return ('shower_depth_cm',float(match[1]))
+    return None
+
+def capture_spatial_answer(state, customer, previous):
+    answer=spatial_answer(customer,previous)
+    if answer:state[answer[0]]=answer[1]
+    return state

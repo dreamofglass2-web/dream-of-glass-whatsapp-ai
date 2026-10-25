@@ -171,7 +171,15 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
         reply=self.step('משמאל',self.model('אפשר לשלוח צילום של האסלה?',quote_requested=True))
         self.assertIn('כמה מרווח',reply)
         self.assertNotIn('מימין או משמאל',reply)
+        reply=self.step('בערך 20 ס״מ',self.model('אפשר לשלוח צילום?',quote_requested=True,width_cm=20))
+        self.assertIn('עומק',reply)
+        self.assertEqual(self.memory[self.phone][1]['sales_items']['2']['width_cm'],120)
+        self.assertEqual(self.memory[self.phone][1]['sales_items']['2']['obstacle_clearance_cm'],20)
+        reply=self.step('80 בערך',self.model('אפשר לשלוח צילום?',quote_requested=True,width_cm=80))
+        self.assertIn('בדיקת התאמה',reply)
         saved=self.memory[self.phone][1]
+        self.assertEqual(saved['sales_items']['2']['width_cm'],120)
+        self.assertEqual(saved['sales_items']['2']['shower_depth_cm'],80)
         self.assertFalse(self.documents)
         from sales_items import item_context
         switched=item_context(saved,self.memory[self.phone][0]+[{'role':'user','content':'למקלחון השלישי'}],'למקלחון השלישי')

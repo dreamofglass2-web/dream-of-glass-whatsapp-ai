@@ -1,7 +1,7 @@
 """Separate explicitly numbered shower items without another model call."""
 import re
 from layout_consultation import capture_layout_geometry
-from sliding_policy import no_customer_photo
+from sliding_policy import no_customer_photo, capture_spatial_answer
 from copy import deepcopy
 import hashlib
 import json
@@ -9,7 +9,7 @@ import json
 FIELDS = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
           'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
           'handles', 'quote_requested', 'solution_agreed', 'validated_quote',
-          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry', 'door_obstruction', 'customer_photo_unavailable', 'obstacle_side')
+          'pricing_height_basis', 'bath_clearance_warned', 'requested_layout', 'front_only', 'layout_geometry', 'door_obstruction', 'customer_photo_unavailable', 'obstacle_side', 'obstacle_clearance_cm', 'shower_depth_cm')
 
 
 def preliminary_height(specs):
@@ -153,7 +153,7 @@ def item_context(prior, history, customer):
         r'(?:[23]|שני|שתי|שלושה)\s*מקלחונים', str(customer)))
     if not multiple:
         if no_customer_photo(customer):state['customer_photo_unavailable']=True
-        return capture_layout_geometry(state, customer, last_reply)
+        return capture_spatial_answer(capture_layout_geometry(state, customer, last_reply), customer, last_reply)
     active = str(state.get('active_sales_item') or '1')
     items = state.setdefault('sales_items', {})
     if active not in items or any(key in state for key in ('configuration','width_cm','glass_type')):
@@ -212,10 +212,11 @@ def item_context(prior, history, customer):
         if str(state.get('configuration') or '').startswith('פינתי'):
             state.pop('configuration',None);state['solution_agreed']=False
     state=capture_layout_geometry(slider_specs(state), customer, last_reply if target==active else '')
+    state=capture_spatial_answer(state, customer, last_reply if target==active else '')
     if no_customer_photo(customer):state['customer_photo_unavailable']=True
     if 'האסלה' in last_reply and 'מימין או משמאל' in last_reply and str(customer).strip().rstrip('.!?') in ('מימין','משמאל'):
         state['obstacle_side']=str(customer).strip().rstrip('.!?')
-    for key in ('layout_geometry','door_obstruction','customer_photo_unavailable','obstacle_side'):
+    for key in ('layout_geometry','door_obstruction','customer_photo_unavailable','obstacle_side','obstacle_clearance_cm','shower_depth_cm'):
         if key in state:items[target][key]=state[key]
     return state
 
