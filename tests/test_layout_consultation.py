@@ -6,6 +6,19 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_first_complete_customer_specification_delivers_document_without_reasking_layout(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        customer='שלום אני דנה, מחליפה מקלחון ישן ברחובות. חשוב לי שיהיה נוח לנקות. רוצה הצעה לחזית קבוע ודלת ברוחב 150 וגובה 200, זכוכית שקופה, פרזול שחור וידית כפתור. יש מקום לפתוח את הדלת'
+        self.memory[self.phone]=([],{})
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step(customer,self.model('אפשר לוודא את חלוקת המקלחון?',quote_requested=True,**specs))
+        self.assertEqual(len(self.documents),1)
+        self.assertIn('מצורפת הצעת המחיר',reply)
+        self.assertNotIn('לוודא',reply)
+        self.assertEqual(self.documents[0]['items'][0]['specification']['width_cm'],150)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+
     def test_discount_request_is_an_objection_not_a_duplicate_document(self):
         specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
                'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}

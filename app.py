@@ -2925,6 +2925,8 @@ def process_message(phone, body, batch_rows=None):
             prior_quote = bool(quote_record.get('issued'))
             had_current_offer = prior_quote
             merged_pricing = dict(prior or {})
+            if data.get('solution_agreed') is True:
+                merged_pricing['solution_agreed'] = True
             for key in ('product', 'configuration', 'width_cm', 'second_width_cm',
                         'height_cm', 'glass_type', 'finish', 'handles'):
                 if data.get(key) is not None:

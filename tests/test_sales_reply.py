@@ -80,6 +80,13 @@ class PriceGapAcknowledgementTests(unittest.TestCase):
 
 
 class PersonalServiceValueTests(unittest.TestCase):
+    def test_hardware_word_is_not_a_cheaper_price_objection(self):
+        from sales_reply import is_price_objection
+        self.assertFalse(is_price_objection('פרזול שחור וידית כפתור, רוצה הצעה'))
+        for text in ('זול יותר','הצעה זולה','המחירים זולים','אפשר להוזיל?','תעשה לי הנחה'):
+            with self.subTest(text=text):
+                self.assertTrue(is_price_objection(text))
+
     def test_need_based_live_answer_is_completed_without_repeating_owner_pitch(self):
         from sales_reply import personal_service_value
         model=('הדלת הנפתחת מאפשרת גישה נוחה לניקוי הזכוכית משני הצדדים. '
