@@ -3082,7 +3082,8 @@ def process_message(phone, body, batch_rows=None):
                     reply = ('בשמחה נתקדם 🙂 עוד לא נתתי לך הצעת מחיר מדויקת, '
                              'אז לפני סגירה ' + missing_quote_detail(merged_pricing))
             # An AI-generated ILS amount is never permission to quote a shower.
-            if ordinary_turn and is_shower and not quote_record.get('issued') and contains_ils_amount(reply):
+            if (ordinary_turn and is_shower and not quote_record.get('issued')
+                    and not price_objection(customer_request) and contains_ils_amount(reply)):
                 reply = helpful_quote_followup(merged_pricing, customer_request, first_message=(len(history) == 1))
             # On the first quote request, acknowledge known facts even if the model
             # withheld a numeric figure rather than making one up.

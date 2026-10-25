@@ -35,6 +35,21 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
                 self.assertFalse(yossi.contains_ils_amount(reply))
                 self.assertEqual(self.memory[self.phone][1]['combined_offer']['fingerprint'],offer['fingerprint'])
 
+    def test_budget_acknowledgement_does_not_restart_layout_discovery_after_pdf(self):
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        offer=yossi.bundle_offer({'sales_items':{'1':specs}},yossi.calculate_quote,allow_single=True)
+        self.memory[self.phone]=([{'role':'assistant','content':'מה התקציב שתכננת?'}],
+            dict(specs,sales_discovery_completed=True,combined_offer=dict(offer,issued=True)))
+        answer='מבין שחשבת על 2000 ש״ח כולל מע״מ. אפשר לבדוק שינוי בגוון הפרזול בלי לשנות את המבנה שנוח לך לנקות. תרצי לבדוק חלופה?'
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('חשבתי עד 2000 כולל מעמ, אתה יכול לעשות לי הנחה?',self.model(answer,quote_requested=True,**specs))
+        self.assertIn('לבדוק חלופה',reply)
+        self.assertNotIn('חלוקת המקלחון',reply)
+        self.assertFalse(yossi.contains_ils_amount(reply))
+        self.assertFalse(self.documents)
+        self.assertEqual(self.memory[self.phone][1]['combined_offer']['fingerprint'],offer['fingerprint'])
+
     def test_single_shower_keeps_toilet_side_and_advances_to_clearance(self):
         question='אין בעיה, אפשר להתחיל מתיאור. האסלה נמצאת מימין או משמאל לפתח המקלחת כשעומדים מולו?'
         self.memory[self.phone]=([{'role':'user','content':'אין לי צילום'},
