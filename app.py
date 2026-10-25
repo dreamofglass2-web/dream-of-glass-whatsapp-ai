@@ -2938,6 +2938,18 @@ def process_message(phone, body, batch_rows=None):
             previous_question=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
             current_options_reply=contextual_options_reply(customer_request,previous_question,merged_pricing)
             answer_current_question=bool(current_options_reply or asks_for_options(customer_request)) and not quote_intent(customer_request)
+            # Remembering a requested quote is not permission to discard this
+            # turn's useful consultation. Keep a substantive, non-priced model
+            # answer unless the customer is explicitly asking for a quote now.
+            current_consultation_answer = bool(
+                not quote_intent(customer_request) and consultant_reply
+                and not contains_ils_amount(consultant_reply)
+                and '?' in consultant_reply
+                and len(consultant_reply) > 45
+                and without_emojis(consultant_reply) != without_emojis(previous_question)
+                and consultant_reply.strip() != missing_quote_detail(merged_pricing).strip()
+                and not re.search(r'איזה סוג זכוכית תרצו למקלחון|צריך לסגור צד אחד בין שני קירות', consultant_reply)
+            )
             if ordinary_turn and prior_quote and closing_intent(customer_request):
                 if explicit_quote_approval(customer_request):
                     quote_record['approved'] = True
@@ -2950,7 +2962,7 @@ def process_message(phone, body, batch_rows=None):
                                    'כולל מדידה, הובלה והתקנה, בכפוף לאימות המידות לפני הביצוע.'))
                 else:
                     reply = 'כדי לא למסור לך מחיר לא מאומת, צריך לחשב מחדש את ההצעה.'
-            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and (
+            elif ordinary_turn and is_shower and not prior_quote and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer and (
                     quote_intent(customer_request) or (data.get('quote_requested') is True and not quote_changed)):
                 verified_price = calculate_quote(merged_pricing)
                 if verified_price is not None and (data.get('solution_agreed') is True or
@@ -3220,7 +3232,7 @@ def process_message(phone, body, batch_rows=None):
             group_choices(quote_state,history,data)
             complete_order=None
             issuing_order=False
-            if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question:
+            if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer:
                 complete_order=bundle_offer(quote_state,calculate_quote)
                 if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
                     reply=bundle_offer_reply(complete_order)

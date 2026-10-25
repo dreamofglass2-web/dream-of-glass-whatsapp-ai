@@ -77,6 +77,21 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
             self.assertFalse(self.documents)
 
 
+    def test_sticky_quote_request_does_not_erase_current_preference_consultation(self):
+        question='מה חשוב לך יותר בזכוכית, מראה שקוף ופתוח או פרטיות?'
+        specs={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,'solution_agreed':True}
+        self.memory[self.phone]=([{'role':'user','content':'צריך 3 מקלחונים'},{'role':'assistant','content':question}],
+            dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='1',
+                 expected_sales_item_count=3,sales_items={'1':dict(specs)}))
+        advice='למראה כהה יש אנטיסן אפור למראה קריר או ברונזה למראה חם. שניהם עדיין שקופים במידה מסוימת. איזה מהם יותר מתאים לחדר שלך?'
+        reply=self.step('אני רוצה כהה אבל לא יודע איזה גוון',self.model(advice,configuration='פינתי 2 דלתות',quote_requested=True,solution_agreed=True))
+        self.assertIn('אנטיסן אפור',reply)
+        self.assertIn('ברונזה',reply)
+        self.assertNotIn('נשלים את פרטי',reply)
+        self.assertNotIn('glass_type',self.memory[self.phone][1]['sales_items']['1'])
+        self.assertFalse(self.documents)
+
+
 class LayoutAdviceRules(unittest.TestCase):
     def test_known_configuration_and_unrelated_requests_are_not_overridden(self):
         self.assertIsNone(layout_consultation_reply('מה אתה ממליץ',{'configuration':'פינתי 2 דלתות'}))
