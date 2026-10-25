@@ -206,7 +206,7 @@ def consultation_plan(history, prior, customer):
     # Project context belongs to the customer, not to the active shower item.
     project_users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
     users=' '.join(str(m.get('content') or '') for m in messages if m.get('role')=='user')
-    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
+    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
     needs=bool(re.search(r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|להפריד.{0,15}(?:חלל|חדר)',users))
     for i,m in enumerate(messages):
         if m.get('role')!='assistant' or not any(x.get('role')=='user' for x in messages[i+1:i+2]):
@@ -225,7 +225,7 @@ def consultation_plan(history, prior, customer):
     if not named and not form_named and not asked_name and not needs:
         return {'step':'customer_name','question':'מה שמך?'}
     if not needs:
-        replacing=bool(re.search(r'מחליף|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון',users)) and not re.search(r'לא היה|אין לי|ראשון',users)
+        replacing=bool(re.search(r'מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון',users)) and not re.search(r'לא היה|אין לי|ראשון',users)
         return {'step':'experience_and_needs','question':('איך המקלחון הקודם היה לך בשימוש, ומה היית רוצה לשפר?' if shower and replacing else 'מה הכי חשוב לך בתוצאה, או משהו שהיית רוצה לשפר לעומת מה שיש היום?')}
     return {'step':'connect_recommendation_to_customer','question':None}
 
