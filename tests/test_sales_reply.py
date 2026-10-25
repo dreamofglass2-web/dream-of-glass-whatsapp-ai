@@ -113,6 +113,24 @@ class PersonalServiceValueTests(unittest.TestCase):
         self.assertIn('7 שנות אחריות על הפרזול',answer)
         self.assertTrue(answer.endswith('מה התקציב שתכננת?'))
 
+    def test_personal_measurement_and_installation_are_recognized_in_other_word_order(self):
+        from sales_reply import personal_service_value
+        for execution in ('מדידה והתקנה של אלירן בעצמו','אלירן בעצמו יטפל במדידה ובהתקנה'):
+            with self.subTest(execution=execution):
+                answer=personal_service_value('הדלת מאפשרת גישה לניגוב משני הצדדים. ההצעה כוללת '+execution+', והוא נשאר כתובת שמכירה את העבודה גם אחר כך. איזה תקציב תכננת?', 'יקר לי',[],product='מקלחון')
+                self.assertEqual(answer.count('אלירן'),1)
+                self.assertEqual(answer.count('כתובת'),1)
+                self.assertIn('בלי קבלני משנה',answer)
+                self.assertIn('7 שנות אחריות על הפרזול',answer)
+                self.assertTrue(answer.endswith('איזה תקציב תכננת?'))
+
+    def test_existing_contact_benefit_is_not_repeated_when_owner_facts_are_missing(self):
+        from sales_reply import personal_service_value
+        answer=personal_service_value('יש לך כתובת אחת לשירות. מה התקציב?', 'יקר לי',[],product='מקלחון')
+        self.assertEqual(answer.count('כתובת'),1)
+        self.assertEqual(answer.count('אלירן'),1)
+        self.assertIn('מגיע בעצמו למדידה ולהתקנה',answer)
+
     def test_value_is_added_without_replacing_other_benefits(self):
         from sales_reply import personal_service_value
         for text in ['יקר לי','רוצה להשוות להצעה אחרת','מתחרה הציע לי פחות']:

@@ -228,8 +228,9 @@ def comparison_turn(history, prior, customer, calculate, bom, glass_types, finis
 BUYER_SERVICE_BENEFIT = ('הסיבה שאני ממליץ לבחור אצלנו היא שיש לך כתובת אחת שמכירה את העבודה מהמדידה ועד השירות, '
                          'בלי שתצטרך לתאם בין מודד למתקין.')
 
-PERSONAL_SERVICE_VALUE = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה, '
-                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך. ' + BUYER_SERVICE_BENEFIT)
+PERSONAL_SERVICE_FACTS = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה, '
+                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך.')
+PERSONAL_SERVICE_VALUE = PERSONAL_SERVICE_FACTS + ' ' + BUYER_SERVICE_BENEFIT
 
 
 def personal_service_value(reply, customer, history, product=None):
@@ -258,11 +259,11 @@ def personal_service_value(reply, customer, history, product=None):
             facts.append('שנה אחריות על ההתקנה')
     if facts:
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
-    personal_execution=any('אלירן' in answer and re.search(
-        r'קבלני משנה|מגיע בעצמו|מודד.{0,20}מתקין בעצמו|מתקין.{0,20}מודד בעצמו',answer)
+    personal_execution=any('אלירן' in answer and ('קבלני משנה' in answer or
+        ('בעצמו' in answer and re.search(r'מדידה|מודד',answer) and re.search(r'התקנה|מתקין',answer)))
         for answer in answers)
     if not personal_execution:
-        additions.append(PERSONAL_SERVICE_VALUE)
+        additions.append(PERSONAL_SERVICE_FACTS)
     elif not any('קבלני משנה' in answer for answer in answers):
         additions.append('העבודה מתבצעת בלי קבלני משנה.')
     # A fact list alone does not explain why the customer should choose this service.
