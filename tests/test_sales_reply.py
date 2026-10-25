@@ -166,6 +166,17 @@ class ShowerThicknessPolicyTests(unittest.TestCase):
 
 
 class UnsupportedShowerThicknessTests(unittest.TestCase):
+    def test_short_unitless_rejection_binds_only_to_the_thickness_exchange(self):
+        from sales_reply import shower_six_mm_choice as choice
+        policy=['מצטער, אנחנו לא מתעסקים עם זכוכית 6 מ״מ. אנחנו מבצעים מקלחונים בזכוכית מחוסמת 8 מ״מ.']
+        for text in ('לא רוצה 8, אני רוצה רק 6','רק 6','6'):
+            self.assertEqual(choice(text,'מקלחון',policy),'close')
+        self.assertEqual(choice('רוצה 8','מקלחון',policy),'accept_eight')
+        for text in ('רוצה 6 פריטים','גובה 80','רוחב 68','רוחב 6 ס״מ'):
+            self.assertIsNone(choice(text,'מקלחון',policy))
+        self.assertIsNone(choice('רק 6','מקלחון',[]))
+        self.assertIsNone(choice('6','מקלחון',policy+['כמה מקלחונים צריך?']))
+
     def test_preferences_existing_glass_negations_and_other_products(self):
         from sales_reply import shower_six_mm_choice as choice
         policy = ['מצטער, לא מתעסקים ב־6 מ״מ. אנחנו מציעים 8 מ״מ.']

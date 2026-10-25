@@ -6,6 +6,17 @@ import app as yossi
 from layout_consultation import layout_consultation_reply
 
 class LayoutAdviceJourney(sim.ConversationSimulation):
+    def test_short_six_mm_insistence_closes_without_discovery_or_model_call(self):
+        initial=self.step('כמה עולה מקלחון 6 ממ?')
+        self.assertIn('קשיחה יותר',initial)
+        with patch.object(yossi.client.responses,'create') as ai:
+            reply=self.step('לא רוצה 8, אני רוצה רק 6')
+        ai.assert_not_called()
+        self.assertNotIn('?',reply)
+        self.assertIn('תודה שפנית',reply)
+        self.assertTrue(self.memory[self.phone][1]['sales_closed'])
+        self.assertFalse(self.documents)
+
     def test_first_complete_customer_specification_delivers_document_without_reasking_layout(self):
         specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':150,'height_cm':200,
                'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}

@@ -311,6 +311,14 @@ def shower_six_mm_choice(customer, product, policy_replies=()):
     def normalize(value):
         return re.sub(r'(?<!\d)([68])\s*(?:מ[״"׳\']?מ|מילימטר(?:ים)?)', r'\1mm', str(value or ''))
     text = normalize(customer)
+    explained = any('8mm' in normalize(reply) and re.search(r'לא.{0,35}6mm', normalize(reply))
+                    for reply in policy_replies)
+    # In an explicit thickness exchange, a short answer need not repeat the unit.
+    # Do not reinterpret dimensions or quantities such as 6 panels or 80 cm.
+    current_thickness_exchange = bool(policy_replies and '8mm' in normalize(policy_replies[-1])
+        and re.search(r'לא.{0,35}6mm',normalize(policy_replies[-1])))
+    if current_thickness_exchange:
+        text = re.sub(r'(?<!\d)([68])(?=\s*[,!.?]|\s*$)',r'\1mm',text)
     if re.match(r'\s*(?:למה|מדוע|מה\s+(?:ההבדל|היתרון|החשיבות))', text):
         return None
     if re.search(r'אלירן|אדם|אחריות|סדק|נשבר|בטיחות|תקן|מראה|מחיצה|מעקה', text):
@@ -322,8 +330,6 @@ def shower_six_mm_choice(customer, product, policy_replies=()):
         r'(?:רוצה|צריך|צריכה|מבקש|מבקשת|מעוניין|מעוניינת|מחפש|מחפשת|מתעקש|מתעקשת|אפשר|רק|דווקא)'
         r'(?:(?!8mm).){0,60}6mm', positive_text) or re.search(
         r'(?:מחיר|עלות|הצעה|כמה.{0,12}עולה)(?:(?!8mm).){0,35}6mm|6mm.{0,20}(?:מחיר|כמה.{0,12}עולה)', positive_text) or re.fullmatch(r'\s*6mm[.!?\s]*', positive_text))
-    explained = any('8mm' in normalize(reply) and re.search(r'לא.{0,35}6mm', normalize(reply))
-                    for reply in policy_replies)
     rejects_eight = bool(re.search(negative + r'8mm', text))
     if explained and (wants_six or rejects_eight):
         return 'close'
