@@ -86,3 +86,21 @@ class KitchenDeliveryTests(unittest.TestCase):
         pause.assert_called_once()
         self.assertIn('חיפוי',pause.call_args.args[2])
         self.assertEqual(self.sent,[])
+
+
+    def test_spoken_price_request_or_yes_to_offer_question_delivers_actual_pdf(self):
+        specs={'product':'חיפוי מטבח','width_cm':300,'height_cm':60,'cladding_type':'צבע','cladding_color':'לבן','socket_count':3}
+        for customer in ('כן כמה זה יוצא','כמה יוצא','כמה זה יצא','כמה זה ייצא','כן'):
+            with self.subTest(customer=customer):
+                self.memory[self.phone]=([{'role':'assistant','content':'להכין לך הצעת מחיר ראשונית לפי המידות שמסרת?'}],dict(specs))
+                before=len(self.documents)
+                with patch.object(yossi.client.responses,'create') as model:
+                    reply=self.step(customer)
+                model.assert_not_called()
+                self.assertEqual(len(self.documents),before+1)
+                self.assertEqual(self.documents[-1]['amount_ils_pre_vat'],1980)
+                specification=self.documents[-1]['items'][0]['specification']
+                self.assertEqual(specification['cladding_color'],'לבן')
+                self.assertEqual(specification['socket_count'],3)
+                self.assertFalse(yossi.contains_ils_amount(reply))
+                self.assertFalse(self.memory[self.phone][1]['kitchen_offer']['approved'])

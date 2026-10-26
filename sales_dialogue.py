@@ -208,7 +208,7 @@ def consultation_plan(history, prior, customer):
     project_users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
     users=' '.join(str(m.get('content') or '') for m in messages if m.get('role')=='user')
     project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
-    needs_pattern=r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|רוצה.{0,30}קל לנקות|כניסה נוחה|להפריד.{0,15}(?:חלל|חדר)'
+    needs_pattern=r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|נמאס לי.{0,30}(?:לנקות|לכלוך|חריצ)|חריצ.{0,25}לכלוך|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|רוצה.{0,30}קל לנקות|כניסה נוחה|להפריד.{0,15}(?:חלל|חדר)'
     needs=bool(re.search(needs_pattern,users))
     # An explicitly shared project need precedes the per-item specifications.
     # A need stated only inside the first item must not be copied to the second.
