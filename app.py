@@ -3301,7 +3301,7 @@ def process_message(phone, body, batch_rows=None):
                 if complete_order:
                     reply=bundle_offer_reply(complete_order)
                     issuing_order=True
-            direct_information = bool(re.search(r'איזה\s+אסלה|(?:לא|אין)\s+(?:שם\s+)?אסלה|אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
+            direct_information = bool(re.search(r'איזה\s+אסלה|(?:לא|אין)\s+(?:שם\s+)?אסלה|אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות|פרטיות|שלא\s+(?:יראו|רואים)|לא\s+רואים.{0,20}(?:דרכ|בפנ)|רואים.{0,20}(?:דרך|דרכ)|חלבי|חלבית', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
                     reply = discovery_question

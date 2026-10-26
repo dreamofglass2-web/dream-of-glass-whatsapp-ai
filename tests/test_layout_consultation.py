@@ -380,6 +380,18 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
     step=sim.ConversationSimulation.step
     model=sim.ConversationSimulation.model
 
+    def test_privacy_question_is_answered_before_missing_name_or_project(self):
+        for question in ('יש משהו שלא רואים דרכו?', 'איזה זכוכית נותנת פרטיות?', 'אפשר חלבי?'):
+            with self.subTest(question=question):
+                self.memory[self.phone]=([{'role':'user','content':'מחפש מקלחון פינתי90על90'}],
+                    {'product':'מקלחון','width_cm':90,'second_width_cm':90,'sales_discovery_completed':False})
+                answer='זכוכית חלבית מפחיתה את השקיפות ונותנת יותר פרטיות לעומת שקופה.'
+                reply=self.step(question,self.model(answer))
+                self.assertIn('חלבית',reply)
+                self.assertNotEqual(reply,'מה שמך?')
+                self.assertNotIn('לבית חדש',reply)
+                self.assertFalse(self.documents)
+
     def test_away_from_home_does_not_restart_geometry_or_call_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח מקיר לקיר בערך?'}],
             {'product':'מקלחון','layout_geometry':'front','quote_requested':True})
