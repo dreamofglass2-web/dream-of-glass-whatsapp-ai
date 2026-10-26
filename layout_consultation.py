@@ -20,7 +20,13 @@ def layout_consultation_reply(text, specs, previous=''):
 def capture_layout_geometry(state, customer, previous=''):
     """A shape is not a bill-of-materials configuration or customer approval."""
     text=str(customer or '').strip().rstrip('.!?').strip()
-    if re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:בפינה|פינתי|שני צדדים בפינה)',text):
+    front = re.search(r'(?<![א-ת])(?:זכוכית\s+)?רק\s+(?:מקדימה|בחזית)(?![א-ת])', text)
+    prefix = re.split(r'[,.;!?]',text[:front.start()])[-1] if front else ''
+    plain_front = bool(front and not re.search(r'לא\s*$|לא רוצה|לא צריך|אולי|האם|אפשר',prefix)
+                       and not re.search(r'\sאו\s',text))
+    if plain_front:
+        state['layout_geometry']='front'
+    elif re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:בפינה|פינתי|שני צדדים בפינה)',text):
         state['layout_geometry']='corner'
     elif re.fullmatch(r'(?:זה |הוא |המקלחון )?(?:חזיתי|חזית|בחזית|רק בחזית|זכוכית רק בחזית|בין (?:שני |2 )?קירות|צד אחד בין (?:שני )?קירות)',text):
         state['layout_geometry']='front'

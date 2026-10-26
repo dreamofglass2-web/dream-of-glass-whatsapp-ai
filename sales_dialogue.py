@@ -175,8 +175,9 @@ def deferred_measurement_reply(history, customer):
         return None
     if re.search(r'\d|מחיר|כמה עולה|תמונה|אחריות',text):
         return None
-    if not (re.search(r'מחר|אחר כך|בהמשך|כשאהיה|כשאגיע',text) and
-            re.search(r'אבדוק|אמדוד|בדירה|בבית|לא יודע|אין לי',text)):
+    away=bool(re.search(r'לא (?:נמצא |נמצאת )?(?:בבית|בדירה)|לא ליד המקלחת',text))
+    if not (away or (re.search(r'מחר|אחר כך|בהמשך|כשאהיה|כשאגיע',text) and
+            re.search(r'אבדוק|אמדוד|בדירה|בבית|לא יודע|אין לי',text))):
         return None
     return 'אין בעיה, כשתהיה בדירה שלח את המידות ונמשיך מאותה נקודה. אין צורך למדוד בדיוק, מידות משוערות מספיקות להצעה ראשונית; את המידות הסופיות נבדוק בשטח.'
 

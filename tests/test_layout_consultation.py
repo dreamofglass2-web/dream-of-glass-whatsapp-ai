@@ -357,7 +357,7 @@ class GeometryRules(unittest.TestCase):
 
     def test_plain_front_answers_are_geometry_not_an_approved_configuration(self):
         from layout_consultation import capture_layout_geometry
-        for text in ['רק בחזית','בחזית','חזית','זכוכית רק בחזית']:
+        for text in ['רק בחזית','בחזית','חזית','זכוכית רק בחזית','לא מבין בזה, יש זכוכית רק מקדימה','רק מקדימה אחי, מה לא ברור']:
             with self.subTest(text=text):
                 self.assertEqual(capture_layout_geometry({},text),{'layout_geometry':'front'})
 
@@ -368,8 +368,41 @@ class GeometryRules(unittest.TestCase):
 
     def test_negated_and_ambiguous_geometry_do_not_become_facts(self):
         from layout_consultation import capture_layout_geometry
-        for text in ['לא בפינה','אולי בפינה','מה עדיף פינתי או חזיתי','בפינה יש ארון']:
+        for text in ['לא בפינה','אולי בפינה','מה עדיף פינתי או חזיתי','בפינה יש ארון','לא רק מקדימה, יש גם בצד','לא רוצה רק מקדימה','אולי רק מקדימה','רק מקדימה או גם בצד?']:
             self.assertEqual(capture_layout_geometry({},text),{})
+
+class NaturalCustomerRegressionTests(unittest.TestCase):
+    setUp=sim.ConversationSimulation.setUp
+    load=sim.ConversationSimulation.load
+    save=sim.ConversationSimulation.save
+    send=sim.ConversationSimulation.send
+    reset=sim.ConversationSimulation.reset
+    step=sim.ConversationSimulation.step
+    model=sim.ConversationSimulation.model
+
+    def test_away_from_home_does_not_restart_geometry_or_call_model(self):
+        self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח מקיר לקיר בערך?'}],
+            {'product':'מקלחון','layout_geometry':'front','quote_requested':True})
+        with patch.object(yossi.client.responses,'create') as ai:
+            reply=self.step('אין לי מושג אני לא בבית עכשיו')
+        ai.assert_not_called()
+        self.assertIn('כשתהיה בדירה',reply)
+        self.assertNotIn('פינה',reply)
+        self.assertFalse(self.documents)
+        self.assertEqual(self.memory[self.phone][1]['layout_geometry'],'front')
+
+    def test_leaving_to_check_elsewhere_stops_pending_quote_without_model(self):
+        self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח?'}],
+            {'product':'מקלחון','quote_requested':True})
+        with patch.object(yossi.client.responses,'create') as ai:
+            reply=self.step('עזוב אחי אתה שואל אותי אותו דבר, אבדוק במקום אחר')
+        ai.assert_not_called()
+        self.assertNotIn('?',reply)
+        self.assertTrue(self.memory[self.phone][1]['sales_closed'])
+        self.assertFalse(self.memory[self.phone][1]['quote_requested'])
+        self.assertFalse(self.documents)
+        self.assertIsNone(yossi.customer_boundary('לא אבדוק במקום אחר, רוצה להמשיך איתך'))
+
 
 class ObstructionRules(unittest.TestCase):
     def test_no_is_only_bound_to_the_actual_obstruction_question(self):
