@@ -156,6 +156,7 @@ def sales_output_format(configurations, glass_types, finishes):
             ('obstacle_clearance_cm','Current customer answer to the latest question about clearance between a cabinet/toilet and shower opening, in cm. Not opening width. Extract spoken numbers and compound answers; null if not explicitly supplied in customer text.'),
             ('shower_depth_cm','Current customer answer to the latest question about shower depth from opening to back wall, in cm. Not opening width or height. Null if not explicitly supplied in customer text.')):
         properties[field]={'type':['number','null'],'description':description}
+    properties['project_context_evidence']={'type':['string','null'],'description':'An exact short quote from customer messages establishing the project context, e.g. building a home, renovating, replacing an old product, or adding to an existing home. Use customer text only, never assistant or image analysis. Null if unknown. Do not reask project context when supplied.'}
     properties['cladding_type']={'type':['string','null'],'enum':['צבע','הדפסה',None]}
     properties['cladding_color']={'type':['string','null']}
     properties['socket_count']={'type':['integer','null'],'minimum':0}
