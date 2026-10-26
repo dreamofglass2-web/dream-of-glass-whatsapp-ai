@@ -24,6 +24,12 @@ class ConsultationStateTests(unittest.TestCase):
         h[0]['content']='משפצים שני מקלחונים. הראשון צריך פרטיות. השני בחדר אחר.'
         self.assertIsNotNone(consultation_plan(h,{'product':'מקלחון','active_sales_item':'2'},'90 על 90')['question'])
 
+    def test_kitchen_customer_pain_in_ordinary_words_is_not_reasked(self):
+        from sales_dialogue import consultation_plan
+        for text in ('המטבח קיים, נמאס לי לנקות את החריצים של הקרמיקה',
+                     'המטבח קיים, אני רוצה שלא יהיו חריצים עם לכלוך'):
+            self.assertIsNone(consultation_plan([{'role':'user','content':text}],{'product':'חיפוי מטבח'},text)['question'])
+
     def test_customer_confusion_is_not_unfinished_renovation(self):
         history = [
             {'role': 'user', 'content': 'מימין כיור ומשמאל אסלה'},

@@ -1586,7 +1586,7 @@ def budget_answer(text, history, prior=None):
 
 
 def quote_intent(text):
-    return bool(re.search(r'(?:תן|תני|תכין|תכיני|אפשר|אשמח|רוצה|מבקש)(?:\s+לי)?\s+(?:לקבל\s+)?(?:הצעה|הצעת\s+מחיר)|מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:י?יצא|י?יצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
+    return bool(re.search(r'(?:תן|תני|תכין|תכיני|אפשר|אשמח|רוצה|מבקש)(?:\s+לי)?\s+(?:לקבל\s+)?(?:הצעה|הצעת\s+מחיר)|מחיר|כמה\s+(?:זה\s+)?(?:עול|יעל)|כמה\s+(?:זה\s+)?(?:יוצא|יצא|ייצא)|הצעת\s+מחיר|עלות|(?:תחשב|חשב)(?:\s+לי)?\s+(?:לפי|מחדש|מחיר)', str(text or '')))
 
 
 def closing_intent(text):
@@ -1925,7 +1925,7 @@ def respond_to_kitchen_quote(phone, body, history, prior, batch_rows=None):
     if state is None or not SEND_QUOTES or price_objection(body) or is_callback_request(body):
         return None
     previous = next((m['content'] for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
-    accepting = bool(re.fullmatch(r'כן[.! ]*', body.strip()) and re.search(r'נתקדם להצעה|להכין.{0,15}הצעה',previous))
+    accepting = bool(re.fullmatch(r'כן[.! ]*', body.strip()) and re.search(r'נתקדם להצעה|להכין.{0,15}הצע(?:ה|ת)',previous))
     requested = quote_intent(body) or bool(re.search(r'מחכה.{0,15}להצעה|ממתין.{0,15}להצעה',body)) or accepting
     approved = explicit_quote_approval(body) or bool(
         re.fullmatch(r'כן[.! ]*',body.strip()) and 'לאשר את ההצעה' in previous
