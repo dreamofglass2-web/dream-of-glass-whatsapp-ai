@@ -1,5 +1,5 @@
 import os
-from sliding_policy import FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
+from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
 from crm_records import stamp_new_messages, conversation_status
@@ -2759,7 +2759,9 @@ def process_message(phone, body, batch_rows=None):
                 if not (re.fullmatch(r'\s*\d{2,3}\s*',customer_request) and 'גובה' in previous):
                     data['height_cm']=None
             previous_spatial_question=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
-            if spatial_answer(customer_request, previous_spatial_question):
+            prior = bind_spatial_measurement(prior, data, customer_request, previous_spatial_question)
+            if (spatial_answer(customer_request, previous_spatial_question) or
+                    (spatial_measurement_field(previous_spatial_question) and not re.search(r'רוחב|גובה',customer_request))):
                 # A clearance or room depth is not a glass opening dimension.
                 for key in ('width_cm','second_width_cm','height_cm'):
                     data[key]=prior.get(key)

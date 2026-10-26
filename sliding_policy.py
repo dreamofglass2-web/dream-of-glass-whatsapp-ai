@@ -1,7 +1,7 @@
 """Owner-defined minimum opening width for recommending or quoting sliding doors."""
 import math
 MIN_SLIDING_WIDTH_CM=140
-POLICY='מקלחון הזזה אפשר להציע ולתמחר רק ברוחב פתח של 140 ס״מ ומעלה. מתחת ל־140 לא להציע הזזה גם אם יש אסלה קרובה. לבקש צילום ומרווחים כדי לבחון פתרון אחר, בלי להבטיח מפתח כניסה או התאמת צירים. רוחב לא ידוע מחייב בירור לפני המלצה. 140 הוא סף כניסה לבדיקה ולא הבטחת התאמה. אם אין ללקוח תמונה, לא לבקש אותה שוב: להתחיל מתיאור מיקום האסלה ובהמשך לברר מרווח, שאלה אחת בכל פעם. תיאור אינו אישור התאמה מקצועית.'
+POLICY='מקלחון הזזה אפשר להציע ולתמחר רק ברוחב פתח של 140 ס״מ ומעלה. מתחת ל־140 לא להציע הזזה גם אם יש אסלה קרובה. לבקש צילום ומרווחים כדי לבחון פתרון אחר, בלי להבטיח מפתח כניסה או התאמת צירים. רוחב לא ידוע מחייב בירור לפני המלצה. 140 הוא סף כניסה לבדיקה ולא הבטחת התאמה. אם אין ללקוח תמונה, לא לבקש אותה שוב: לברר מה נמצא ליד הפתח, מיקום המכשול שהלקוח ציין ובהמשך מרווח, שאלה אחת בכל פעם. תיאור אינו אישור התאמה מקצועית.'
 
 def narrow_opening(specs):
     width=specs.get('width_cm')
@@ -63,7 +63,7 @@ def respect_missing_customer_photo(reply, specs, customer):
         return verbal_clearance_question(specs)
     return reply
 
-FIT_REVIEW_REPLY='כדי לא לאשר פתיחה שעלולה להפריע לאסלה, נדרשת בדיקת התאמה של אלירן לפי התיאור והמרווחים שמסרת.'
+FIT_REVIEW_REPLY='כדי לא לאשר פתיחה שעלולה להתנגש במכשול ליד הפתח, נדרשת בדיקת התאמה של אלירן לפי התיאור והמרווחים שמסרת.'
 
 def spatial_answer(customer, previous):
     import re
@@ -105,3 +105,28 @@ def unknown_width_slider_reply(reply, specs):
             'וגם אז ההתאמה תלויה במרווחים בשטח.')
     rest=' '.join(part for part in parts if not recommends(part))
     return caveat+(' '+rest if rest else '')
+
+
+def spatial_measurement_field(previous):
+    import re
+    text=str(previous or '')
+    if re.search(r'מרווח|מרחק',text) and re.search(r'אסלה|ארון',text):
+        return 'obstacle_clearance_cm'
+    if 'עומק' in text and re.search(r'מקלחת|מהפתח|קיר',text):
+        return 'shower_depth_cm'
+    return None
+
+
+def bind_spatial_measurement(state, data, customer, previous):
+    """Interpret a natural answer only in the measurement question's context."""
+    import re
+    written=str(customer or '').split('[לקוח צירף',1)[0].strip()
+    field=spatial_measurement_field(previous)
+    if not field or not written or re.fullmatch(r'(?:לא יודע|לא יודעת|אין לי מושג|לא מדדתי)[.! ]*',written):
+        return state
+    value=data.get(field)
+    if type(value) not in (int,float) or not math.isfinite(value) or value<0 or value>500:
+        return state
+    if field=='shower_depth_cm' and value==0:
+        return state
+    return dict(state,**{field:value})
