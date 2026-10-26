@@ -30,6 +30,18 @@ class ConsultationStateTests(unittest.TestCase):
                      'המטבח קיים, אני רוצה שלא יהיו חריצים עם לכלוך'):
             self.assertIsNone(consultation_plan([{'role':'user','content':text}],{'product':'חיפוי מטבח'},text)['question'])
 
+    def test_semantic_project_evidence_requires_a_literal_customer_source(self):
+        from sales_dialogue import validated_project_evidence,consultation_plan
+        h=[{'role':'user','content':'שלום אני בונה בית וצריך ארבעה מקלחונים'},
+           {'role':'assistant','content':'מה שמך?'}]
+        evidence=validated_project_evidence(h,'אני בונה בית')
+        self.assertEqual(evidence,'אני בונה בית')
+        self.assertIsNone(validated_project_evidence(h,'בית חדש'))
+        self.assertIsNone(validated_project_evidence([{'role':'assistant','content':'אני בונה בית'}],'אני בונה בית'))
+        self.assertIsNone(validated_project_evidence([{'role':'user','content':'[לקוח צירף תמונה שנותח בפועל. בית חדש]'}],'בית חדש'))
+        plan=consultation_plan(h+[{'role':'user','content':'אבי'}],{'product':'מקלחון','project_context_evidence':evidence},'אבי')
+        self.assertNotEqual(plan['step'],'project_context')
+
     def test_customer_confusion_is_not_unfinished_renovation(self):
         history = [
             {'role': 'user', 'content': 'מימין כיור ומשמאל אסלה'},

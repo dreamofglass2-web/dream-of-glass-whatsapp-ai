@@ -182,6 +182,22 @@ def deferred_measurement_reply(history, customer):
     return 'אין בעיה, כשתהיה בדירה שלח את המידות ונמשיך מאותה נקודה. אין צורך למדוד בדיוק, מידות משוערות מספיקות להצעה ראשונית; את המידות הסופיות נבדוק בשטח.'
 
 
+def validated_project_evidence(history, evidence):
+    """Ground semantic project recognition in a literal customer quote."""
+    if not isinstance(evidence,str):
+        return None
+    evidence=' '.join(evidence.split())
+    if not 4<=len(evidence)<=180:
+        return None
+    for message in history:
+        if message.get('role')!='user':
+            continue
+        written=' '.join(str(message.get('content') or '').split('[לקוח צירף',1)[0].split())
+        if evidence in written:
+            return evidence
+    return None
+
+
 def consultation_plan(history, prior, customer):
     """All sales openings use customer evidence, not only technical specs."""
     text=str(customer or '')
@@ -207,7 +223,7 @@ def consultation_plan(history, prior, customer):
     # Project context belongs to the customer, not to the active shower item.
     project_users=' '.join(str(m.get('content') or '') for m in history if m.get('role')=='user')
     users=' '.join(str(m.get('content') or '') for m in messages if m.get('role')=='user')
-    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users))
+    project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users)) or bool(prior.get('project_context_evidence'))
     needs_pattern=r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|נמאס לי.{0,30}(?:לנקות|לכלוך|חריצ)|חריצ.{0,25}לכלוך|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|רוצה.{0,30}קל לנקות|כניסה נוחה|להפריד.{0,15}(?:חלל|חדר)'
     needs=bool(re.search(needs_pattern,users))
     # An explicitly shared project need precedes the per-item specifications.

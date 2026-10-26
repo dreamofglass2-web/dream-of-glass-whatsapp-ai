@@ -432,6 +432,18 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
                 self.assertNotIn('כמה מרווח',reply)
                 self.assertFalse(self.documents)
 
+    def test_building_home_project_is_not_reasked_after_name_in_four_item_order(self):
+        self.memory[self.phone]=([],{'sales_discovery_completed':False})
+        reply=self.step('שלום אני בונה בית וצריך ארבעה מקלחונים',self.model('זה לבית חדש או לשיפוץ?',project_context_evidence='אני בונה בית'))
+        self.assertNotIn('לבית חדש',reply)
+        self.assertIn('מה שמך',reply)
+        self.assertEqual(self.memory[self.phone][1]['project_context_evidence'],'אני בונה בית')
+        reply=self.step('אבי',self.model('זה לבית חדש, לשיפוץ או להחלפת מקלחון קיים?'))
+        self.assertNotIn('לבית חדש',reply)
+        self.assertIn('חשוב',reply)
+        self.assertEqual(self.memory[self.phone][1]['expected_sales_item_count'],4)
+        self.assertFalse(self.documents)
+
     def test_leaving_to_check_elsewhere_stops_pending_quote_without_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח?'}],
             {'product':'מקלחון','quote_requested':True})
