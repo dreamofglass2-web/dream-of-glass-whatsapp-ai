@@ -70,6 +70,7 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
                         [{'text':'פתיחת ה־CRM','url':'https://yossi-david-crm-demo.abloompetal2.chatgpt.site'}]]}}
                 if reason in ('הכנת הצעת מחיר על ידי אלירן', 'משימת חזרה ללקוח'):
                     payload['text'] = reason + '\n' + customer_text + '\nהסיכום והמשימה בכרטיס הלקוח ב־CRM.'
+                    payload['reply_markup']['inline_keyboard'][0][0]['url'] = link
                 response = http.post('https://api.telegram.org/bot' + bot_token + '/sendMessage',
                                      json=payload, timeout=15)
                 result = response.json() if response.ok else {}

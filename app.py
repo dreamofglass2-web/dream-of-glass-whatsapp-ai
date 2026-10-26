@@ -2198,6 +2198,11 @@ def owner_work_request(phone, body, history, context, reason, reply=None):
     ensure_db()
     with db_connection() as conn:
         with conn.cursor() as cur:
+            phone_lock(cur, phone)
+            current = read_handoff_state(cur, phone)
+            scope = getattr(_delivery_scope, 'current', None) or {}
+            if current['owner'] == 'operator' or scope.get('handoff_revision') != current['revision']:
+                return True
             state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat())
             if reason == QUOTE_REASON:
                 cur.execute("UPDATE glass_leads SET status='ממתין לתמחור', updated_at=now() WHERE phone=%s", (phone,))
@@ -2343,7 +2348,8 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone,body=reply)
             save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
             return True
-        if is_callback_request(body) and not escalation_reason(body) and HANDOFF_ENABLED:
+        if (is_callback_request(body) and HANDOFF_ENABLED and
+                escalation_reason(body) in (None, 'הלקוח ביקש אדם או דיווח שהשיחה אינה מתקדמת')):
             if has_new_messages(phone, batch_rows):
                 return False
             preferred = callback_time_from_text(body)
@@ -2888,6 +2894,8 @@ def process_message(phone, body, batch_rows=None):
                     reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
             if (HANDOFF_ENABLED and not quote_is_shower and
                     unavailable_quote(reply, data, prior, history)):
+                if has_new_messages(phone, batch_rows):
+                    return False
                 request_context = dict(prior)
                 request_context.update({k:v for k,v in data.items() if v is not None and k != 'reply'})
                 return owner_work_request(phone, body, history, request_context, QUOTE_REASON,
