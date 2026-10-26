@@ -60,3 +60,9 @@ class OwnerRequestTests(unittest.TestCase):
         self.assertIn('10:00',work.call_args.args[3]['callback_preferred_time'])
         self.assertNotIn('טרם תואם',work.call_args.args[3]['callback_preferred_time'])
         ai.assert_not_called()
+
+    def test_location_only_does_not_volunteer_showroom_information(self):
+        for text in ['מאיפה אתם?', 'איפה אתם נמצאים', 'תגיד מאיפה אתם']:
+            send,save,callback,work,pause,ai=self.run_turn(text)
+            self.assertEqual(send.call_args.kwargs['body'],'אנחנו מרמלה.')
+            ai.assert_not_called();work.assert_not_called()

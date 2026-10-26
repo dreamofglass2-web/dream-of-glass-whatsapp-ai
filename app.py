@@ -2366,6 +2366,13 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], safe_context)
             return True
+        if re.fullmatch(r'\s*(?:היי[,\s]+)?(?:תגיד[ו]?[,\s]+)?(?:מאיפה אתם|מאיפה אתה|איפה אתם נמצאים|איפה אתם|איפה העסק|באיזו עיר אתם|מאיפה בארץ אתם)[?!.\s]*', body):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'אנחנו מרמלה.'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], prior)
+            return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
