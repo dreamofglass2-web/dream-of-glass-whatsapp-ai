@@ -3293,7 +3293,7 @@ def process_message(phone, body, batch_rows=None):
                 if complete_order:
                     reply=bundle_offer_reply(complete_order)
                     issuing_order=True
-            direct_information = bool(re.search(r'אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
+            direct_information = bool(re.search(r'איזה\s+אסלה|(?:לא|אין)\s+(?:שם\s+)?אסלה|אחריות|תמונה|תמונות|דוגמה|דוגמאות|ידית|ידיות|מי אתה|דיגיטלי|שעות|מתקינים|אזור שירות', customer_request)) and not quote_intent(customer_request)
             if discovery_question and ordinary_turn and not direct_information and not photos:
                 if not preserves_consultation_step(reply, sales_plan):
                     reply = discovery_question
@@ -3313,7 +3313,7 @@ def process_message(phone, body, batch_rows=None):
                     reply='נמשיך עם פרטי העבודה שסיכמנו.'
             if ordinary_turn and is_shower and not quote_record.get('issued'):
                 users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
-                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון|להחליף מקלחון|מקלחון קיים',users))
+                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון|להחליף מקלחון|מקלחון קיים|(?:להחליף|מחליף|מחליפה|מחליפים)\s+(?:את\s+)?(?:הישן|ישן|הקיים|קיים)',users))
                 if not prior_shower and re.search(r'המקלחון הקודם|המקלחון שהשתמשת|מקלחון שהשתמשת',reply):
                     reply='היה לך מקלחון עד היום, או שהמקלחת הייתה פתוחה או עם וילון?'
                 if (not merged_pricing.get('width_cm') and re.search(r'פינתי|בפינה|פינה',users)

@@ -391,6 +391,32 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
         self.assertFalse(self.documents)
         self.assertEqual(self.memory[self.phone][1]['layout_geometry'],'front')
 
+    def test_narrow_opening_reply_does_not_invent_toilet_and_correction_is_answered(self):
+        from sliding_policy import sliding_limit_reply
+        answer=sliding_limit_reply({'product':'מקלחון','width_cm':139})
+        self.assertIn('140',answer)
+        self.assertNotIn('אסלה',answer)
+        self.memory[self.phone]=([{'role':'user','content':'יש לי פתח 139, רוצה הזזה'},
+            {'role':'assistant','content':'אפשר לשלוח צילום של הפתח והאסלה?'}],
+            {'product':'מקלחון','width_cm':139,'sales_discovery_completed':False})
+        reply=self.step('איזה אסלה? יש שם ארון',self.model('הבנתי, ליד הפתח יש ארון. אפשר צילום של הפתח והארון כדי לבדוק מרווח לפתיחה?'))
+        self.assertIn('יש ארון',reply)
+        self.assertNotIn('בית חדש',reply)
+        self.assertNotIn('מה שמך',reply)
+        self.assertFalse(self.documents)
+
+    def test_replacing_old_one_in_shower_context_does_not_reask_if_there_was_a_shower(self):
+        for text in ('להחליף את הישן','להחליף ישן','אני מחליף את הישן'):
+            with self.subTest(text=text):
+                self.memory[self.phone]=([{'role':'user','content':'צריך מקלחון'},
+                    {'role':'assistant','content':'זה לבית חדש, לשיפוץ או להחלפת מקלחון קיים?'},
+                    {'role':'user','content':text},{'role':'assistant','content':'מה שמך?'}],
+                    {'product':'מקלחון','customer_name':'רועי','sales_discovery_completed':False})
+                reply=self.step('רועי',self.model('איך המקלחון הקודם היה לך בשימוש, ומה היית רוצה לשפר?'))
+                self.assertIn('מה היית רוצה לשפר',reply)
+                self.assertNotIn('וילון',reply)
+                self.assertNotIn('היה לך מקלחון עד היום',reply)
+
     def test_leaving_to_check_elsewhere_stops_pending_quote_without_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח?'}],
             {'product':'מקלחון','quote_requested':True})
