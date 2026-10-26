@@ -301,6 +301,7 @@ class OwnerReturnPostgres(unittest.TestCase):
                 write_state(cur,self.phone,dict(new_state(),revision=3))
                 cur.execute('UPDATE glass_leads SET context=%s::jsonb WHERE phone=%s',
                             (json.dumps({'product':'מראה','customer_name':'מיכאל'}),self.phone))
+        yossi._delivery_scope.current={'handoff_revision':3}
         response={'reply':'מיכאל, הפרטים להכנת ההצעה קיימים, אבל עדיין אין לי מחיר מחושב ולכן קובץ ההצעה עוד לא מוכן.',
                   'product':'מראה','needs_human':False}
         with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(response))), \
@@ -323,6 +324,7 @@ class OwnerReturnPostgres(unittest.TestCase):
             with db.cursor() as cur:
                 write_state(cur,self.phone,dict(new_state(),revision=3))
                 cur.execute("UPDATE glass_leads SET conversation='[]'::jsonb,context='{}'::jsonb WHERE phone=%s",(self.phone,))
+        yossi._delivery_scope.current={'handoff_revision':3}
         with patch.object(yossi.client.responses,'create') as ai, patch.object(yossi,'send_whatsapp') as send, patch.object(yossi,'has_new_messages',return_value=False):
             self.assertTrue(yossi.process_message(self.phone,'היי תתקשרו אליי בבקשה'))
             self.assertIn('מתי נוח',send.call_args.kwargs['body'])
@@ -339,3 +341,4 @@ class OwnerReturnPostgres(unittest.TestCase):
         self.assertEqual(state['owner'],'operator')
         self.assertIn('10:00',state['summary'])
         self.assertEqual(state['escalation']['notificationStatus'],'not_configured')
+
