@@ -104,3 +104,25 @@ class KitchenDeliveryTests(unittest.TestCase):
                 self.assertEqual(specification['socket_count'],3)
                 self.assertFalse(yossi.contains_ils_amount(reply))
                 self.assertFalse(self.memory[self.phone][1]['kitchen_offer']['approved'])
+
+
+    def test_kitchen_picture_request_never_sends_shower_fallback_gallery(self):
+        self.memory[self.phone]=([{'role':'assistant','content':'בחרנו חיפוי מטבח לבן.'}],{'product':'חיפוי מטבח'})
+        catalog=[{'product':'מקלחון','configuration':'חזית קבוע + דלת','glass':'שקופה','url':'https://example.test/shower'}]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog),patch.object(yossi,'HANDOFF_ENABLED',True), \
+             patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection'), \
+             patch.object(yossi,'read_handoff_state',return_value=new_state()),patch.object(yossi,'phone_lock'), \
+             patch.object(yossi,'pause_for_owner',return_value=True) as pause:
+            self.ai.queue.append(self.model('מצרף דוגמאות מהעבודות שלנו.',product='חיפוי מטבח',send_glass_images=True))
+            self.assertTrue(yossi.process_message(self.phone,'יש לך תמונה לראות איך זה נראה?'))
+        self.assertEqual(self.sent,[])
+        pause.assert_called_once()
+        self.assertIn('תמונה מבוקשת',pause.call_args.args[2])
+
+
+    def test_existing_approved_kitchen_photo_is_selected_instead_of_showers(self):
+        catalog=[{'product':'מקלחון','glass':'שקופה','url':'https://example.test/shower'},
+                 {'product':'חיפוי מטבח','glass':'לבן','url':'https://example.test/kitchen','caption':'חיפוי מטבח לבן'}]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog):
+            selected=yossi.pick_portfolio_photos('יש לך תמונה לראות איך זה נראה?',context={'product':'חיפוי מטבח'})
+        self.assertEqual(selected,[catalog[1]])
