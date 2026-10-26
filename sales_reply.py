@@ -152,6 +152,10 @@ def sales_output_format(configurations, glass_types, finishes):
         properties[field]={'type':['string','null'],'enum':list(values)+[None]}
     for field in ('width_cm','second_width_cm','height_cm'):
         properties[field]={'type':['number','null']}
+    for field,description in (
+            ('obstacle_clearance_cm','Current customer answer to the latest question about clearance between a cabinet/toilet and shower opening, in cm. Not opening width. Extract spoken numbers and compound answers; null if not explicitly supplied in customer text.'),
+            ('shower_depth_cm','Current customer answer to the latest question about shower depth from opening to back wall, in cm. Not opening width or height. Null if not explicitly supplied in customer text.')):
+        properties[field]={'type':['number','null'],'description':description}
     properties['cladding_type']={'type':['string','null'],'enum':['צבע','הדפסה',None]}
     properties['cladding_color']={'type':['string','null']}
     properties['socket_count']={'type':['integer','null'],'minimum':0}

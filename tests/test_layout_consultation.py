@@ -417,6 +417,21 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
                 self.assertNotIn('וילון',reply)
                 self.assertNotIn('היה לך מקלחון עד היום',reply)
 
+    def test_compound_or_spoken_clearance_answer_does_not_become_opening_width(self):
+        for customer in ('בערך 20 סנטימטר, אבל מישהו אחר אמר לי שהזזה כן תתאים',
+                         'משהו כמו עשרים סנטימטר'):
+            with self.subTest(customer=customer):
+                self.memory[self.phone]=([{'role':'assistant','content':'כמה מרווח בערך יש בין הארון לפתח המקלחת?'}],
+                    {'product':'מקלחון','width_cm':139,'obstacle_type':'ארון','obstacle_side':'משמאל',
+                     'customer_photo_unavailable':True,'sales_discovery_completed':True})
+                reply=self.step(customer,self.model('צריך לבדוק עוד את הפתיחה. אפשר לשלוח צילום?',width_cm=20,obstacle_clearance_cm=20))
+                state=self.memory[self.phone][1]
+                self.assertEqual(state['width_cm'],139)
+                self.assertEqual(state['obstacle_clearance_cm'],20)
+                self.assertIn('עומק',reply)
+                self.assertNotIn('כמה מרווח',reply)
+                self.assertFalse(self.documents)
+
     def test_leaving_to_check_elsewhere_stops_pending_quote_without_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח?'}],
             {'product':'מקלחון','quote_requested':True})
@@ -428,6 +443,18 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
         self.assertFalse(self.memory[self.phone][1]['quote_requested'])
         self.assertFalse(self.documents)
         self.assertIsNone(yossi.customer_boundary('לא אבדוק במקום אחר, רוצה להמשיך איתך'))
+
+
+class SpatialMeasurementBindingTests(unittest.TestCase):
+    def test_measurements_require_the_actual_question_and_valid_current_answer(self):
+        from sliding_policy import bind_spatial_measurement
+        question='כמה מרווח יש בין הארון לפתח?'
+        for invalid in (-1,501,float('nan'),float('inf'),True):
+            self.assertEqual(bind_spatial_measurement({}, {'obstacle_clearance_cm':invalid},'עשרים',question),{})
+        self.assertEqual(bind_spatial_measurement({}, {'obstacle_clearance_cm':20},'עשרים','מה שמך?'),{})
+        self.assertEqual(bind_spatial_measurement({}, {'obstacle_clearance_cm':20},'אין לי מושג',question),{})
+        self.assertEqual(bind_spatial_measurement({}, {'obstacle_clearance_cm':20},'[לקוח צירף תמונה שנותח בפועל. מרווח 20]',question),{})
+        self.assertEqual(bind_spatial_measurement({}, {'obstacle_clearance_cm':0},'הוא צמוד לגמרי',question)['obstacle_clearance_cm'],0)
 
 
 class FixturePhotoFallbackTests(unittest.TestCase):
