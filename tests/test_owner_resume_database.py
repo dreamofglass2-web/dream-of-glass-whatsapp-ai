@@ -306,12 +306,36 @@ class OwnerReturnPostgres(unittest.TestCase):
         with patch.object(yossi.client.responses,'create',return_value=types.SimpleNamespace(output_text=json.dumps(response))), \
              patch.object(yossi,'send_whatsapp') as send,patch.object(yossi,'has_new_messages',return_value=False):
             self.assertTrue(yossi.process_message(self.phone,'תודה מחכה להצעה'))
-        send.assert_not_called()
+        send.assert_called_once()
+        self.assertEqual(send.call_args.kwargs['body'],'אוקי, אני מכין לך הצעת מחיר.')
         with connect() as db:
             with db.cursor() as cur:
                 held=yossi.read_handoff_state(cur,self.phone)
         self.assertEqual(held['owner'],'operator')
         self.assertTrue(held['escalation']['active'])
         self.assertIn('מחיר',held['escalation']['reason'])
-        self.assertEqual(held['escalation']['customerText'],'תודה מחכה להצעה')
+        self.assertIn('תודה מחכה להצעה',held['escalation']['customerText'])
+        self.assertIn('תודה מחכה להצעה',held['summary'])
         self.assertEqual(held['escalation']['notificationStatus'],'not_configured')
+
+    def test_callback_time_is_saved_with_owner_task_summary_and_alert(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                write_state(cur,self.phone,dict(new_state(),revision=3))
+                cur.execute("UPDATE glass_leads SET conversation='[]'::jsonb,context='{}'::jsonb WHERE phone=%s",(self.phone,))
+        with patch.object(yossi.client.responses,'create') as ai, patch.object(yossi,'send_whatsapp') as send, patch.object(yossi,'has_new_messages',return_value=False):
+            self.assertTrue(yossi.process_message(self.phone,'היי תתקשרו אליי בבקשה'))
+            self.assertIn('מתי נוח',send.call_args.kwargs['body'])
+            self.assertTrue(yossi.process_message(self.phone,'מחר בשעה 10'))
+            ai.assert_not_called()
+        with connect() as db:
+            with db.cursor() as cur:
+                state=yossi.read_handoff_state(cur,self.phone)
+                cur.execute('SELECT status,callback_time,callback_request_id FROM glass_leads WHERE phone=%s',(self.phone,))
+                status,preferred,identity=cur.fetchone()
+        self.assertEqual(status,'ממתין לחזרה')
+        self.assertIn('10:00',preferred)
+        self.assertTrue(identity)
+        self.assertEqual(state['owner'],'operator')
+        self.assertIn('10:00',state['summary'])
+        self.assertEqual(state['escalation']['notificationStatus'],'not_configured')

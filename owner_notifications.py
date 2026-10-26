@@ -49,7 +49,7 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
                 alert['notificationStatus'] = 'sending'
                 write_state(cur, phone, state)
                 identity, reason = alert['id'], alert['reason']
-                customer_text = str(alert.get('customerText') or '')[:500]
+                customer_text = str(alert.get('customerText') or '')[:1800]
                 alert['notificationChannel'] = 'telegram' if telegram else 'whatsapp'
                 write_state(cur, phone, state)
         recipient, template, language = config
@@ -68,6 +68,8 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
                     'link_preview_options':{'is_disabled':True},
                     'reply_markup':{'inline_keyboard':[
                         [{'text':'פתיחת ה־CRM','url':'https://yossi-david-crm-demo.abloompetal2.chatgpt.site'}]]}}
+                if reason in ('הכנת הצעת מחיר על ידי אלירן', 'משימת חזרה ללקוח'):
+                    payload['text'] = reason + '\n' + customer_text + '\nהסיכום והמשימה בכרטיס הלקוח ב־CRM.'
                 response = http.post('https://api.telegram.org/bot' + bot_token + '/sendMessage',
                                      json=payload, timeout=15)
                 result = response.json() if response.ok else {}

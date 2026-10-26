@@ -11,6 +11,7 @@ import re
 import hmac
 import hashlib
 import secrets
+from owner_requests import conversation_summary, unavailable_quote, QUOTE_REASON, CALLBACK_REASON
 from callback_store import save_callback_record
 from owner_escalation import escalation_reason, planning_clarification, planning_explanation, simple_name_correction
 from owner_notifications import dispatch_owner_alerts, alert_configuration
@@ -360,7 +361,7 @@ def last_assistant_asked_callback(history):
     for item in reversed(history[:-1]):
         if item.get('role') == 'assistant':
             text = str(item.get('content', ''))
-            return ('מתי נוח' in text and ('לחזור' in text or 'יחזור' in text or 'שנבקש' in text))
+            return ('מתי נוח' in text and ('לחזור' in text or 'יחזור' in text or 'שנבקש' in text or 'נתקשר' in text))
     return False
 
 
@@ -2178,7 +2179,31 @@ def pause_for_owner(phone, body, reason):
     with db_connection() as conn:
         with conn.cursor() as cur:
             state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat())
+            cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s', (phone,))
+            row = cur.fetchone()
+            if row and isinstance(row[0], list):
+                state['summary'] = conversation_summary(row[0], reason)
+                write_handoff_state(cur, phone, state)
     app.logger.warning('OWNER_ESCALATION_PAUSED reason=%s', reason)
+    return True
+
+
+def owner_work_request(phone, body, history, context, reason, reply=None):
+    """Persist customer-facing acknowledgement and durable owner request."""
+    summary = conversation_summary(history, reason, context.get('callback_preferred_time'))
+    if reply:
+        send_whatsapp(phone, body=reply)
+        history = history + [{'role':'assistant','content':reply}]
+    save_conversation(phone, history, context)
+    ensure_db()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat())
+            if reason == QUOTE_REASON:
+                cur.execute("UPDATE glass_leads SET status='ממתין לתמחור', updated_at=now() WHERE phone=%s", (phone,))
+            state['summary'] = summary
+            state['escalation']['customerText'] = summary[:1800]
+            write_handoff_state(cur, phone, state)
     return True
 
 
@@ -2317,6 +2342,21 @@ def process_message(phone, body, batch_rows=None):
             safe_context=dict(prior,needs_human=False)
             send_whatsapp(phone,body=reply)
             save_conversation(phone,history+[{'role':'assistant','content':reply}],safe_context)
+            return True
+        if is_callback_request(body) and not escalation_reason(body) and HANDOFF_ENABLED:
+            if has_new_messages(phone, batch_rows):
+                return False
+            preferred = callback_time_from_text(body)
+            if not save_callback(phone, preferred):
+                return pause_for_owner(phone, body, 'תקלה בשמירת בקשת חזרה')
+            safe_context = dict(prior, callback_pending=True)
+            if preferred:
+                safe_context['callback_preferred_time'] = preferred
+                return owner_work_request(phone, body, history, safe_context, CALLBACK_REASON,
+                    f'בשמחה, רשמתי בקשה לחזור אליך {preferred}.')
+            reply = 'בשמחה, מתי נוח לך שנתקשר?'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], safe_context)
             return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
@@ -2500,7 +2540,7 @@ def process_message(phone, body, batch_rows=None):
             return True
         # Handle a time answer before AI: otherwise needs_human can repeat the
         # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
-        callback_answer = (is_callback_time_answer(body) and
+        callback_answer = ((is_callback_time_answer(body) or (prior.get('callback_pending') and re.fullmatch(r'\s*(?:עכשיו|מתי שאפשר|בבוקר|בערב|בצהריים|אחרי הצהריים)[.!\s]*', body))) and
                            (waiting_for_callback_time(phone) or
                             (last_assistant_asked_callback(history) and not (handoff and handoff.get('silenced_callback_id')))))
         if callback_answer:
@@ -2509,6 +2549,8 @@ def process_message(phone, body, batch_rows=None):
             if safe_context.get('callback_requested_day') == 'מחר' and 'מחר' not in body and 'היום' not in body:
                 scheduling_text = 'מחר ' + body
             preferred = callback_time_from_text(scheduling_text)
+            if not preferred and prior.get('callback_pending') and re.search(r'בערב|בבוקר|בצהריים|אחרי הצהריים|עכשיו|מתי שאפשר', body):
+                preferred = body.strip()[:120] + ' (העדפת הלקוח, לא מועד מאושר)'
             if preferred:
                 if has_new_messages(phone, batch_rows):
                     return False
@@ -2516,6 +2558,9 @@ def process_message(phone, body, batch_rows=None):
                     reply = f'בשמחה 😊 רשמתי בקשה שאלירן יחזור אליך {preferred}.'
                     with lock:
                         callback_leads[phone] = {'status':'callback_requested', 'preferred_time':preferred}
+                    if HANDOFF_ENABLED:
+                        safe_context['callback_preferred_time'] = preferred
+                        return owner_work_request(phone, body, history, safe_context, CALLBACK_REASON, reply)
                 else:
                     reply = 'יש כרגע תקלה בשמירת מועד החזרה, אז לא אוכל לאשר שהוא נרשם. אפשר לנסות שוב בעוד כמה דקות?'
                 send_whatsapp(phone, body=reply)
@@ -2841,6 +2886,12 @@ def process_message(phone, body, batch_rows=None):
                 data['quote_requested'] = True
                 if not safe_quote_wording(consultant_reply, calculate_quote(quote_specs)):
                     reply = 'אפשר לחשב את ההצעה לפי הפרטים שסיכמנו.'
+            if (HANDOFF_ENABLED and not quote_is_shower and
+                    unavailable_quote(reply, data, prior, history)):
+                request_context = dict(prior)
+                request_context.update({k:v for k,v in data.items() if v is not None and k != 'reply'})
+                return owner_work_request(phone, body, history, request_context, QUOTE_REASON,
+                                          'אוקי, אני מכין לך הצעת מחיר.')
             # A missing ordinary planning detail is recoverable by clarification.
             # Never reuse a possibly unsafe model answer or alter confirmed specifications.
             explanation = planning_explanation(customer_request, prior, history) if data.get('needs_human') is True else None
@@ -3398,6 +3449,10 @@ def process_message(phone, body, batch_rows=None):
 
             reply = no_discount_reply(reply)
 
+            if (HANDOFF_ENABLED and not issuing_order and not quote_record.get('issued')
+                    and unavailable_quote(reply, data, prior, history)):
+                return owner_work_request(phone, body, history, quote_state, QUOTE_REASON,
+                                          'אוקי, אני מכין לך הצעת מחיר.')
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
