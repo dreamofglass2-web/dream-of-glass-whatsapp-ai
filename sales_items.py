@@ -157,7 +157,10 @@ def numbered_item(text):
     # A cardinal count of panels is not the ordinal second shower.
     if re.match(r'^\s*שני\s+(?:קבועים|מקלחונים|חלקים|צדדים|לוחות|דלתות)\b', text):
         return None
-    matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|אמבטיון\s*(?:ה)?|^(?:ה)?)(ראשון|שני|שלישי|רביעי|חמישי|שישי)\b', text)
+    # Customers refer back to items with prefixed ordinals such as בראשון.
+    # City and calendar references must not select an order item.
+    text = re.sub(r'\b(?:ב|ל)?ראשון\s+לציון\b|\b(?:ב|ל)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)\s+(?:לחודש|בחודש|בינואר|בפברואר|במרץ|באפריל|במאי|ביוני|ביולי|באוגוסט|בספטמבר|באוקטובר|בנובמבר|בדצמבר)\b', '', text)
+    matches = re.findall(r'(?:מקלחון\s*(?:ה)?|למקלחון\s*(?:ה)?|אמבטיון\s*(?:ה)?|^(?:[בל])?(?:ה)?)(ראשון|שני|שלישי|רביעי|חמישי|שישי)\b', text.strip())
     return ORDINALS.get(matches[-1]) if matches else None
 
 

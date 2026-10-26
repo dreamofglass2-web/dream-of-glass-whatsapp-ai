@@ -99,6 +99,7 @@ def retain_known_quote_choices(prior, data, customer):
         return data
     result=dict(data)
     changes={
+        'product':r'מקלחון|אמבטיון|אמבטיה|חיפוי|מראה|מעקה|מחיצה',
         'configuration':r'דלת|קבוע|פינתי|חזית|הזזה|הרמוניקה|בין.*קירות',
         'glass_type':r'זכוכית|שקופ|קליר|חלבי|חלבית|אסיד|אנטיסן|פיפיטה|ברונזה',
         'finish':r'פרזול|גוון|צבע|שחור|ניקל|גרפיט|ברונזה|זהב|לבן|כרום',
@@ -111,6 +112,8 @@ def retain_known_quote_choices(prior, data, customer):
     for field,pattern in changes.items():
         if (prior or {}).get(field) is not None and (past or not re.search(pattern,customer)):
             result[field]=prior[field]
+    if (prior or {}).get('solution_agreed') and 'פינתי' not in str((prior or {}).get('configuration') or '') and not re.search(changes['second_width_cm'],customer):
+        result['second_width_cm']=(prior or {}).get('second_width_cm')
     return result
 
 ROSE_GOLD = re.compile(r'(?<![\w])(?:רוז[\s-]*גולד|רוזגולד|rose[\s-]*gold)(?![\w])', re.I)
@@ -163,6 +166,7 @@ def sales_output_format(configurations, glass_types, finishes):
     properties['handles']={'type':['array','null'],'items':{'type':'string','enum':['ידית כפתור','ידית מגבת']}}
     for field in ('quote_requested','solution_agreed','needs_human','send_handle_images','send_glass_images'):
         properties[field]={'type':'boolean'}
+    properties['quote_requested']['description']='True only when the current customer requests preparing, updating or resending a quote document. False for price objections, quantity-discount bargaining, budget concerns or questions about an already issued offer.'
     return {'type':'json_schema','name':'yossi_sales_turn','strict':True,
             'schema':{'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}}
 

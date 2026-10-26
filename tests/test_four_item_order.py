@@ -77,6 +77,46 @@ class SliderConversationTests(unittest.TestCase):
     step=sim.ConversationSimulation.step
     model=sim.ConversationSimulation.model
 
+    def issued_four_item_state(self):
+        corner=dict(product='מקלחון', configuration='פינתי 2 דלתות', width_cm=90,
+                    second_width_cm=90, glass_type='שקופה', finish='ניקל',
+                    handles=['ידית כפתור']*2, solution_agreed=True)
+        front=dict(corner, configuration='חזית קבוע + דלת', width_cm=150,
+                   second_width_cm=None, handles=['ידית כפתור'])
+        bath=dict(front, product='אמבטיון', configuration='אמבטיון קבוע + דלת', width_cm=130)
+        state=dict(bath, active_sales_item='4', expected_sales_item_count=4,
+                   customer_name='אבי', sales_discovery_completed=True,
+                   sales_items={'1':corner,'2':dict(corner),'3':front,'4':bath})
+        state['combined_offer']=dict(bundle_offer(state,yossi.calculate_quote),issued=True,approved=False)
+        return state
+
+    def test_bulk_price_bargaining_answers_instead_of_resending_issued_pdf(self):
+        state=self.issued_four_item_state()
+        self.memory[self.phone]=([{'role':'assistant','content':'מתאים לך לאשר את ההצעה המלאה?'}],state)
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step('על ארבעה אין איזה מחיר?',self.model('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.'))
+        self.assertEqual(self.documents,[])
+        self.assertEqual(reply,'אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.')
+        self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
+
+    def test_natural_first_finish_revision_keeps_other_three_specs(self):
+        from copy import deepcopy
+        state=self.issued_four_item_state()
+        original=deepcopy(state['sales_items'])
+        self.memory[self.phone]=([{'role':'assistant','content':'מתאים לך לאשר את ההצעה המלאה?'}],state)
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            self.step('בראשון תעשה שחור',self.model('מצרף הצעה מעודכנת.',finish='שחור',quote_requested=True))
+        self.assertEqual(len(self.documents),1)
+        offer=self.documents[0]
+        self.assertEqual(offer['items'][0]['specification']['finish'],'שחור')
+        for index in (1,2,3):
+            spec=offer['items'][index]['specification']
+            prior=original[str(index+1)]
+            for field in ('product','configuration','width_cm','second_width_cm','finish','glass_type','handles'):
+                self.assertEqual(spec.get(field),prior.get(field),(index,field))
+        self.assertNotEqual(offer['fingerprint'],state['combined_offer']['fingerprint'])
+        self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
+
     def test_model_towel_option_is_removed_and_slider_only_keeps_button(self):
         specs={'product':'מקלחון','configuration':'הזזה קבוע + דלת','width_cm':150,
                'glass_type':'אנטיסן ברונזה','finish':'גרפיט','solution_agreed':True,'sales_discovery_completed':True}
