@@ -2366,6 +2366,13 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], safe_context)
             return True
+        if re.fullmatch(r'\s*(?:היי[,\s]+)?(?:מה\s+)?(?:שעות ה?(?:פעילות|עבודה|פתיחה)(?: שלכם)?|מתי אתם (?:פתוחים|עובדים)|באילו שעות אתם עובדים)[?!.\s]*', body):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'שעות הפעילות שלנו הן בימים ראשון עד חמישי, 08:00–20:00. בשישי ובשבת אנחנו לא עובדים.'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], prior)
+            return True
         if re.fullmatch(r'\s*(?:היי[,\s]+)?(?:תגיד[ו]?[,\s]+)?(?:מאיפה אתם|מאיפה אתה|איפה אתם נמצאים|איפה אתם|איפה העסק|באיזו עיר אתם|מאיפה בארץ אתם)[?!.\s]*', body):
             if has_new_messages(phone, batch_rows):
                 return False
