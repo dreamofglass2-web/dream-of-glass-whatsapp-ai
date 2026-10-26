@@ -128,3 +128,49 @@ class SliderConversationTests(unittest.TestCase):
         self.assertNotEqual(state.get('configuration'),'פינתי 2 דלתות')
         self.assertNotIn('גובה',reply)
         self.assertEqual(self.documents,[])
+
+
+    def test_two_complete_written_specs_send_one_pdf_without_reasking_second_dimensions(self):
+        customer=('משפצים שתי מקלחות, היה לנו וילון וחשוב שיהיה קל לנקות. '+ExplicitNumberedSpecsTests.text)
+        self.memory[self.phone]=([],{})
+        specs={'product':'מקלחון','configuration':'חזית קבוע + דלת','width_cm':120,'height_cm':200,
+               'glass_type':'שקופה','finish':'שחור','handles':['ידית כפתור'],'solution_agreed':True}
+        with patch.object(yossi,'PDF_QUOTES_ENABLED',True):
+            reply=self.step(customer,self.model('מה המידות של השני?',quote_requested=True,**specs))
+        self.assertEqual(len(self.documents),1)
+        self.assertEqual(len(self.documents[0]['items']),2)
+        self.assertNotIn('מה המידות',reply)
+        self.assertEqual(self.documents[0]['items'][1]['specification']['glass_type'],'חלבי')
+
+
+class ExplicitNumberedSpecsTests(unittest.TestCase):
+    text=('אני איתי מראשון לציון. צריך שני מקלחונים שונים והצעה אחת לשניהם. '
+          'הראשון חזית קבוע ודלת 120 על 200, שקוף, שחור וידית כפתור, יש מקום לפתיחת הדלת. '
+          'השני פינתי שתי דלתות 90 על 90 בגובה 200, חלבי, ניקל ושתי ידיות מגבת. '
+          'יש מקום לפתוח את שתי הדלתות. אלה התצורות שאני בוחר.')
+
+    def test_complete_distinct_specs_produce_one_calculated_order(self):
+        from sales_items import explicit_numbered_specs
+        h=[{'role':'user','content':self.text}]
+        items=explicit_numbered_specs(h)
+        self.assertEqual(len(items),2)
+        self.assertEqual(items['1']['height_cm'],200)
+        self.assertNotIn('second_width_cm',items['1'])
+        self.assertEqual(items['2']['second_width_cm'],90)
+        self.assertEqual(items['2']['glass_type'],'חלבי')
+        self.assertEqual(items['2']['handles'],['ידית מגבת']*2)
+        state=item_context({},h,self.text)
+        self.assertIsNotNone(bundle_offer(state,yossi.calculate_quote))
+        self.assertEqual(state['sales_items']['1']['finish'],'שחור')
+        self.assertEqual(state['sales_items']['2']['finish'],'ניקל')
+
+    def test_examples_questions_negation_and_assistant_text_cannot_choose_order(self):
+        from sales_items import explicit_numbered_specs
+        for prefix in ('למשל ', 'אולי ', 'לא רוצה ', 'אפשרות '):
+            self.assertEqual(explicit_numbered_specs([{'role':'user','content':prefix+self.text}]),{})
+        self.assertEqual(explicit_numbered_specs([{'role':'assistant','content':self.text}]),{})
+        self.assertEqual(explicit_numbered_specs([{'role':'user','content':self.text+'?'}]),{})
+
+    def test_partial_or_ambiguous_specs_do_not_copy_choices_between_items(self):
+        from sales_items import explicit_numbered_specs
+        self.assertEqual(explicit_numbered_specs([{'role':'user','content':self.text.replace('חלבי, ניקל ושתי ידיות מגבת','חלבי')}]),{})
