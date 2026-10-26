@@ -15,6 +15,15 @@ class ConsultationStateTests(unittest.TestCase):
         plan=consultation_plan([{'role':'user','content':text}],{'product':'מקלחון','customer_name':'דנה'},text)
         self.assertIn('המקלחון הקודם',plan['question'])
 
+    def test_shared_project_need_is_not_reasked_on_second_shower(self):
+        from sales_dialogue import consultation_plan
+        first='משפצים שתי מקלחות, היה לנו וילון ואני רוצה שיהיה קל לנקות וכניסה נוחה לילדים. הראשון חזית קבוע ודלת. השני פינתי שתי דלתות.'
+        h=[{'role':'user','content':first},{'role':'assistant','content':'נעבור למקלחון השני. מה המידות שלו?'},{'role':'user','content':'90 על 90'}]
+        self.assertIsNone(consultation_plan(h,{'product':'מקלחון','active_sales_item':'2'},'90 על 90')['question'])
+        # Privacy expressed only for the first shower does not describe the second.
+        h[0]['content']='משפצים שני מקלחונים. הראשון צריך פרטיות. השני בחדר אחר.'
+        self.assertIsNotNone(consultation_plan(h,{'product':'מקלחון','active_sales_item':'2'},'90 על 90')['question'])
+
     def test_customer_confusion_is_not_unfinished_renovation(self):
         history = [
             {'role': 'user', 'content': 'מימין כיור ומשמאל אסלה'},

@@ -30,6 +30,59 @@ def slider_specs(specs):
     return result
 
 
+def explicit_numbered_specs(history):
+    """Keep complete customer-written ordinal specifications separate.
+
+    This deliberately handles only unambiguous complete declarations. Questions,
+    alternatives and incomplete descriptions remain in the normal consultation.
+    """
+    result = {}
+    for message in history:
+        if message.get('role') != 'user':
+            continue
+        text = str(message.get('content') or '').split('[לקוח צירף', 1)[0]
+        if re.search(r'[?？]|אולי|מתלבט|למשל|לדוגמה|לא רוצה|לא בוחר|אפשרות|או ', text):
+            continue
+        markers = list(re.finditer(r'(?:^|[.\n]\s*|\s+)(?:המקלחון\s+)?ה(ראשון|שני|שלישי|רביעי)\s+', text))
+        if len(markers) < 2 or len({m[1] for m in markers}) != len(markers):
+            continue
+        parsed = {}
+        for index, marker in enumerate(markers):
+            detail = text[marker.end():markers[index+1].start() if index+1 < len(markers) else len(text)]
+            config = None
+            if re.search(r'חזית\s+קבוע\s*(?:ו|\+)\s*דלת', detail):
+                config = 'חזית קבוע + דלת'
+            elif re.search(r'פינתי\s+(?:שתי|2)\s+דלתות', detail):
+                config = 'פינתי 2 דלתות'
+            elif re.search(r'חזית\s+(?:שתי|2)\s+דלתות', detail):
+                config = 'חזית 2 דלתות'
+            if not config:
+                break
+            pair = re.search(r'(\d{2,3})\s*(?:על|[/xX×])\s*(\d{2,3})', detail)
+            if not pair:
+                break
+            specs = {'product':'מקלחון', 'configuration':config, 'width_cm':int(pair[1]), 'solution_agreed':True}
+            specs['second_width_cm' if config.startswith('פינתי') else 'height_cm'] = int(pair[2])
+            height = re.search(r'גובה\s*(\d{2,3})', detail)
+            if height:
+                specs['height_cm'] = int(height[1])
+            glasses = ('אקסטרה קליר','אנטיסן אפור','אנטיסן ברונזה','אסיד קליר','גלינה קליר','פיפיטה','חלבי','אסיד','שקופה','שקוף')
+            glass = next((g for g in glasses if re.search(r'(?<![א-ת])'+g+r'(?![א-ת])',detail)), None)
+            finish = next((f for f in ('ניקל מוברש','ניקל','שחור','גרפיט','זהב','לבן') if re.search(r'(?<![א-ת])'+f+r'(?![א-ת])',detail)), None)
+            handle = ('ידית כפתור' if re.search(r'ידית כפתור|ידיות כפתור',detail) else
+                      'ידית מגבת' if re.search(r'ידית מגבת|ידיות מגבת',detail) else None)
+            if not all((glass, finish, handle)):
+                break
+            if '2 דלתות' in config and not re.search(r'(?:שתי|2)\s+ידיות', detail):
+                break
+            specs.update(glass_type='שקופה' if glass=='שקוף' else glass, finish=finish,
+                         handles=[handle]*(2 if '2 דלתות' in config else 1))
+            parsed[ORDINALS[marker[1]]] = specs
+        if len(parsed) == len(markers) and set(parsed) == {str(n) for n in range(1,len(parsed)+1)}:
+            result = parsed
+    return result
+
+
 def written_inventory(history):
     """Expand an explicit multi-line quantity list, excluding image analysis."""
     inventory, groups = {}, []
@@ -59,6 +112,8 @@ def written_inventory(history):
                 if shared_glass:specs['glass_type']=shared_glass
                 inventory[n]=specs
             if len(group)>1:groups.append(group)
+    if not inventory:
+        inventory = explicit_numbered_specs(history)
     return inventory,groups
 
 
