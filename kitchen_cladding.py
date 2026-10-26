@@ -46,9 +46,11 @@ def kitchen_state(prior, history, data=None):
             state['cladding_type'] = 'צבע'
         elif re.search(r'הדפס(?:ה)?|מודפס|להדפיס', text) and not re.search(r'אפשר|האם|או ', text):
             state['cladding_type'] = 'הדפסה'
+            # A prior solid color is not an approved print design.
+            state.pop('cladding_color',None)
         if re.search(r'(?:צבע|גוון)\s+\S+',text) and not re.search(r'הדפס|מודפס|\bאו\b',text):
             state['cladding_type'] = 'צבע'
-        if re.search(r'(?:צבע|גוון)\s*לבן|בצבע\s+לבן', text):
+        if re.search(r'(?:צבע|גוון)\s*(?:אחיד\s+)?לבן|בצבע\s+לבן', text):
             state.update(cladding_type='צבע', cladding_color='לבן')
         if re.fullmatch(r'כן[.! ]*', text) and 'לבן חם' in previous:
             state.update(cladding_type='צבע', cladding_color='לבן חם')

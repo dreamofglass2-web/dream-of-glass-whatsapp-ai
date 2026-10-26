@@ -72,7 +72,7 @@ def create_quote_pdf(offer, customer, issued_at=None):
         s=item['specification'];number=item['number']
         if offer.get('kind') == 'kitchen_cladding':
             desc='חיפוי זכוכית למטבח, ' + s['cladding_type']
-            detail='גוון: ' + s['cladding_color']
+            detail=('הדפס: ' if s['cladding_type']=='הדפסה' else 'גוון: ') + s['cladding_color']
             if s.get('width_cm') and s.get('height_cm'):
                 detail += f", אורך {s['width_cm']:g} ס״מ, גובה {s['height_cm']:g} ס״מ."
             detail += (f" כולל {s['socket_count']} פתחים לשקעים." if s.get('socket_count') is not None else ' כולל פתחים לשקעים.')
