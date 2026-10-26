@@ -25,6 +25,11 @@ LABELS = {v:'ה'+k for k,v in ORDINALS.items()}
 
 def slider_specs(specs):
     result = deepcopy(specs)
+    configuration = str(result.get('configuration') or '')
+    # A confirmed straight-front layout has no second side. Older item switches
+    # may have left a corner dimension that must not appear in its document.
+    if configuration.startswith(('חזית', 'אמבטיון')) or configuration in ('הזזה קבוע + דלת', 'הזזה 2 קבועים + דלת'):
+        result.pop('second_width_cm', None)
     if 'הזזה' in str(result.get('configuration') or ''):
         result['handles'] = ['ידית כפתור'] * (2 if '2 דלתות' in result['configuration'] else 1)
     return result

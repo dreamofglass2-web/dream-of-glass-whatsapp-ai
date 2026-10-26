@@ -55,6 +55,19 @@ class FourItemStateTests(unittest.TestCase):
             self.assertIsNotNone(yossi.calculate_quote(specs))
         self.assertEqual(yossi.preliminary_height(fixed),140)
 
+    def test_stale_corner_side_is_removed_from_front_and_bath_offer(self):
+        base=dict(product='מקלחון',configuration='פינתי 2 דלתות',width_cm=90,
+                  second_width_cm=90,glass_type='שקופה',finish='ניקל',
+                  handles=['ידית כפתור']*2,solution_agreed=True)
+        bath=dict(base,product='אמבטיון',configuration='אמבטיון קבוע + דלת',
+                  width_cm=130,handles=['ידית כפתור'])
+        state={'expected_sales_item_count':2,'sales_items':{'1':base,'2':bath}}
+        offer=bundle_offer(state,yossi.calculate_quote)
+        self.assertEqual(offer['items'][0]['specification']['second_width_cm'],90)
+        self.assertIsNone(offer['items'][1]['specification']['second_width_cm'])
+        self.assertEqual(offer['items'][1]['amount_ils_pre_vat'],1819)
+        self.assertEqual(bath['second_width_cm'],90)  # Caller state is not mutated.
+
     def test_four_complete_items_have_one_complete_offer_with_correct_defaults(self):
         corner={'product':'מקלחון','configuration':'פינתי 2 דלתות','width_cm':90,'second_width_cm':90,
                 'glass_type':'אנטיסן ברונזה','finish':'ברונזה','handles':['ידית כפתור']*2,'solution_agreed':True}
