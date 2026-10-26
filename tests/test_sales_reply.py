@@ -279,3 +279,14 @@ class NoDiscountPolicyTests(unittest.TestCase):
         from sales_reply import no_discount_reply
         reply='אין הנחות, גם לא דרך אלירן.'
         self.assertEqual(no_discount_reply(reply),'אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.')
+
+
+class ProductPhotoScopeTests(unittest.TestCase):
+    def test_non_shower_gallery_keeps_only_matching_product(self):
+        from sales_reply import product_matched_photos
+        photos=[{'product':'מקלחון','url':'shower'}, {'product':'חיפוי מטבח','url':'kitchen'},
+                {'product':'מראה עגולה','url':'mirror'}]
+        self.assertEqual(product_matched_photos(photos,{'product':'חיפוי מטבח'}),[photos[1]])
+        self.assertEqual(product_matched_photos(photos,{'product':'מראה'}),[photos[2]])
+        self.assertEqual(product_matched_photos(photos,{'product':'מחיצה'}),[])
+        self.assertEqual(product_matched_photos(photos,{'product':'מקלחון'}),photos)

@@ -349,3 +349,12 @@ def no_discount_reply(reply):
     if re.search(r'הנח(?:ה|ות)|קופון|\d+\s*(?:%|אחוז)|(?:להוריד|להפחית|להוריד לך|להפחית לך)\s+(?:את\s+)?ה?מחיר', text):
         return 'אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.'
     return reply
+
+
+def product_matched_photos(photos, specs):
+    """Non-shower customers must not receive the fallback shower gallery."""
+    product=str((specs or {}).get('product') or '')
+    family=next((name for name in ('חיפוי','מראה','מחיצה','מעקה') if name in product),None)
+    if not family:
+        return photos
+    return [photo for photo in photos if family in str(photo.get('product') or '')]

@@ -21,7 +21,7 @@ YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POL
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
 from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
-from sales_reply import no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
+from sales_reply import product_matched_photos, no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff, clear_sales_dialogue
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError, requests_new_conversation
@@ -1387,12 +1387,13 @@ def requests_portfolio_photos(text):
                   and re.search(portfolio, text, re.I))))
 
 
-def pick_portfolio_photos(text, max_photos=4):
+def pick_portfolio_photos(text, max_photos=4, context=None):
     """Prefer diverse authentic shower jobs, not one of each glass type."""
     if not requests_portfolio_photos(text):
         return []
-    matching = [p for p in PHOTO_CATALOG if 'מקלחון' in p['product'] or 'אמבטיון' in p['product']]
-    choices = matching or list(PHOTO_CATALOG)
+    scoped = product_matched_photos(PHOTO_CATALOG, context)
+    matching = [p for p in scoped if 'מקלחון' in p['product'] or 'אמבטיון' in p['product']]
+    choices = matching or list(scoped)
     seen_glass, seen_url, picked = set(), set(), []
     for item in choices:
         if item['glass'] not in seen_glass and item['url'] not in seen_url:
@@ -3176,7 +3177,7 @@ def process_message(phone, body, batch_rows=None):
             consultation_visual = (not referenced_glass and (implicit_visual_request(customer_request) or
                                    (requests_portfolio_photos(customer_request) and bool(photo_context.get('configuration')))))
             photos = (consultation_photos(PHOTO_CATALOG, photo_context) if consultation_visual
-                      else (pick_portfolio_photos(customer_request) or pick_sample_photos(customer_request, history, photo_context)))
+                      else (pick_portfolio_photos(customer_request, context=photo_context) or pick_sample_photos(customer_request, history, photo_context)))
             if referenced_glass:
                 photos = pick_sample_photos('תשלח דוגמה של זכוכית '+referenced_glass, history, photo_context)
             if requested_handles:
@@ -3184,7 +3185,7 @@ def process_message(phone, body, batch_rows=None):
                                        HANDLE_BUTTON_IMAGE_URL, HANDLE_TOWEL_IMAGE_URL)
             if not missing_photo_request(customer_request, history) and not requested_handles and not photos and re.search(r'לא\s+(?:הגיע|קיבלתי|נשלח)|לא\s+רואה\s+(?:את\s+)?התמונ', customer_request):
                 if any('עבודות' in str(m.get('content', '')) or 'תמונות' in str(m.get('content', '')) for m in history[-7:]):
-                    photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים')
+                    photos = pick_portfolio_photos('תשלח תמונות של עבודות מקלחונים', context=photo_context)
             if not requested_handles and not photos and not PHOTO_CATALOG and GLASS_SAMPLE_IMAGES:
                 requested = explicitly_requests_catalog_photos(customer_request)
                 if requested:
@@ -3198,6 +3199,7 @@ def process_message(phone, body, batch_rows=None):
                 reply = ('קיבלתי את התמונה. כדי להמליץ על פתרון שמתאים לשטח, '
                          'אעזור לך לבדוק את מיקום הקירות, הכניסה והמרווח לפתיחת הדלת. '
                          'מה חשוב לך יותר, כניסה רחבה או חיסכון במקום?')
+            photos = product_matched_photos(photos, photo_context)
             if photos:
                 # The model must not claim absent catalog types are attached.
                 # Only the photo sender's captions identify the images sent.
@@ -3736,6 +3738,7 @@ def process_owner_continuation(phone, state):
     elif data.get('send_glass_images'):
         request_text = 'תשלח דוגמאות ' + str(data.get('glass_type') or prior.get('glass_type') or '')
         photos = pick_sample_photos(request_text, history, photo_context)
+    photos = product_matched_photos(photos, photo_context)
     if (data.get('send_handle_images') or data.get('send_glass_images')) and not photos:
         raise ValueError('Owner continuation requested unavailable photo')
     for photo in photos:
