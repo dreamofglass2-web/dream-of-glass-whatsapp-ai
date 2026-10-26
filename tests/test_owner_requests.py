@@ -52,3 +52,11 @@ class OwnerRequestTests(unittest.TestCase):
     def test_quote_denials_recognized_but_real_question_is_not(self):
         self.assertTrue(unavailable_quote('כרגע אין לי קובץ הצעה מוכן עם המחיר לצרף.',{}, {}, []))
         self.assertFalse(unavailable_quote('באיזו עיר ההתקנה?',{}, {}, []))
+
+    def test_callback_retains_tomorrow_and_accepts_bare_hour(self):
+        history=[{'role':'user','content':'תתקשרו מחר'},{'role':'assistant','content':'בשמחה, מתי נוח לך שנתקשר?'}]
+        send,save,callback,work,pause,ai=self.run_turn('10',history,{'callback_pending':True,'callback_requested_day':'מחר','_operator_generation_seen':0})
+        self.assertEqual(work.call_args.args[4],CALLBACK_REASON)
+        self.assertIn('10:00',work.call_args.args[3]['callback_preferred_time'])
+        self.assertNotIn('טרם תואם',work.call_args.args[3]['callback_preferred_time'])
+        ai.assert_not_called()

@@ -341,4 +341,3 @@ class OwnerReturnPostgres(unittest.TestCase):
         self.assertEqual(state['owner'],'operator')
         self.assertIn('10:00',state['summary'])
         self.assertEqual(state['escalation']['notificationStatus'],'not_configured')
-

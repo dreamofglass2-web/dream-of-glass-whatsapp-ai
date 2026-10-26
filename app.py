@@ -2356,6 +2356,8 @@ def process_message(phone, body, batch_rows=None):
             if not save_callback(phone, preferred):
                 return pause_for_owner(phone, body, 'תקלה בשמירת בקשת חזרה')
             safe_context = dict(prior, callback_pending=True)
+            if 'מחר' in body:
+                safe_context['callback_requested_day'] = 'מחר'
             if preferred:
                 safe_context['callback_preferred_time'] = preferred
                 return owner_work_request(phone, body, history, safe_context, CALLBACK_REASON,
@@ -2546,14 +2548,14 @@ def process_message(phone, body, batch_rows=None):
             return True
         # Handle a time answer before AI: otherwise needs_human can repeat the
         # original handoff and overwrite an existing callback with 'ממתין לתיאום'.
-        callback_answer = ((is_callback_time_answer(body) or (prior.get('callback_pending') and re.fullmatch(r'\s*(?:עכשיו|מתי שאפשר|בבוקר|בערב|בצהריים|אחרי הצהריים)[.!\s]*', body))) and
+        callback_answer = ((is_callback_time_answer(body) or (prior.get('callback_pending') and re.fullmatch(r'\s*(?:עכשיו|מתי שאפשר|בבוקר|בערב|בצהריים|אחרי הצהריים|\d{1,2})[.!\s]*', body))) and
                            (waiting_for_callback_time(phone) or
                             (last_assistant_asked_callback(history) and not (handoff and handoff.get('silenced_callback_id')))))
         if callback_answer:
             safe_context = dict(prior or {})
-            scheduling_text = body
+            scheduling_text = ('בשעה ' + body.strip() if prior.get('callback_pending') and re.fullmatch(r'\s*\d{1,2}\s*', body) else body)
             if safe_context.get('callback_requested_day') == 'מחר' and 'מחר' not in body and 'היום' not in body:
-                scheduling_text = 'מחר ' + body
+                scheduling_text = 'מחר ' + scheduling_text
             preferred = callback_time_from_text(scheduling_text)
             if not preferred and prior.get('callback_pending') and re.search(r'בערב|בבוקר|בצהריים|אחרי הצהריים|עכשיו|מתי שאפשר', body):
                 preferred = body.strip()[:120] + ' (העדפת הלקוח, לא מועד מאושר)'
