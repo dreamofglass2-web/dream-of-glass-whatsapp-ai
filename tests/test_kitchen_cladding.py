@@ -30,6 +30,19 @@ class KitchenCalculatorTests(unittest.TestCase):
         switched=kitchen_state(state,self.history()+[{'role':'user','content':'כמה יעלה עם הדפס?'}])
         self.assertEqual(kitchen_offer(switched)['amount_ils_pre_vat'],3900)
 
+    def test_print_alternative_does_not_reuse_the_previous_solid_color_as_design(self):
+        state={'product':'חיפוי מטבח','width_cm':300,'height_cm':60,'cladding_type':'צבע','cladding_color':'לבן חלק','socket_count':3}
+        h=[{'role':'user','content':'בצבע לבן'}, {'role':'user','content':'וכמה זה יוצא עם הדפס?'}]
+        changed=kitchen_state(state,h)
+        self.assertEqual(changed['cladding_type'],'הדפסה')
+        self.assertNotIn('cladding_color',changed)
+        offer=kitchen_offer(changed)
+        self.assertEqual(offer['amount_ils_pre_vat'],2700)
+        self.assertEqual(offer['items'][0]['specification']['cladding_color'],'לבחירת הלקוח')
+        changed=kitchen_state(changed,h+[{'role':'user','content':'רוצה צבע אחיד לבן'}])
+        self.assertEqual(changed['cladding_type'],'צבע')
+        self.assertEqual(changed['cladding_color'],'לבן')
+
     def test_no_height_default_and_no_shower_or_image_measurements(self):
         h=[{'role':'user','content':'חיפוי לבן [לקוח צירף תמונה שנותח בפועל. אורך 400 גובה 65]'}]
         state=kitchen_state({'product':'מקלחון','width_cm':200,'height_cm':200},h)
