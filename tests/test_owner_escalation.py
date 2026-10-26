@@ -10,6 +10,27 @@ from owner_notifications import alert_configuration, dispatch_owner_alerts
 
 
 class EscalationTests(unittest.TestCase):
+    def test_acid_requests_route_to_owner_but_negation_and_image_guess_do_not(self):
+        from owner_escalation import owner_only_glass_request
+        for text in ('אני רוצה אסיד','יש לכם אסיד קליר?','תראה לי אסידקליר','כמה עולה acid clear?'):
+            self.assertTrue(owner_only_glass_request(text),text)
+            self.assertIn('אסיד',escalation_reason(text))
+        for text in ('לא רוצה אסיד, רק חלבי','בלי אסיד קליר','אסיד אני לא רוצה','אסיד לא, רוצה חלבי','[לקוח צירף תמונה שנותח בפועל. אולי אסיד]'):
+            self.assertFalse(owner_only_glass_request(text),text)
+        self.assertTrue(owner_only_glass_request('לא רוצה אסיד קליר, אלא אסיד'))
+
+    def test_acid_cannot_be_auto_quoted_or_offered_and_pauses_before_model(self):
+        import app as yossi
+        self.assertNotIn('אסיד',yossi.GLASS_COSTS)
+        self.assertNotIn('אסיד קליר',yossi.GLASS_COSTS)
+        state=new_state()
+        with patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'read_handoff_state',return_value=state),patch.object(yossi,'load_conversation',return_value=([],{})),patch.object(yossi,'escalate_to_owner') as escalate,patch.object(yossi.client.responses,'create') as ai,patch.object(yossi,'send_whatsapp') as send:
+            self.assertTrue(yossi.process_message('TEST_ONLY','אני רוצה אסיד קליר'))
+            escalate.assert_called_once()
+            self.assertIn('אסיד',escalate.call_args.args[2])
+            ai.assert_not_called()
+            send.assert_not_called()
+
     def test_manual_ownership_can_receive_new_attention_without_resuming_yossi(self):
         state = new_state()
         state = transition(state, 0, {'type':'takeover'}, '2026-10-12T21:00:00+00:00')

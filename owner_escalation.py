@@ -9,8 +9,23 @@ def simple_name_correction(text):
         r'[א-תA-Za-z]{2,30}(?:\s+[א-תA-Za-z]{2,30})?\s*[.!?]*\s*',str(text or '')))
 
 
+def owner_only_glass_request(customer):
+    """Route actual acid-glass requests, never negations or image annotations."""
+    text=str(customer or '').split('[לקוח צירף',1)[0]
+    for match in re.finditer(r'(?<![א-תA-Za-z])(?:אסיד(?:\s*קליר)?|acid(?:\s*clear)?)(?![א-תA-Za-z])',text,re.I):
+        before=text[max(0,match.start()-60):match.start()]
+        after=text[match.end():]
+        negated_before=re.search(r'(?<![א-ת])(?:לא|בלי|ללא|אין\s+צורך)(?:\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת|את|ב|זכוכית|לי|לעשות)){0,5}\s*$',before)
+        negated_after=re.match(r'\s*(?:(?:אני\s+)?לא\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת)|לא\s*[,;.!])',after)
+        if not negated_before and not negated_after:
+            return True
+    return False
+
+
 def escalation_reason(customer, data=None, reply=None, history=()):
     text = str(customer or '')
+    if owner_only_glass_request(text):
+        return 'בקשת אסיד או אסיד קליר לטיפול ידני של אלירן'
     if not simple_name_correction(text) and re.search(r'נציג אנושי|לדבר עם בן אדם|רוצה לדבר עם (?:אלירן|בעל העסק)|אתה לא מבין|לא הבנת אותי|חוזר על עצמך|אתה לא עונה לעניין|את לא עונה לעניין|לא עונה לי לעניין|כבר אמרתי לך', text):
         return 'הלקוח ביקש אדם או דיווח שהשיחה אינה מתקדמת'
     if re.search(r'מעקה|קונסטרוקצי|חישוב עומס|אישור מהנדס|\bCNC\b|חיתוך מיוחד|זכוכית קונסטרוקטיבית', text, re.I):

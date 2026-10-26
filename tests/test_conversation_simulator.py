@@ -296,7 +296,7 @@ class ConversationSimulation(unittest.TestCase):
                     width_cm=180, height_cm=200, quote_requested=True, solution_agreed=True)))
             pause.assert_not_called()
         self.assertIn("חלבי", replies[0])
-        self.assertIn("אסיד", replies[1])
+        self.assertNotIn("אסיד", replies[1])
         self.assertNotEqual(replies[0], replies[1])
         self.assertFalse(self.memory[self.phone][1].get("glass_type"))
         self.assertFalse(self.memory[self.phone][1].get("validated_quote", {}).get("issued"))

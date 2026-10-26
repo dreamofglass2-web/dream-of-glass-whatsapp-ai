@@ -28,7 +28,7 @@ class QuoteFlowTests(unittest.TestCase):
                         "ראיתי זכוכית כמו בגוון לבן לא שקוף",
                         "מה סוגי הזכוכית שיש לכם?"]:
             reply = scope["helpful_quote_followup"]({"configuration": "פינתי 2 דלתות"}, request)
-            self.assertIn("אסיד", reply)
+            self.assertNotIn("אסיד", reply)
             self.assertIn("חלבי", reply)
             self.assertNotIn("איזה סוג זכוכית תרצו", reply)
 
