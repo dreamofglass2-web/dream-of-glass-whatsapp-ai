@@ -66,3 +66,12 @@ class OwnerRequestTests(unittest.TestCase):
             send,save,callback,work,pause,ai=self.run_turn(text)
             self.assertEqual(send.call_args.kwargs['body'],'אנחנו מרמלה.')
             ai.assert_not_called();work.assert_not_called()
+
+    def test_business_hours_are_direct_and_match_scheduling(self):
+        for text in ['מה שעות הפעילות שלכם?', 'מתי אתם פתוחים?', 'שעות עבודה?']:
+            send,save,callback,work,pause,ai=self.run_turn(text)
+            reply=send.call_args.kwargs['body']
+            self.assertIn('ראשון עד חמישי',reply)
+            self.assertIn('08:00–20:00',reply)
+            self.assertIn('בשישי ובשבת אנחנו לא עובדים',reply)
+            ai.assert_not_called();pause.assert_not_called()
