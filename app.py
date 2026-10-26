@@ -829,6 +829,9 @@ def starts_new_customer_conversation(text):
 def customer_boundary(text):
     """Customer exit and complaint intent outranks every pending sales request."""
     value=customer_written_text(text)
+    leaving=re.search(r'(?:אבדוק|אחפש|אפנה)\s+(?:כבר\s+)?(?:במקום אחר|אצל מישהו אחר)',value)
+    if leaving and not re.search(r'לא\s*$',value[:leaving.start()]):
+        return 'decline'
     if (re.search(r'לא רוצה\s+(?:להזמין|לקנות|לסגור)\s+(?:עכשיו|כרגע)',value)
             and quote_intent(value)):
         return None
