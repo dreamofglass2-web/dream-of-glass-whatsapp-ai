@@ -294,7 +294,7 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
 
 
     def test_unavailable_photo_switches_to_verbal_question_and_persists_per_item(self):
-        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120}
+        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120,'obstacle_type':'אסלה'}
         self.memory[self.phone]=([{'role':'user','content':'בין שני קירות 120'},{'role':'assistant','content':'אפשר לשלוח צילום של הפתח והאסלה?'}],
             dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='2',expected_sales_item_count=3,sales_items={'1':{},'2':dict(specs),'3':{}}))
         reply=self.step('אין לי תמונה כרגע',self.model('ב־120 לא מתאים הזזה, אפשר לשלוח צילום?',quote_requested=True))
@@ -391,6 +391,32 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
         self.assertFalse(self.documents)
         self.assertEqual(self.memory[self.phone][1]['layout_geometry'],'front')
 
+    def test_narrow_opening_reply_does_not_invent_toilet_and_correction_is_answered(self):
+        from sliding_policy import sliding_limit_reply
+        answer=sliding_limit_reply({'product':'מקלחון','width_cm':139})
+        self.assertIn('140',answer)
+        self.assertNotIn('אסלה',answer)
+        self.memory[self.phone]=([{'role':'user','content':'יש לי פתח 139, רוצה הזזה'},
+            {'role':'assistant','content':'אפשר לשלוח צילום של הפתח והאסלה?'}],
+            {'product':'מקלחון','width_cm':139,'sales_discovery_completed':False})
+        reply=self.step('איזה אסלה? יש שם ארון',self.model('הבנתי, ליד הפתח יש ארון. אפשר צילום של הפתח והארון כדי לבדוק מרווח לפתיחה?'))
+        self.assertIn('יש ארון',reply)
+        self.assertNotIn('בית חדש',reply)
+        self.assertNotIn('מה שמך',reply)
+        self.assertFalse(self.documents)
+
+    def test_replacing_old_one_in_shower_context_does_not_reask_if_there_was_a_shower(self):
+        for text in ('להחליף את הישן','להחליף ישן','אני מחליף את הישן'):
+            with self.subTest(text=text):
+                self.memory[self.phone]=([{'role':'user','content':'צריך מקלחון'},
+                    {'role':'assistant','content':'זה לבית חדש, לשיפוץ או להחלפת מקלחון קיים?'},
+                    {'role':'user','content':text},{'role':'assistant','content':'מה שמך?'}],
+                    {'product':'מקלחון','customer_name':'רועי','sales_discovery_completed':False})
+                reply=self.step('רועי',self.model('איך המקלחון הקודם היה לך בשימוש, ומה היית רוצה לשפר?'))
+                self.assertIn('מה היית רוצה לשפר',reply)
+                self.assertNotIn('וילון',reply)
+                self.assertNotIn('היה לך מקלחון עד היום',reply)
+
     def test_leaving_to_check_elsewhere_stops_pending_quote_without_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח?'}],
             {'product':'מקלחון','quote_requested':True})
@@ -402,6 +428,23 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
         self.assertFalse(self.memory[self.phone][1]['quote_requested'])
         self.assertFalse(self.documents)
         self.assertIsNone(yossi.customer_boundary('לא אבדוק במקום אחר, רוצה להמשיך איתך'))
+
+
+class FixturePhotoFallbackTests(unittest.TestCase):
+    def test_unavailable_photo_does_not_invent_toilet_and_cabinet_answers_bind(self):
+        from sliding_policy import verbal_clearance_question,capture_spatial_answer
+        self.assertNotIn('obstacle_type',capture_spatial_answer({},'יש שם ארון?',''))
+        self.assertIn('ארון או אסלה',verbal_clearance_question({}))
+        self.assertNotIn('האסלה נמצאת',verbal_clearance_question({}))
+        state=capture_spatial_answer({},'איזה אסלה? יש שם ארון','')
+        self.assertEqual(state['obstacle_type'],'ארון')
+        question=verbal_clearance_question(state)
+        self.assertIn('הארון',question)
+        self.assertNotIn('אסלה',question)
+        capture_spatial_answer(state,'משמאל',question)
+        capture_spatial_answer(state,'20',verbal_clearance_question(state))
+        self.assertEqual(state['obstacle_side'],'משמאל')
+        self.assertEqual(state['obstacle_clearance_cm'],20)
 
 
 class ObstructionRules(unittest.TestCase):
@@ -439,7 +482,7 @@ class SlidingMinimumTests(unittest.TestCase):
 class MissingPhotoRules(unittest.TestCase):
     def test_missing_photo_does_not_replace_a_useful_non_photo_followup(self):
         from sliding_policy import respect_missing_customer_photo,no_customer_photo
-        state={'customer_photo_unavailable':True}
+        state={'customer_photo_unavailable':True,'obstacle_type':'אסלה'}
         self.assertEqual(respect_missing_customer_photo('כמה מרווח בערך יש מהאסלה לפתח?',state,'משמאל'),'כמה מרווח בערך יש מהאסלה לפתח?')
         self.assertFalse(no_customer_photo('יש לי תמונה'))
         self.assertIn('מימין או משמאל',respect_missing_customer_photo('אפשר לשלוח תמונה?',state,'משמאל'))
