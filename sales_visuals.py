@@ -47,7 +47,7 @@ def handle_photos(catalog, text, context, button_url='', towel_url=''):
 
 
 def declines_visuals(text):
-    return bool(re.search(r'לא\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת).{0,18}(?:תמונ|דוגמ)|בלי\s+תמונ|אין\s+צורך.{0,12}תמונ|אל\s+תשלח.{0,15}תמונ', str(text or '')))
+    return bool(re.search(r'לא\s+(?:רוצה|צריך|צריכה|מעוניין|מעוניינת).{0,18}(?:תמונ|דוגמ|לראות|שתראה|שתראי)|בלי\s+תמונ|אין\s+צורך.{0,12}תמונ|אל\s+(?:תשלח|תראה|תראי).{0,25}(?:תמונ|דוגמ|איך.{0,12}(?:נרא|יראה|ייראה))', str(text or '')))
 
 
 def implicit_visual_request(text):

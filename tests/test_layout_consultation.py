@@ -392,6 +392,26 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
                 self.assertNotIn('לבית חדש',reply)
                 self.assertFalse(self.documents)
 
+    def test_show_how_named_frosted_glass_looks_delivers_only_matching_photo(self):
+        customer='הוא היה בסדר, רק רוצה יותר פרטיות. תראה לי איך נראית חלבית'
+        self.memory[self.phone]=([{'role':'assistant','content':'מה היית רוצה לשפר?'}],
+            {'product':'מקלחון','sales_discovery_completed':True})
+        catalog=[{'glass':'חלבי','product':'מקלחון','configuration':'','url':'https://example.test/frosted'},
+                 {'glass':'שקופה','product':'מקלחון','configuration':'','url':'https://example.test/clear'}]
+        with patch.object(yossi,'PHOTO_CATALOG',catalog), patch.object(yossi,'send_whatsapp',side_effect=self.send) as send:
+            self.step(customer,self.model('הנה דוגמה לזכוכית חלבית.'))
+        self.assertEqual([c.kwargs['image_url'] for c in send.call_args_list if c.kwargs.get('image_url')],['https://example.test/frosted'])
+        for refusal in ('אל תראה לי איך נראית חלבית', 'לא רוצה לראות איך זה נראה'):
+            self.assertFalse(yossi.requests_catalog_samples(refusal),refusal)
+        self.assertFalse(yossi.requests_catalog_samples('יש לכם חלבית?'))
+
+    def test_caption_without_image_cannot_claim_delivery(self):
+        self.memory[self.phone]=([] ,{'product':'מקלחון','sales_discovery_completed':True})
+        reply=self.step('בסדר',self.model('הנה דוגמה לזכוכית חלבית.'))
+        self.assertNotIn('הנה דוגמה',reply)
+        self.assertIn('אין תמונה',reply)
+        self.assertFalse(self.documents)
+
     def test_away_from_home_does_not_restart_geometry_or_call_model(self):
         self.memory[self.phone]=([{'role':'assistant','content':'מה רוחב הפתח מקיר לקיר בערך?'}],
             {'product':'מקלחון','layout_geometry':'front','quote_requested':True})
