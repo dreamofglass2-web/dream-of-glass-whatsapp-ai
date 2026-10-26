@@ -2569,7 +2569,8 @@ def process_message(phone, body, batch_rows=None):
                  and ('לאשר את ההצעה המלאה' in last_reply or 'לאשר את ההצעה לפריט הזה' in last_reply)))
         bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
                           or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
-        if complete_order and bundle_requested and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
+        explicit_offer_request = bool(re.search(r'(?:תשלח|שלח|שלחי|שלחו|תשלחו|תחשב|תכין|תכיני|להכין|לשלוח).{0,35}(?:הצעה|מחיר|קובץ|שוב|מעודכ)|(?:הצעה|קובץ).{0,20}(?:שוב|מחדש)', customer_request))
+        if complete_order and bundle_requested and (not offered_order.get('issued') or approving_order or explicit_offer_request) and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
             if has_new_messages(phone,batch_rows):
                 return False
             safe_context=dict(prior)
@@ -2784,7 +2785,7 @@ def process_message(phone, body, batch_rows=None):
             clearance_result = respond_to_bath_entry_constraint(phone, body, history, layout_specs, batch_rows)
             if clearance_result is not None:
                 return clearance_result
-            if prior.get('quote_requested') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
+            if prior.get('quote_requested') and not offered_order.get('issued') and not (prior.get('validated_quote') or {}).get('issued') and sales_plan.get('step') != 'respect_choice':
                 data['quote_requested'] = True
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
@@ -2808,14 +2809,14 @@ def process_message(phone, body, batch_rows=None):
             reply = guard_corner_shower_advice(reply, customer_request, history)
             # Ordinary quotes use the calculator before accepting model uncertainty.
             # Owner-approved 200 cm is a preliminary pricing basis, never a site measurement.
-            quote_already_issued = bool((prior.get('validated_quote') or {}).get('issued'))
+            quote_already_issued = bool(offered_order.get('issued') or (prior.get('validated_quote') or {}).get('issued'))
             if (not discovery_question and sales_plan.get('step') != 'respect_choice'
                     and data.get('action') == 'quote' and contains_ils_amount(reply)):
                 # Model wording is an intent signal only; the calculator still
                 # authorizes the amount, specifications and actual issuance.
                 data['quote_requested'] = True
-            quote_requested_now = (quote_intent(customer_request) or
-                                   (not quote_already_issued and data.get('quote_requested') is True))
+            quote_requested_now = (data.get('quote_requested') is True or
+                                   (not quote_already_issued and quote_intent(customer_request)))
             quote_specs = dict(prior or {})
             for key in ('product','configuration','width_cm','second_width_cm',
                         'height_cm','glass_type','finish','handles','solution_agreed'):
@@ -3281,7 +3282,7 @@ def process_message(phone, body, batch_rows=None):
             issuing_order=False
             if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer and not photos:
                 complete_order=bundle_offer(quote_state,calculate_quote)
-                if complete_order and (quote_intent(customer_request) or data.get('quote_requested') or closing_intent(customer_request)):
+                if complete_order and (data.get('quote_requested') or (not offered_order.get('issued') and (quote_intent(customer_request) or closing_intent(customer_request)))):
                     reply=bundle_offer_reply(complete_order)
                     issuing_order=True
                 elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested') or

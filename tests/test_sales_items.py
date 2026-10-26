@@ -4,6 +4,28 @@ from sales_visuals import handle_photo_request, handle_photos
 
 
 class SeparateItemsTests(unittest.TestCase):
+    def test_natural_prefixed_revision_changes_only_first_item(self):
+        from copy import deepcopy
+        from sales_items import numbered_item
+        first = dict(product='מקלחון', width_cm=90, second_width_cm=90,
+                     configuration='פינתי 2 דלתות', finish='ניקל')
+        bath = dict(product='אמבטיון', width_cm=130, height_cm=140,
+                    configuration='אמבטיון קבוע + דלת', finish='ניקל')
+        prior = dict(bath, active_sales_item='4', expected_sales_item_count=4,
+                     sales_items={'1':first, '2':dict(first), '3':dict(first), '4':bath})
+        original = deepcopy(prior['sales_items'])
+        state = item_context(prior, [{'role':'user','content':'בראשון תעשה שחור'}], 'בראשון תעשה שחור')
+        self.assertEqual(state['active_sales_item'], '1')
+        self.assertEqual(state['width_cm'], 90)
+        state['finish'] = 'שחור'
+        save_item(state)
+        self.assertEqual(state['sales_items']['1']['finish'], 'שחור')
+        for n in ('2', '3', '4'):
+            self.assertEqual(state['sales_items'][n], original[n])
+        for text in ('בראשון לציון', 'לראשון לציון', 'בראשון לחודש', 'בשני באוקטובר', 'שני מקלחונים'):
+            self.assertIsNone(numbered_item(text), text)
+        self.assertEqual(numbered_item('לשני תעשה ניקל'), '2')
+
     def test_switch_restore_and_clear_pricing_state(self):
         first = dict(width_cm=80, second_width_cm=80, glass_type='גלינה קליר',
                      finish='שחור', handles=['ידית כפתור'], solution_agreed=True,
