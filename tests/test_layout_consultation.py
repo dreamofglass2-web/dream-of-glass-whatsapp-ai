@@ -294,7 +294,7 @@ class LayoutAdviceJourney(sim.ConversationSimulation):
 
 
     def test_unavailable_photo_switches_to_verbal_question_and_persists_per_item(self):
-        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120}
+        specs={'product':'מקלחון','layout_geometry':'front','width_cm':120,'obstacle_type':'אסלה'}
         self.memory[self.phone]=([{'role':'user','content':'בין שני קירות 120'},{'role':'assistant','content':'אפשר לשלוח צילום של הפתח והאסלה?'}],
             dict(specs,sales_discovery_completed=True,quote_requested=True,active_sales_item='2',expected_sales_item_count=3,sales_items={'1':{},'2':dict(specs),'3':{}}))
         reply=self.step('אין לי תמונה כרגע',self.model('ב־120 לא מתאים הזזה, אפשר לשלוח צילום?',quote_requested=True))
@@ -430,6 +430,23 @@ class NaturalCustomerRegressionTests(unittest.TestCase):
         self.assertIsNone(yossi.customer_boundary('לא אבדוק במקום אחר, רוצה להמשיך איתך'))
 
 
+class FixturePhotoFallbackTests(unittest.TestCase):
+    def test_unavailable_photo_does_not_invent_toilet_and_cabinet_answers_bind(self):
+        from sliding_policy import verbal_clearance_question,capture_spatial_answer
+        self.assertNotIn('obstacle_type',capture_spatial_answer({},'יש שם ארון?',''))
+        self.assertIn('ארון או אסלה',verbal_clearance_question({}))
+        self.assertNotIn('האסלה נמצאת',verbal_clearance_question({}))
+        state=capture_spatial_answer({},'איזה אסלה? יש שם ארון','')
+        self.assertEqual(state['obstacle_type'],'ארון')
+        question=verbal_clearance_question(state)
+        self.assertIn('הארון',question)
+        self.assertNotIn('אסלה',question)
+        capture_spatial_answer(state,'משמאל',question)
+        capture_spatial_answer(state,'20',verbal_clearance_question(state))
+        self.assertEqual(state['obstacle_side'],'משמאל')
+        self.assertEqual(state['obstacle_clearance_cm'],20)
+
+
 class ObstructionRules(unittest.TestCase):
     def test_no_is_only_bound_to_the_actual_obstruction_question(self):
         from layout_consultation import capture_layout_geometry
@@ -465,7 +482,7 @@ class SlidingMinimumTests(unittest.TestCase):
 class MissingPhotoRules(unittest.TestCase):
     def test_missing_photo_does_not_replace_a_useful_non_photo_followup(self):
         from sliding_policy import respect_missing_customer_photo,no_customer_photo
-        state={'customer_photo_unavailable':True}
+        state={'customer_photo_unavailable':True,'obstacle_type':'אסלה'}
         self.assertEqual(respect_missing_customer_photo('כמה מרווח בערך יש מהאסלה לפתח?',state,'משמאל'),'כמה מרווח בערך יש מהאסלה לפתח?')
         self.assertFalse(no_customer_photo('יש לי תמונה'))
         self.assertIn('מימין או משמאל',respect_missing_customer_photo('אפשר לשלוח תמונה?',state,'משמאל'))

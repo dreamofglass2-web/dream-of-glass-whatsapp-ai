@@ -28,14 +28,31 @@ def no_customer_photo(text):
     import re
     return bool(re.search(r'אין\s+(?:לי\s+)?(?:כרגע\s+)?(?:תמונה|צילום)|לא\s+(?:יכול|יכולה|מצליח|מצליחה)\s+לצלם',str(text or '')))
 
+def capture_obstacle(state, customer):
+    """Keep explicitly stated fixtures; a question is not a site fact."""
+    import re
+    text=str(customer or '').split('[לקוח צירף',1)[0]
+    text=re.split(r'[?？]',text)[-1]
+    for noun in ('אסלה','ארון'):
+        if re.search(r'(?:אין|בלי)\s+(?:לי\s+|שם\s+)?'+noun,text) and state.get('obstacle_type')==noun:
+            state.pop('obstacle_type',None)
+        if re.search(r'(?:יש\s+(?:לי\s+|שם\s+)?ה?'+noun+r'|'+noun+r'\s+(?:ממש\s+)?(?:קרוב|צמוד)|נתקע[ת]?\s+ב'+noun+r')',text):
+            state['obstacle_type']=noun
+    return state
+
+
 def verbal_clearance_question(specs):
+    obstacle=specs.get('obstacle_type')
+    if not obstacle:
+        return 'יש ליד פתח המקלחת ארון או אסלה שעלולים להפריע לפתיחת דלת?'
     if specs.get('obstacle_side') and specs.get('obstacle_clearance_cm') is not None:
         if specs.get('shower_depth_cm') is not None:
             return FIT_REVIEW_REPLY
         return 'מה העומק המשוער של המקלחת מהפתח עד הקיר שמולו?'
     if specs.get('obstacle_side'):
-        return 'כמה מרווח בערך יש בין האסלה לפתח המקלחת? גם הערכה גסה תעזור להבין מה עוד צריך לבדוק.'
-    return 'אין בעיה, אפשר להתחיל מתיאור. האסלה נמצאת מימין או משמאל לפתח המקלחת כשעומדים מולו?'
+        return f'כמה מרווח בערך יש בין ה{obstacle} לפתח המקלחת? גם הערכה גסה תעזור להבין מה עוד צריך לבדוק.'
+    verb='נמצאת' if obstacle=='אסלה' else 'נמצא'
+    return f'אין בעיה, אפשר להתחיל מתיאור. ה{obstacle} {verb} מימין או משמאל לפתח המקלחת כשעומדים מולו?'
 
 
 def respect_missing_customer_photo(reply, specs, customer):
@@ -53,16 +70,18 @@ def spatial_answer(customer, previous):
     match=re.fullmatch(r'\s*(?:בערך\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:בערך|ס[״\"]?מ)?\s*[.!]?\s*',str(customer or ''))
     if not match or not 0<float(match[1])<=500:
         return None
-    if 'כמה מרווח' in previous and 'אסלה' in previous:
+    if 'כמה מרווח' in previous and re.search(r'אסלה|ארון',previous):
         return ('obstacle_clearance_cm',float(match[1]))
     if re.search(r'מה העומק|עומק.{0,25}מהפתח',previous):
         return ('shower_depth_cm',float(match[1]))
     return None
 
 def capture_spatial_answer(state, customer, previous):
-    if ('האסלה' in previous and 'מימין או משמאל' in previous
+    state=capture_obstacle(state,customer)
+    if (any(noun in previous for noun in ('האסלה','הארון')) and 'מימין או משמאל' in previous
             and str(customer).strip().rstrip('.!?') in ('מימין','משמאל')):
         state['obstacle_side']=str(customer).strip().rstrip('.!?')
+        state['obstacle_type']='ארון' if 'הארון' in previous else 'אסלה'
     answer=spatial_answer(customer,previous)
     if answer:state[answer[0]]=answer[1]
     return state
