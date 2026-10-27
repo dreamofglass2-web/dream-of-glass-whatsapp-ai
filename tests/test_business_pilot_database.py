@@ -23,6 +23,9 @@ class PilotDatabaseTests(unittest.TestCase):
             with db.cursor() as cur:
                 cur.execute('DELETE FROM yossi_pilot_members WHERE campaign_id=%s',(self.config[0],))
                 cur.execute('DELETE FROM yossi_pilot_campaigns WHERE id=%s',(self.config[0],))
+                for table in ('yossi_resume_jobs','yossi_handoffs'):
+                    cur.execute('SELECT to_regclass(%s)',(table,))
+                    if cur.fetchone()[0]:cur.execute('DELETE FROM '+table+' WHERE phone=ANY(%s)',(self.phones,))
                 cur.execute('DELETE FROM glass_leads WHERE phone=ANY(%s)',(self.phones,))
     def admit(self,phone,stamp=None):
         with connect() as db:
@@ -73,3 +76,34 @@ class PilotDatabaseTests(unittest.TestCase):
                 cur.execute("UPDATE glass_leads SET created_at='2019-01-01',context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_form_message\"}}'::jsonb WHERE phone=%s",(self.phones[0],))
         with patch.dict(os.environ,{'BUSINESS_PILOT_REQUIRE_FORM':'true'}):
             self.assertFalse(self.admit(self.phones[0]))
+
+    def selected_env(self,revision=2):
+        from datetime import timedelta
+        return {'BUSINESS_PILOT_REQUIRE_FORM':'true','BUSINESS_PILOT_SELECTED_EXISTING':self.phones[0],
+            'BUSINESS_PILOT_SELECTED_REVISION':str(revision),
+            'BUSINESS_PILOT_SELECTED_RESUME_AT':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()}
+    def seed_selected(self,revision=2):
+        from handoff_store import ensure_tables,write_state
+        from handoff_state import new_state
+        with connect() as db,db.cursor() as cur:
+            ensure_tables(cur)
+            cur.execute("UPDATE glass_leads SET created_at='2019-01-01',last_inbound_at=now(),context='{\"meta_leads\":{\"selected\":{\"source\":\"meta_instant_form\"}}}'::jsonb WHERE phone=%s",(self.phones[0],))
+            write_state(cur,self.phones[0],dict(new_state(),owner='operator',revision=revision))
+    def test_selected_existing_lead_counts_once_and_return_is_scheduled_not_sent(self):
+        from handoff_store import read_state,owner_action
+        self.seed_selected();env=self.selected_env()
+        with connect() as db,db.cursor() as cur:
+            self.assertEqual(business_pilot.activate_selected_existing(cur,self.config,env),'scheduled')
+            state=read_state(cur,self.phones[0]);self.assertEqual(state['owner'],'yossi')
+            self.assertEqual(state['resume_at'],env['BUSINESS_PILOT_SELECTED_RESUME_AT'])
+            self.assertEqual(business_pilot.activate_selected_existing(cur,self.config,env),'already_applied')
+            cur.execute('SELECT count(*) FROM yossi_resume_jobs WHERE phone=%s',(self.phones[0],));self.assertEqual(cur.fetchone()[0],1)
+            cur.execute('SELECT count(*) FROM yossi_pilot_members WHERE campaign_id=%s',(self.config[0],));self.assertEqual(cur.fetchone()[0],1)
+            owner_action(cur,self.phones[0],state['revision'],{'type':'takeover'},datetime.now(timezone.utc).isoformat())
+            self.assertEqual(business_pilot.activate_selected_existing(cur,self.config,env),'already_applied')
+            self.assertEqual(read_state(cur,self.phones[0])['owner'],'operator')
+    def test_new_human_message_since_selection_prevents_return_and_membership(self):
+        self.seed_selected(revision=3)
+        with connect() as db,db.cursor() as cur:
+            self.assertEqual(business_pilot.activate_selected_existing(cur,self.config,self.selected_env(2)),'conversation_changed')
+            self.assertFalse(business_pilot.allows(cur,self.config,self.phones[0]))

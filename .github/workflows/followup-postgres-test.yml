@@ -4,6 +4,7 @@ on:
     paths:
       - 'app.py'
       - 'business_pilot.py'
+      - 'automatic_echo.py'
       - 'form_outreach.py'
       - 'tests/test_form_outreach_database.py'
       - 'tests/test_business_pilot_database.py'
