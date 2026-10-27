@@ -341,3 +341,18 @@ class OwnerReturnPostgres(unittest.TestCase):
         self.assertEqual(state['owner'],'operator')
         self.assertIn('10:00',state['summary'])
         self.assertEqual(state['escalation']['notificationStatus'],'not_configured')
+
+    def test_owner_quote_ack_does_not_append_triggering_customer_twice(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                write_state(cur,self.phone,dict(new_state(),revision=3))
+        yossi._delivery_scope.current={'handoff_revision':3}
+        history=[{'role':'user','content':'תכין לי הצעת מחיר למראה'}]
+        with patch.object(yossi,'send_whatsapp'),patch.object(yossi,'has_new_messages',return_value=False):
+            self.assertTrue(yossi.owner_work_request(self.phone,history[0]['content'],history,{'product':'מראה'},'הכנת הצעת מחיר על ידי אלירן','אוקי, אני מכין לך הצעת מחיר.'))
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute('SELECT conversation FROM glass_leads WHERE phone=%s',(self.phone,))
+                saved=cur.fetchone()[0]
+        self.assertEqual(sum(m.get('content')==history[0]['content'] for m in saved),1)
+        self.assertEqual(saved[-1]['role'],'assistant')
