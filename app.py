@@ -1,5 +1,6 @@
 import os
 import business_pilot
+import form_outreach
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -175,6 +176,7 @@ def ensure_db():
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_requested_at TIMESTAMPTZ')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_inbound_at TIMESTAMPTZ')
                 business_pilot.ensure_tables(cur)
+                form_outreach.ensure_tables(cur)
                 pilot_config=business_pilot.configuration()
                 if pilot_config is not None:
                     business_pilot.configure(cur,pilot_config)
@@ -3976,6 +3978,10 @@ def batch_worker():
             if HANDOFF_ENABLED and time.monotonic() - last_alert_check >= 15:
                 last_alert_check = time.monotonic()
                 try:
+                    form_outreach.dispatch(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
+                except Exception:
+                    app.logger.error('FORM_OUTREACH_DISPATCH_FAILED')
+                try:
                     dispatch_owner_alerts(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, app.logger)
                 except Exception:
                     app.logger.error('OWNER_ALERT_DISPATCH_FAILED')
@@ -4183,6 +4189,16 @@ def persist_meta_lead_details(lead_id, details):
             """, (json.dumps({'fields': fields, 'created_time': details.get('created_time')},
                              ensure_ascii=False), lead_id))
             save_meta_lead_customer(cur, lead_id, fields)
+    # Queue after the form transaction commits; configuration errors must not lose leads.
+    try:
+        cfg = form_outreach.configuration() if HANDOFF_ENABLED else None
+        if cfg:
+            with db_connection() as conn:
+                with conn.cursor() as cur:
+                    form_outreach.enqueue(cur, cfg, lead_id,
+                        normalize_meta_lead_phone(meta_field_first(fields, 'phone_number')))
+    except Exception:
+        app.logger.error('FORM_OUTREACH_ENQUEUE_FAILED')
 
 
 def try_fetch_meta_lead_details(lead_id):
