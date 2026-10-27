@@ -30,7 +30,7 @@ class FormOutreachDatabaseTests(unittest.TestCase):
                 state TEXT,received_at TIMESTAMPTZ NOT NULL DEFAULT now(),details JSONB,details_fetched_at TIMESTAMPTZ)''')
             for phone,lead_id in zip(self.phones,self.ids):
                 cur.execute('INSERT INTO glass_leads(phone,context) VALUES(%s,%s::jsonb)',(phone,json.dumps({'meta_leads':{lead_id:{'source':'meta_instant_form'}}})))
-                cur.execute("INSERT INTO meta_leadgen_events(lead_id,form_id,meta_created_time,state) VALUES(%s,'4321',%s,'details_saved')",(lead_id,int(datetime.now(timezone.utc).timestamp())))
+                cur.execute("INSERT INTO meta_leadgen_events(lead_id,page_id,form_id,meta_created_time,state) VALUES(%s,'478369542034629','4321',%s,'details_saved')",(lead_id,int(datetime.now(timezone.utc).timestamp())))
         self.addCleanup(self.cleanup)
         self.http=Mock();self.http.post.return_value.status_code=200
         self.http.post.return_value.json.return_value={'messages':[{'id':'wamid.fake-isolated-test'}]}
@@ -55,6 +55,7 @@ class FormOutreachDatabaseTests(unittest.TestCase):
         def admit(i):
             if i%2==0:return self.enqueue(i)
             with connect() as conn,conn.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_direct_inbound\"}}'::jsonb WHERE phone=%s",(self.phones[i],))
                 return business_pilot.admit(cur,f.configuration()[0],self.phones[i],str(int(datetime.now(timezone.utc).timestamp())))
         with ThreadPoolExecutor(max_workers=8) as pool:result=list(pool.map(admit,range(8)))
         self.assertEqual(sum(result),3)
@@ -93,3 +94,17 @@ class FormOutreachDatabaseTests(unittest.TestCase):
         self.assertFalse(self.dispatch());self.assertFalse(self.dispatch())
         self.http.post.assert_called_once()
         self.assertEqual(self.rows('SELECT status FROM yossi_form_outreach WHERE campaign_id=%s',(self.campaign,))[0][0],'uncertain')
+
+    def test_all_forms_still_requires_our_verified_business_page(self):
+        with patch.dict(os.environ,{'FORM_OUTREACH_FORM_IDS':'*'}):
+            with connect() as conn,conn.cursor() as cur:
+                cur.execute("UPDATE meta_leadgen_events SET form_id='new-form' WHERE lead_id=ANY(%s)",(self.ids[:2],))
+                cur.execute("UPDATE meta_leadgen_events SET page_id='another-business' WHERE lead_id=%s",(self.ids[1],))
+            self.assertTrue(self.enqueue(0));self.assertFalse(self.enqueue(1))
+
+    def test_owner_takeover_after_form_reservation_prevents_opening(self):
+        self.enqueue(0)
+        with connect() as conn,conn.cursor() as cur:
+            write_state(cur,self.phones[0],dict(new_state(),owner='operator',revision=1))
+            cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
+        self.assertFalse(self.dispatch());self.http.post.assert_not_called()

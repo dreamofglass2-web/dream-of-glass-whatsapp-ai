@@ -11,6 +11,7 @@ from handoff_state import automatic_reply_allowed
 TEMPLATE = 'yossi_lead_opening_he_v1'
 TEMPLATE_ID = '1112015734808257'
 BUSINESS_NUMBER_ID = '456765487527572'
+BUSINESS_PAGE_ID = '478369542034629'
 BODY = ('היי, כאן יוסי מחלומות מזכוכית.\n'
         'קיבלתי את הפנייה שהשארת ואשמח לעזור לך להתאים פתרון והצעת מחיר.\n'
         'נוח לך שנמשיך כאן בוואטסאפ?')
@@ -22,7 +23,7 @@ def configuration(env=None):
         return None
     pilot = business_pilot.configuration(env)
     forms = [s.strip() for s in env.get('FORM_OUTREACH_FORM_IDS', '').split(',') if s.strip()]
-    if not pilot or not forms or not all(re.fullmatch(r'\d+', f) for f in forms):
+    if not pilot or not forms or not (forms == ['*'] or all(re.fullmatch(r'\d+', f) for f in forms)):
         raise ValueError('Finite pilot and consent-verified form IDs required')
     return pilot, forms
 
@@ -61,10 +62,10 @@ def enqueue(cur, cfg, lead_id, phone):
     excluded = set(os.getenv('BUSINESS_REPLY_TEST_SENDERS', '').split(',')) | set(os.getenv('SIMULATION_ALLOWED_SENDERS', '').split(','))
     if phone in excluded or not re.fullmatch(r'9725\d{8}', str(phone or '')):
         return False
-    cur.execute('''SELECT form_id,received_at,meta_created_time FROM meta_leadgen_events
+    cur.execute('''SELECT form_id,received_at,meta_created_time,page_id FROM meta_leadgen_events
         WHERE lead_id=%s AND state='details_saved' ''', (lead_id,))
     event = cur.fetchone()
-    if not event or event[0] not in forms or event[1] < start or not event[2]:
+    if not event or event[3] != BUSINESS_PAGE_ID or (forms != ['*'] and event[0] not in forms) or event[1] < start or not event[2]:
         return False
     if datetime.fromtimestamp(event[2], timezone.utc) < start:
         return False
@@ -158,7 +159,9 @@ def dispatch(connect, http, token, number_id, business_hours, logger):
             cur.execute('''SELECT e.lead_id,l.phone FROM meta_leadgen_events e
                 JOIN glass_leads l ON l.context->'meta_leads' ? e.lead_id
                 WHERE e.state='details_saved' AND e.received_at >= %s
-                AND e.form_id=ANY(%s) ORDER BY e.received_at LIMIT 100''', (start, forms))
+                AND e.page_id=%s AND (%s OR e.form_id=ANY(%s))
+                AND l.last_inbound_at IS NULL AND l.conversation='[]'::jsonb
+                ORDER BY e.received_at LIMIT 100''', (start, BUSINESS_PAGE_ID, forms == ['*'], forms))
             candidates = cur.fetchall()
     for lead_id, phone in candidates:
         with closing(connect()) as conn, conn:

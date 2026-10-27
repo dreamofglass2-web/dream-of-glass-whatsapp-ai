@@ -63,7 +63,7 @@ WHATSAPP_TOKEN = os.getenv('whatsapp_token') or os.getenv('WHATSAPP_TOKEN', '')
 PHONE_NUMBER_ID = os.getenv('PHONE_NUMBER_ID', '1280310741842089')
 # Disabled by default. Configure a DISTINCT Meta test number ID AND exact testers.
 BUSINESS_AUTO_REPLY_ENABLED = os.getenv('BUSINESS_AUTO_REPLY_ENABLED', 'false').lower() == 'true'
-# Owner-authorized real-number pilots still require verified Meta lead provenance.
+# Owner-authorized pilots require verified form, ad, or explicitly enabled direct inbound provenance.
 # Empty by default; does not enable replies to any other business contact.
 BUSINESS_REPLY_TEST_SENDERS = frozenset(
     v.strip() for v in os.getenv('BUSINESS_REPLY_TEST_SENDERS', '').split(',')
@@ -574,7 +574,7 @@ def register_simulation_inbound(phone):
 
 
 def verified_business_lead(phone):
-    """Fail closed: only a verified Meta instant-form lead may receive AI replies.
+    """Fail closed: only verified Meta form/ad/direct-inbound provenance may receive AI replies.
 
     A phone appearing in glass_leads is not sufficient: this table can also
     contain dashboard entries and records created by inbound webhooks.
@@ -599,6 +599,7 @@ def verified_business_lead(phone):
                                   WHERE details->>'source'='meta_instant_form'
                                ))
                               OR context->'whatsapp_referral'->>'source'='meta_click_to_whatsapp_ad'
+                              OR context->'whatsapp_referral'->>'source'='meta_whatsapp_direct_inbound'
                           )
                           AND COALESCE(context->>'no_followups','false') <> 'true'
                     )
@@ -608,6 +609,29 @@ def verified_business_lead(phone):
         app.logger.exception('Unable to verify business lead; inbound is blocked')
         return False
 
+
+
+def persist_verified_direct_inbound(phone, message):
+    """Only called after signed Meta delivery to our business recipient ID.
+
+    Explicitly enabled for new direct customer inquiries in the finite pilot.
+    Existing contacts still cannot bypass the immutable pilot cutoff or quota.
+    """
+    if os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() != 'true' or not finite_business_pilot_requested():
+        return False
+    timestamp = message.get('timestamp')
+    if not re.fullmatch(r'9725\d{8}', str(phone or '')) or not isinstance(timestamp, str) or not timestamp.isdigit():
+        return False
+    ensure_db()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO glass_leads(phone,context)
+                VALUES(%s,'{"whatsapp_referral":{"source":"meta_whatsapp_direct_inbound"}}'::jsonb)
+                ON CONFLICT(phone) DO UPDATE SET context=CASE
+                  WHEN COALESCE(glass_leads.context->'whatsapp_referral'->>'source','')='' THEN
+                    jsonb_set(COALESCE(glass_leads.context,'{}'::jsonb),'{whatsapp_referral}',EXCLUDED.context->'whatsapp_referral')
+                  ELSE glass_leads.context END""", (phone,))
+    return True
 
 
 def persist_verified_whatsapp_ad(phone, message):
@@ -3972,6 +3996,15 @@ def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
                     os.getenv("OWNER_ALERT_CHANNEL", "whatsapp"), bool(alert_configuration()))
+    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s',
+                    os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() == 'true',
+                    os.getenv('FORM_OUTREACH_ENABLED', '').lower() == 'true')
+    try:
+        if form_outreach.configuration():
+            app.logger.info('FORM_OPENING_TEMPLATE_APPROVED ready=%s',
+                            form_outreach.template_approved(requests, WHATSAPP_TOKEN))
+    except Exception:
+        app.logger.error('FORM_OPENING_TEMPLATE_CHECK_FAILED')
     last_alert_check = 0.0
     while True:
         try:
@@ -4401,6 +4434,7 @@ def webhook():
                 if recipient_id == str(PHONE_NUMBER_ID):
                     try:
                         clear_simulation_for_business_inbound(phone)
+                        persist_verified_direct_inbound(phone, message)
                     except Exception:
                         app.logger.exception('Unable to separate business/test sender')
                         return 'Sender classification unavailable', 503

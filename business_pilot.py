@@ -68,7 +68,7 @@ def admit(cur,config,phone,timestamp):
         return False
     context=row[1]
     forms=context.get('meta_leads') or {}
-    verified=(isinstance(forms,dict) and any(isinstance(v,dict) and v.get('source')=='meta_instant_form' for v in forms.values())) or (context.get('whatsapp_referral') or {}).get('source')=='meta_click_to_whatsapp_ad'
+    verified=(isinstance(forms,dict) and any(isinstance(v,dict) and v.get('source')=='meta_instant_form' for v in forms.values())) or (context.get('whatsapp_referral') or {}).get('source') in ('meta_click_to_whatsapp_ad','meta_whatsapp_direct_inbound')
     if not verified or context.get('simulation_recipient_id') or str(context.get('no_followups','false')).lower()=='true':
         return False
     cur.execute('SELECT count(*) FROM yossi_pilot_members WHERE campaign_id=%s',(identity,))
