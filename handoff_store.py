@@ -9,6 +9,10 @@ from handoff_state import new_state, validate, transition, append_verified_messa
 def ensure_tables(cursor):
     cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_handoffs (
         phone TEXT PRIMARY KEY REFERENCES glass_leads(phone), state JSONB NOT NULL)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_handoff_message_archive (
+        phone TEXT NOT NULL REFERENCES glass_leads(phone) ON DELETE CASCADE,
+        message_id TEXT NOT NULL, message JSONB NOT NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(phone,message_id))''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS yossi_resume_jobs (
         id TEXT PRIMARY KEY, phone TEXT NOT NULL REFERENCES glass_leads(phone) ON DELETE CASCADE,
         expected_revision INTEGER NOT NULL, available_at TIMESTAMPTZ NOT NULL,
@@ -119,7 +123,33 @@ def capture_suppression(cursor, phone, state):
 def record_message(cursor, phone, message, *, operator=False):
     phone_lock(cursor, phone)
     state = read_state(cursor, phone)
-    result = append_verified_message(state, message)
+    identity=message.get('id')
+    current=next((m for m in state['messages'] if m['id']==identity),None)
+    if current is None:
+        cursor.execute('SELECT message FROM yossi_handoff_message_archive WHERE phone=%s AND message_id=%s', (phone,identity))
+        archived=cursor.fetchone()
+        if isinstance(archived,(tuple,dict)) and archived:
+            previous=archived['message'] if isinstance(archived,dict) else archived[0]
+            if previous!=message:
+                raise HandoffError('Conflicting message identity')
+            return state
+    # Keep the bounded live record and preserve every evicted event atomically.
+    # Archive lookups retain replay protection after an event leaves the window.
+    incoming_bytes=len(str(message.get('text') or '').encode('utf-8'))
+    working=state
+    if current is None and (len(state['messages'])>=500 or sum(len(m['text'].encode('utf-8')) for m in state['messages'])+incoming_bytes>600000):
+        from copy import deepcopy
+        working=deepcopy(state)
+        removed=[]
+        total=sum(len(m['text'].encode('utf-8')) for m in working['messages'])
+        while working['messages'] and (len(working['messages'])>=400 or total+incoming_bytes>600000):
+            old=working['messages'].pop(0)
+            total-=len(old['text'].encode('utf-8'))
+            removed.append(old)
+        for old in removed:
+            cursor.execute('INSERT INTO yossi_handoff_message_archive(phone,message_id,message) VALUES(%s,%s,%s::jsonb) ON CONFLICT(phone,message_id) DO NOTHING', (phone,old['id'],json.dumps(old,ensure_ascii=False)))
+        working['archived_message_count']=state.get('archived_message_count',0)+len(removed)
+    result = append_verified_message(working, message)
     if (result['revision'] != state['revision'] and message['role'] == 'customer'
             and not message['id'].startswith('inbound-batch-')):
         # A paused customer's original Meta timestamp must reach the source CRM.
