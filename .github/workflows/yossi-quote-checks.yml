@@ -54,6 +54,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_owner_escalation.py" -v
           python -m unittest discover -s tests -p "test_owner_requests.py" -v
+          python -m unittest discover -s tests -p "test_business_pilot.py" -v
           python -m unittest discover -s tests -p "test_mirror_policy.py" -v
           python -m unittest discover -s tests -p "test_handoff_state.py" -v
           python -m unittest discover -s tests -p "test_handoff_api.py" -v
