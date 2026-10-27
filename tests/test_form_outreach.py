@@ -20,5 +20,12 @@ class FormOpeningTests(unittest.TestCase):
         for enabled,hours,approved in [(False,True,True),(True,False,True),(True,True,False)]:
             with self.subTest(enabled=enabled,hours=hours,approved=approved),patch.dict('os.environ',dict(ENV,FORM_OUTREACH_ENABLED=str(enabled).lower()),clear=True),patch.object(f,'template_approved',return_value=approved):
                 db,http=Mock(),Mock()
-                self.assertFalse(f.dispatch(db,http,'fake','123',lambda:hours,Mock()))
+                self.assertFalse(f.dispatch(db,http,'fake',f.BUSINESS_NUMBER_ID,lambda:hours,Mock()))
                 db.assert_not_called();http.post.assert_not_called()
+
+    def test_all_forms_is_explicit_and_production_number_is_required(self):
+        self.assertEqual(f.configuration(dict(ENV,FORM_OUTREACH_FORM_IDS='*'))[1],['*'])
+        with patch.dict('os.environ',ENV,clear=True),patch.object(f,'template_approved') as approval:
+            http,db=Mock(),Mock()
+            self.assertFalse(f.dispatch(db,http,'fake','wrong-number',lambda:True,Mock()))
+            approval.assert_not_called();http.post.assert_not_called();db.assert_not_called()
