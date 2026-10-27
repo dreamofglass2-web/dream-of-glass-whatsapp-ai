@@ -3996,6 +3996,15 @@ def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
                     os.getenv("OWNER_ALERT_CHANNEL", "whatsapp"), bool(alert_configuration()))
+    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s',
+                    os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() == 'true',
+                    os.getenv('FORM_OUTREACH_ENABLED', '').lower() == 'true')
+    try:
+        if form_outreach.configuration():
+            app.logger.info('FORM_OPENING_TEMPLATE_APPROVED ready=%s',
+                            form_outreach.template_approved(requests, WHATSAPP_TOKEN))
+    except Exception:
+        app.logger.error('FORM_OPENING_TEMPLATE_CHECK_FAILED')
     last_alert_check = 0.0
     while True:
         try:
