@@ -47,6 +47,24 @@ def allows(cur,config,phone):
     return bool(cur.fetchone()[0])
 
 
+def is_customer_form_message(phone, message):
+    """Recognize customer-sent form text, never a dashboard record or a link alone."""
+    if not isinstance(message,dict) or message.get('type') != 'text':
+        return False
+    body=(message.get('text') or {}).get('body','')
+    if not isinstance(body,str) or not re.search(r'השלמתי\s+את\s+הטופס|(?:completed|filled out)\s+your\s+form',body,re.I):
+        return False
+    if not re.search(r'(?:Full name|שם מלא)\s*:\s*\S+',body,re.I):
+        return False
+    match=re.search(r'(?:Phone number|מספר טלפון)\s*:\s*([+\d ()-]+)',body,re.I)
+    if not match:
+        return False
+    digits=re.sub(r'\D','',match.group(1))
+    if digits.startswith('05') and len(digits)==10:
+        digits='972'+digits[1:]
+    return digits==phone and bool(re.search(r'אילו עבודות|איזה.*(?:עבודה|פרויקט)|(?:City|עיר)\s*:',body,re.I))
+
+
 def admit(cur,config,phone,timestamp):
     if not re.fullmatch(r'9725\d{8}',str(phone or '')):
         return False
@@ -68,7 +86,12 @@ def admit(cur,config,phone,timestamp):
         return False
     context=row[1]
     forms=context.get('meta_leads') or {}
-    verified=(isinstance(forms,dict) and any(isinstance(v,dict) and v.get('source')=='meta_instant_form' for v in forms.values())) or (context.get('whatsapp_referral') or {}).get('source') in ('meta_click_to_whatsapp_ad','meta_whatsapp_direct_inbound')
+    has_form=isinstance(forms,dict) and any(isinstance(v,dict) and v.get('source')=='meta_instant_form' for v in forms.values())
+    source=(context.get('whatsapp_referral') or {}).get('source')
+    form_message=source=='meta_whatsapp_form_message'
+    if os.getenv('BUSINESS_PILOT_REQUIRE_FORM','').lower()=='true' and not (has_form or form_message):
+        return False
+    verified=has_form or source in ('meta_click_to_whatsapp_ad','meta_whatsapp_direct_inbound','meta_whatsapp_form_message')
     if not verified or context.get('simulation_recipient_id') or str(context.get('no_followups','false')).lower()=='true':
         return False
     cur.execute('SELECT count(*) FROM yossi_pilot_members WHERE campaign_id=%s',(identity,))

@@ -600,6 +600,7 @@ def verified_business_lead(phone):
                                ))
                               OR context->'whatsapp_referral'->>'source'='meta_click_to_whatsapp_ad'
                               OR context->'whatsapp_referral'->>'source'='meta_whatsapp_direct_inbound'
+                              OR context->'whatsapp_referral'->>'source'='meta_whatsapp_form_message'
                           )
                           AND COALESCE(context->>'no_followups','false') <> 'true'
                     )
@@ -617,8 +618,14 @@ def persist_verified_direct_inbound(phone, message):
     Explicitly enabled for new direct customer inquiries in the finite pilot.
     Existing contacts still cannot bypass the immutable pilot cutoff or quota.
     """
-    if os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() != 'true' or not finite_business_pilot_requested():
+    form_only=os.getenv('BUSINESS_PILOT_REQUIRE_FORM','').lower()=='true'
+    all_inbound=os.getenv('BUSINESS_PILOT_ALL_INBOUND','').lower()=='true'
+    if not finite_business_pilot_requested() or not (all_inbound or form_only):
         return False
+    form_message=business_pilot.is_customer_form_message(phone,message)
+    if not all_inbound and not form_message:
+        return False
+    source='meta_whatsapp_form_message' if form_message else 'meta_whatsapp_direct_inbound'
     timestamp = message.get('timestamp')
     if not re.fullmatch(r'9725\d{8}', str(phone or '')) or not isinstance(timestamp, str) or not timestamp.isdigit():
         return False
@@ -626,11 +633,12 @@ def persist_verified_direct_inbound(phone, message):
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO glass_leads(phone,context)
-                VALUES(%s,'{"whatsapp_referral":{"source":"meta_whatsapp_direct_inbound"}}'::jsonb)
+                VALUES(%s,jsonb_build_object('whatsapp_referral',jsonb_build_object('source',%s::text)))
                 ON CONFLICT(phone) DO UPDATE SET context=CASE
-                  WHEN COALESCE(glass_leads.context->'whatsapp_referral'->>'source','')='' THEN
+                  WHEN COALESCE(glass_leads.context->'whatsapp_referral'->>'source','')=''
+                    OR %s='meta_whatsapp_form_message' THEN
                     jsonb_set(COALESCE(glass_leads.context,'{}'::jsonb),'{whatsapp_referral}',EXCLUDED.context->'whatsapp_referral')
-                  ELSE glass_leads.context END""", (phone,))
+                  ELSE glass_leads.context END""", (phone,source,source))
     return True
 
 
@@ -3996,9 +4004,10 @@ def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
                     os.getenv("OWNER_ALERT_CHANNEL", "whatsapp"), bool(alert_configuration()))
-    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s',
+    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s form_message_only=%s',
                     os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() == 'true',
-                    os.getenv('FORM_OUTREACH_ENABLED', '').lower() == 'true')
+                    os.getenv('FORM_OUTREACH_ENABLED', '').lower() == 'true',
+                    os.getenv('BUSINESS_PILOT_REQUIRE_FORM', '').lower() == 'true')
     try:
         if form_outreach.configuration():
             app.logger.info('FORM_OPENING_TEMPLATE_APPROVED ready=%s',
