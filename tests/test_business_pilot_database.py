@@ -3,6 +3,7 @@ import json,os,unittest,uuid
 from datetime import datetime,timezone
 from concurrent.futures import ThreadPoolExecutor
 import psycopg2
+from unittest.mock import patch
 import business_pilot
 
 def connect():return psycopg2.connect(os.environ['DATABASE_URL'],sslmode='disable',connect_timeout=5)
@@ -55,3 +56,20 @@ class PilotDatabaseTests(unittest.TestCase):
             with db.cursor() as cur:
                 with self.assertRaises(ValueError):business_pilot.configure(cur,(self.config[0],datetime(2021,1,1,tzinfo=timezone.utc),3))
                 self.assertTrue(business_pilot.allows(cur,self.config,self.phones[0]))
+
+    def test_form_message_only_mode_excludes_direct_and_ad_only_inquiries(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_form_message\"}}'::jsonb WHERE phone=%s",(self.phones[0],))
+                cur.execute("UPDATE glass_leads SET context='{\"meta_leads\":{\"test\":{\"source\":\"meta_instant_form\"}}}'::jsonb WHERE phone=%s",(self.phones[1],))
+                cur.execute("UPDATE glass_leads SET context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_direct_inbound\"}}'::jsonb WHERE phone=%s",(self.phones[2],))
+        with patch.dict(os.environ,{'BUSINESS_PILOT_REQUIRE_FORM':'true'}):
+            self.assertTrue(self.admit(self.phones[0]));self.assertTrue(self.admit(self.phones[1]))
+            self.assertFalse(self.admit(self.phones[2]));self.assertFalse(self.admit(self.phones[3]))
+
+    def test_fresh_campaign_cannot_reuse_existing_leads_even_with_form_provenance(self):
+        with connect() as db:
+            with db.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET created_at='2019-01-01',context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_form_message\"}}'::jsonb WHERE phone=%s",(self.phones[0],))
+        with patch.dict(os.environ,{'BUSINESS_PILOT_REQUIRE_FORM':'true'}):
+            self.assertFalse(self.admit(self.phones[0]))
