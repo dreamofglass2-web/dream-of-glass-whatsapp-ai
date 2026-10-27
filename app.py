@@ -11,6 +11,7 @@ import re
 import hmac
 import hashlib
 import secrets
+from mirror_policy import FRAME_POLICY, curved_frame_request, guard_mirror_frame
 from owner_requests import conversation_summary, unavailable_quote, QUOTE_REASON, CALLBACK_REASON
 from callback_store import save_callback_record
 from owner_escalation import escalation_reason, planning_clarification, planning_explanation, simple_name_correction
@@ -757,7 +758,7 @@ PROFESSIONAL_GLASS_GUIDANCE = """
 
 מחיצות זכוכית: הסבר על מחיצה קבועה, מחיצה עם דלת ציר, מחיצה עם הזזה, ושילוב של מספר חלקים קבועים ודלתות, גם כשאין דוגמה זהה בקטלוג. ברר בשיחה את השימוש (הפרדת חללים, משרד, חדר שינה ועוד), מידת הפרטיות הרצויה, סוג הזכוכית, מפתח ומגבלות השטח. אל תבלבל מחיצת חדר עם מקלחון. מחיצת 10 מ״מ שקופה 700 ₪ למ״ר ומחיצת 5+5 1,000 ₪ למ״ר, ודלת למחיצה תוספת 3,500 ₪, לפי המחירון המאושר ולפני מע״מ, ללא מינימום הזמנה. זכוכית מיוחדת, חלוקת משקל, קונסטרוקציה ותצורה לא סטנדרטית מחייבות אישור מחיר ולא מניחים שהמחיר למ״ר תקף לכל מקרה.
 
-מראות: הבן מראה מרובעת, מלבנית, עגולה, אובלית, אסימטרית, לפי מידה, עם מסגרת או בלי, עם לד או בלי; אין צורך שצורה מסוימת תופיע בקטלוג כדי לדון בה. שאל מה חשוב ללקוח (מידה, מקום, עיצוב, שימוש, תאורה) לפי הקשר ולא בבת אחת. מחיר בסיס מראה קריסטל בלגי 5 מ״מ 700 ₪ למ״ר כולל התקנה; מסגרת מוסיפה 250 ₪ למ״ר ותאורת לד עוד 250 ₪ למ״ר, לפני מע״מ וללא מינימום הזמנה. אין להבטיח מראה מורכבת או פתרון חשמלי בלי בדיקה מתאימה.
+מראות: מסגרת רק למראות ישרות, מרובעות או מלבניות. עגולות, אובליות וצורתיות ללא מסגרת. הבן צורה, מידה ותאורה; אין צורך שצורה מסוימת תופיע בקטלוג כדי לדון בה. שאל מה חשוב ללקוח (מידה, מקום, עיצוב, שימוש, תאורה) לפי הקשר ולא בבת אחת. מחיר בסיס מראה קריסטל בלגי 5 מ״מ 700 ₪ למ״ר כולל התקנה; מסגרת מוסיפה 250 ₪ למ״ר ותאורת לד עוד 250 ₪ למ״ר, לפני מע״מ וללא מינימום הזמנה. אין להבטיח מראה מורכבת או פתרון חשמלי בלי בדיקה מתאימה.
 
 חיפוי זכוכית למטבח: עזור להבין שטח, גוון, הדפסה, שקעים ופתחים. צבע לבחירת הלקוח 1,100 ₪ למ״ר, הדפסה 1,500 ₪ למ״ר, לפני מע״מ; כולל פתחים לשקעים, מדידה, הובלה והרכבה. חיתוכים מיוחדים לבדיקה מקצועית. דלתות ומעקות זכוכית: הסבר עקרונות והצע כיוון, אבל אל תקבע תקן, עובי בטיחות, עיגון, סוג זכוכית הנדסי או מחיר ללא בדיקה מקצועית; אם צריך, הצע בקשת חזרה מאלירן ושמור אותה במסד.
 
@@ -2380,6 +2381,13 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], prior)
             return True
+        if curved_frame_request(body, history, prior.get('product') or ''):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = FRAME_POLICY + ' תרצה מראה ללא מסגרת או מראה ישרה עם מסגרת?'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior, needs_human=False))
+            return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
             if has_new_messages(phone, batch_rows):
@@ -2857,6 +2865,7 @@ def process_message(phone, body, batch_rows=None):
             reply = polish_reply(str(data.get('reply') or ''), history)
             reply = avoid_repeated_dimensions(reply, facts, body)
             reply = open_finish_question(reply, customer_request)
+            reply = guard_mirror_frame(reply, history, data.get('product') or prior.get('product') or '')
             consultant_reply = reply
             # A repeated assistant reply is a failed consultation, not a valid next turn.
             last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
@@ -3477,6 +3486,7 @@ def process_message(phone, body, batch_rows=None):
                     and unavailable_quote(reply, data, prior, history)):
                 return owner_work_request(phone, body, history, quote_state, QUOTE_REASON,
                                           'אוקי, אני מכין לך הצעת מחיר.')
+            reply = guard_mirror_frame(reply, history, data.get('product') or prior.get('product') or '')
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
