@@ -4269,8 +4269,8 @@ def webhook():
                                     for phone, message in accepted:
                                         record_message(cur, phone, message, operator=True)
                         received += len(accepted)
-                    except Exception:
-                        app.logger.error('OPERATOR_ECHO_STORAGE_FAILED')
+                    except Exception as error:
+                        app.logger.error('OPERATOR_ECHO_STORAGE_FAILED type=%s',type(error).__name__)
                         return 'Operator message storage unavailable', 503
                 continue
             statuses += len(value.get('statuses', []))
@@ -4300,8 +4300,8 @@ def webhook():
                                             'text':(incoming.get('text') or {})['body'],'at':at})
                                         received += 1
                                         continue
-                        except Exception:
-                            app.logger.error('MANUAL_INBOUND_STORAGE_FAILED')
+                        except Exception as error:
+                            app.logger.error('MANUAL_INBOUND_STORAGE_FAILED type=%s',type(error).__name__)
                             return 'Manual conversation storage unavailable', 503
                     pending.append(incoming)
                 value = {**value, 'messages':pending}

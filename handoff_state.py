@@ -51,6 +51,8 @@ def validate(state):
         raise HandoffError('Invalid echo capability')
     if type(state.get('handoff_generation')) is not int or state['handoff_generation'] < 0:
         raise HandoffError('Invalid handoff generation')
+    if type(state.get('archived_message_count',0)) is not int or state.get('archived_message_count',0)<0:
+        raise HandoffError('Invalid archived history count')
     messages = state.get('messages')
     if not isinstance(messages, list) or len(messages) > 500:
         raise HandoffError('Handoff history limit reached')
@@ -143,7 +145,7 @@ def resume_context(state):
         messages = [m for m in messages if instant(m['at']) >= instant(cutoff)]
     return {'owner_summary': state['summary'], 'owner_instructions': state['instructions'],
             'manual_conversation': deepcopy(messages[-36:]),
-            'older_manual_messages_omitted': len(state['messages']) - len(messages[-36:]),
+            'older_manual_messages_omitted': state.get('archived_message_count',0) + len(state['messages']) - len(messages[-36:]),
             'app_messages_verified': state['echo_verified'],
             'generation': state['handoff_generation']}
 

@@ -356,3 +356,27 @@ class OwnerReturnPostgres(unittest.TestCase):
                 saved=cur.fetchone()[0]
         self.assertEqual(sum(m.get('content')==history[0]['content'] for m in saved),1)
         self.assertEqual(saved[-1]['role'],'assistant')
+
+    def test_full_manual_history_archives_without_loss_and_deduplicates_old_echoes(self):
+        from handoff_store import record_message
+        messages=[{'id':'archive-test-'+str(i),'role':'operator','text':'הודעת בדיקה '+str(i),'at':'2026-10-18T10:00:00+00:00'} for i in range(500)]
+        latest={'id':'new-after-full','role':'customer','text':'הודעה חדשה בזמן טיפול ידני','at':'2026-10-27T09:00:00+00:00'}
+        with connect() as db:
+            with db.cursor() as cur:
+                state=yossi.read_handoff_state(cur,self.phone)
+                state['messages']=messages
+                write_state(cur,self.phone,state)
+                current=record_message(cur,self.phone,latest)
+                self.assertEqual(len(current['messages']),400)
+                self.assertEqual(current['archived_message_count'],101)
+                self.assertEqual(current['messages'][-1],latest)
+                cur.execute('SELECT count(*) FROM yossi_handoff_message_archive WHERE phone=%s',(self.phone,))
+                self.assertEqual(cur.fetchone()[0]+len(current['messages']),501)
+                # A replay of an old operator message must not steal ownership.
+                current['owner']='yossi';current['revision']+=1
+                write_state(cur,self.phone,current)
+                replay=record_message(cur,self.phone,messages[0],operator=True)
+                self.assertEqual(replay['owner'],'yossi')
+                self.assertEqual(replay['revision'],current['revision'])
+                with self.assertRaises(HandoffError):
+                    record_message(cur,self.phone,dict(messages[0],text='conflicting content'),operator=True)
