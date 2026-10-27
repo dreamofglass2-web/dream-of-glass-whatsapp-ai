@@ -1,4 +1,5 @@
 import os
+import business_pilot
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -70,7 +71,44 @@ BUSINESS_REPLY_TEST_SENDERS = frozenset(
 
 
 def business_auto_reply_allowed(phone):
-    return BUSINESS_AUTO_REPLY_ENABLED or phone in BUSINESS_REPLY_TEST_SENDERS
+    if phone in BUSINESS_REPLY_TEST_SENDERS:
+        return True
+    try:
+        config=business_pilot.configuration()
+        if config is None:
+            return BUSINESS_AUTO_REPLY_ENABLED
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                return business_pilot.allows(cur,config,phone)
+    except Exception:
+        app.logger.error('BUSINESS_PILOT_AUTHORIZATION_UNAVAILABLE')
+        return False
+
+
+def finite_business_pilot_requested():
+    return bool(os.getenv('BUSINESS_PILOT_ID','').strip())
+
+
+def admit_business_pilot(phone,message):
+    if phone in BUSINESS_REPLY_TEST_SENDERS:
+        return True
+    if phone in SIMULATION_ALLOWED_SENDERS:
+        return False
+    try:
+        config=business_pilot.configuration()
+        if config is None:
+            return False
+        ensure_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                admitted=business_pilot.admit(cur,config,phone,message.get('timestamp'))
+        if admitted:
+            app.logger.info('FINITE_PILOT_ADMISSION accepted=true')
+        return admitted
+    except Exception:
+        app.logger.error('BUSINESS_PILOT_ADMISSION_UNAVAILABLE')
+        raise
 
 
 SIMULATION_PHONE_NUMBER_ID = os.getenv('SIMULATION_PHONE_NUMBER_ID', '').strip()
@@ -136,6 +174,10 @@ def ensure_db():
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_id TEXT')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_requested_at TIMESTAMPTZ')
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_inbound_at TIMESTAMPTZ')
+                business_pilot.ensure_tables(cur)
+                pilot_config=business_pilot.configuration()
+                if pilot_config is not None:
+                    business_pilot.configure(cur,pilot_config)
                 if HANDOFF_ENABLED:
                     ensure_handoff_tables(cur)
         _db_ready = True
@@ -4307,7 +4349,8 @@ def webhook():
                 value = {**value, 'messages':pending}
             for message in value.get('messages', []):
                 if (recipient_id == str(PHONE_NUMBER_ID)
-                        and not business_auto_reply_allowed(message.get('from'))):
+                        and not business_auto_reply_allowed(message.get('from'))
+                        and not finite_business_pilot_requested()):
                     ignored += 1
                     continue
                 message_type = message.get('type')
@@ -4357,6 +4400,13 @@ def webhook():
                     ignored += 1
                     app.logger.info('INBOUND_BLOCKED_UNVERIFIED phone_suffix=%s', str(phone)[-4:])
                     continue
+                if recipient_id == str(PHONE_NUMBER_ID) and not business_auto_reply_allowed(phone):
+                    try:
+                        if not admit_business_pilot(phone,message):
+                            ignored += 1
+                            continue
+                    except Exception:
+                        return 'Pilot admission unavailable',503
                 try:
                     queue_message(phone, body, message_id or f'{phone}:{time.time_ns()}')
                     received += 1
