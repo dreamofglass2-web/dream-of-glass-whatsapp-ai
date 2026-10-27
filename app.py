@@ -2203,7 +2203,7 @@ def owner_work_request(phone, body, history, context, reason, reply=None):
             scope = getattr(_delivery_scope, 'current', None) or {}
             if current['owner'] == 'operator' or scope.get('handoff_revision') != current['revision']:
                 return True
-            state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat())
+            state = escalate_to_owner(cur, phone, reason, body, datetime.now(timezone.utc).isoformat(), record_customer=False)
             if reason == QUOTE_REASON:
                 cur.execute("UPDATE glass_leads SET status='ממתין לתמחור', updated_at=now() WHERE phone=%s", (phone,))
             state['summary'] = summary
@@ -2369,7 +2369,7 @@ def process_message(phone, body, batch_rows=None):
         if re.fullmatch(r'\s*(?:היי[,\s]+)?(?:מה\s+)?(?:שעות ה?(?:פעילות|עבודה|פתיחה)(?: שלכם)?|מתי אתם (?:פתוחים|עובדים)|באילו שעות אתם עובדים)[?!.\s]*', body):
             if has_new_messages(phone, batch_rows):
                 return False
-            reply = 'שעות הפעילות שלנו הן בימים ראשון עד חמישי, 08:00–20:00. בשישי ובשבת אנחנו לא עובדים.'
+            reply = 'שעות הפעילות שלנו הן בימים ראשון עד חמישי, משעה 08:00 עד 20:00. בשישי ובשבת אנחנו לא עובדים.'
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], prior)
             return True
