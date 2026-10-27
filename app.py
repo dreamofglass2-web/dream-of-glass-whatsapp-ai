@@ -1,5 +1,6 @@
 import os
 import business_pilot
+import automatic_echo
 import form_outreach
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
@@ -182,6 +183,10 @@ def ensure_db():
                     business_pilot.configure(cur,pilot_config)
                 if HANDOFF_ENABLED:
                     ensure_handoff_tables(cur)
+                    if pilot_config is not None:
+                        selected_result=business_pilot.activate_selected_existing(cur,pilot_config)
+                        if selected_result!='not_configured':
+                            app.logger.info('PILOT_SELECTED_EXISTING result=%s',selected_result)
         _db_ready = True
 
 
@@ -4360,8 +4365,11 @@ def webhook():
                 if HANDOFF_ENABLED and HANDOFF_ECHO_ENABLED:
                     try:
                         echoes = parse_echoes(change, PHONE_NUMBER_ID)
+                        automatic=[(phone,message) for phone,message in echoes if automatic_echo.is_automatic_echo(message)]
+                        if automatic:
+                            app.logger.info('BUSINESS_AUTOMATIC_ECHO_IGNORED count=%s',len(automatic))
                         accepted = [(phone, message) for phone, message in echoes
-                                    if verified_business_lead(phone)]
+                                    if not automatic_echo.is_automatic_echo(message) and verified_business_lead(phone)]
                         if accepted:
                             ensure_db()
                             with db_connection() as conn:
