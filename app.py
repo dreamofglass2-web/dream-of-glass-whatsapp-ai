@@ -1463,6 +1463,8 @@ def requests_portfolio_photos(text):
         return False
     if implicit_visual_request(text):
         return True
+    if not re.search(r'תמונ|דוגמ|לראות|תראה|להתרשם|הרא|קטלוג|תיק עבודות|(?:תשלח|שלח).{0,35}עבודות',text):
+        return False
     ask = r'(?:תשלח|שלח|לשלוח|אפשר|יש\s+לכם|יש\s+לך|רוצה|אשמח|תראה|לראות|הרא|אפשרות)'
     obj = r'(?:תמונ\w*|דוגמא\w*|דוגמ\w*|עבוד\w*|פרויקטי\w*|מקלחונים)'
     portfolio = r'(?:עבוד\w*|פרויקטי\w*|מקלחונים|דוגמ\w*|תמונ\w*)'

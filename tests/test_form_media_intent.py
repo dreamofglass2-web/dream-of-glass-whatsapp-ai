@@ -26,6 +26,11 @@ class FormMediaIntentTests(unittest.TestCase):
         text=FORM+'\nאפשר לראות דוגמאות של עבודות מקלחונים שלכם?'
         self.assertTrue(yossi.requests_portfolio_photos(text))
         self.assertIn('אפשר לראות דוגמאות',yossi.customer_written_text(text))
+    def test_product_inquiry_without_visual_request_does_not_send_portfolio(self):
+        for text in ['אני רוצה שני מקלחונים לבית חדש','יש לכם מקלחונים?','אשמח להצעת מחיר עבור עבודות זכוכית']:
+            self.assertFalse(yossi.requests_portfolio_photos(text))
+        self.assertTrue(yossi.requests_portfolio_photos('תשלח לי עבודות שעשיתם'))
+
     def test_generated_meta_phone_prefix_with_trunk_zero_is_supported(self):
         import business_pilot
         self.assertTrue(business_pilot.is_customer_form_message('972501234567',{'type':'text','text':{'body':FORM}}))
