@@ -59,6 +59,7 @@ jobs:
           python -m unittest tests.test_direct_lead_pilot -v
           python -m unittest tests.test_form_message_pilot -v
           python -m unittest tests.test_automatic_echo -v
+          python -m unittest tests.test_form_media_intent -v
           python -m unittest discover -s tests -p "test_mirror_policy.py" -v
           python -m unittest discover -s tests -p "test_handoff_state.py" -v
           python -m unittest discover -s tests -p "test_handoff_api.py" -v

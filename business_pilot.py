@@ -60,6 +60,8 @@ def is_customer_form_message(phone, message):
     if not match:
         return False
     digits=re.sub(r'\D','',match.group(1))
+    if digits.startswith('9720') and len(digits)==13:
+        digits='972'+digits[4:]
     if digits.startswith('05') and len(digits)==10:
         digits='972'+digits[1:]
     return digits==phone and bool(re.search(r'אילו עבודות|איזה.*(?:עבודה|פרויקט)|(?:City|עיר)\s*:',body,re.I))
