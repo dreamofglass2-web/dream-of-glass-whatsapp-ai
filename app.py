@@ -1,6 +1,7 @@
 import os
 import business_pilot
 import automatic_echo
+import form_intent
 import form_outreach
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
@@ -897,9 +898,10 @@ def customer_written_text(body):
     """Extract the customer's words, excluding private visual-analysis summaries.
 
     Visual descriptions are data, not requests to send catalog images or answer
-    questions about the showroom. A caption remains part of the user request.
+    questions about the showroom. Generated form labels are not customer requests.
+    A caption and explicit text added to a form remain part of the user request.
     """
-    text = re.sub(r'\[לקוח צירף (?:תמונה|מסמך) שנותח בפועל\..*?\]', ' ', str(body), flags=re.DOTALL)
+    text = re.sub(r'\[לקוח צירף (?:תמונה|מסמך) שנותח בפועל\..*?\]', ' ', form_intent.request_text(body), flags=re.DOTALL)
     text = re.sub(r'\[נשלחה [^\]]+\]', ' ', text)
     return re.sub(r'\s+', ' ', text).strip()
 
@@ -994,15 +996,15 @@ def reset_conversation_for_phone(phone):
 
 def requests_catalog_samples(text):
     """Strictly require a positive request for OUR samples, not merely the word photo."""
-    text = str(text or '').strip()
+    text = form_intent.request_text(text).strip()
     if correcting_unrequested_photo(text) or declines_visuals(text):
         return False
     if implicit_visual_request(text):
         return True
     request_verb = r'(?:תשלח|שלח|לשלוח|אפשר\s+(?:לראות|לקבל)|רוצה\s+לראות|אשמח\s+לראות|תראה\s+לי|תראי\s+לי|יש\s+לכם|יש\s+לך|הצג|להראות)'
     photo_object = r'(?:תמונ\w*|דוגמ\w*|סוגי\s+זכוכית|סוגי\s+הזכוכית|דוגמאות|הזכוכיות|איך\s+(?:זה\s+)?(?:נרא[הית]|ייראה|יראה))'
-    return bool(re.search(r'אפשר\s+תמונ\w*', text, re.I) or re.search(request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
-                or re.search(photo_object + r'[^.!?\n]{0,55}' + request_verb, text, re.I))
+    return bool(re.search(r'אפשר\s+תמונ\w*', text, re.I) or re.search(r'(?<!\w)ו?ש?' + request_verb + r'[^.!?\n]{0,90}' + photo_object, text, re.I)
+                or re.search(photo_object + r'[^.!?\n]{0,55}(?<!\w)ו?ש?' + request_verb, text, re.I))
 
 
 def correcting_unrequested_photo(text):
@@ -1454,17 +1456,19 @@ LANDING_PAGE_URL = os.getenv('LANDING_PAGE_URL', '').strip()
 
 def requests_portfolio_photos(text):
     """Explicit requests for finished jobs, general examples, or a portfolio."""
-    text = str(text or '').strip()
+    text = form_intent.request_text(text).strip()
     if correcting_unrequested_photo(text) or declines_visuals(text) or requests_all_glass_types(text):
         return False
     if re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I) and not re.search(r'עבוד|פרויקט|מקלחונים\s+שעשיתם', text, re.I):
         return False
     if implicit_visual_request(text):
         return True
+    if not re.search(r'תמונ|דוגמ|לראות|תראה|להתרשם|הרא|קטלוג|תיק עבודות|(?:תשלח|שלח).{0,35}עבודות',text):
+        return False
     ask = r'(?:תשלח|שלח|לשלוח|אפשר|יש\s+לכם|יש\s+לך|רוצה|אשמח|תראה|לראות|הרא|אפשרות)'
     obj = r'(?:תמונ\w*|דוגמא\w*|דוגמ\w*|עבוד\w*|פרויקטי\w*|מקלחונים)'
     portfolio = r'(?:עבוד\w*|פרויקטי\w*|מקלחונים|דוגמ\w*|תמונ\w*)'
-    return bool(re.search(ask + r'[^.!?\n]{0,90}' + obj, text, re.I) and
+    return bool(re.search(r'(?<!\w)ו?ש?' + ask + r'[^.!?\n]{0,90}' + obj, text, re.I) and
                 (re.search(r'עבוד|פרויקט|מקלחונ|איך\s+זה\s+נראה|להתרשם|קצת\s+דוגמא', text, re.I) or
                  (not re.search(r'אנטיסן|פיפיטה|קליר|שקופ|חלבי|אסיד|ברונזה|גלינה', text, re.I)
                   and re.search(portfolio, text, re.I))))
@@ -2848,6 +2852,8 @@ def process_message(phone, body, batch_rows=None):
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
+        if form_intent.is_form_payload(body):
+            instructions += '\n' + form_intent.POLICY
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name', 'customer_budget')
@@ -3395,7 +3401,9 @@ def process_message(phone, body, batch_rows=None):
             elif re.search(r'(?:מצרף|צירפתי|שלחתי).{0,30}(?:תמונ|דוגמ)|הנה\s+(?:ה)?(?:תמונ|דוגמ)', reply):
                 # A generated caption is never evidence that an image was sent.
                 # Real unavailable requests are handed to the owner below.
-                reply = 'כרגע אין תמונה מתאימה מצורפת להודעה הזאת.'
+                reply = ((discovery_question or 'כדי להתאים לך פתרון, המקלחון מיועד לפינה או בין שני קירות?')
+                         if form_intent.is_form_payload(body) and not (requests_catalog_samples(customer_request) or requests_portfolio_photos(customer_request))
+                         else 'כרגע אין תמונה מתאימה מצורפת להודעה הזאת.')
             # A requested picture which cannot actually be provided becomes
             # a visible owner task, not a promise to send it later.
             completing_photo = missing_photo_request(customer_request, history)

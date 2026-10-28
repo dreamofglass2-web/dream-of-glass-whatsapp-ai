@@ -1,5 +1,6 @@
 """Illustration intent and honest catalog matching; no model or delivery calls."""
 import re
+from form_intent import request_text
 
 # Existing owner-approved portfolio assets, visually reviewed for the handle only.
 # Do not infer glass, finish, measurements or configuration from these labels.
@@ -21,6 +22,9 @@ def catalog_handle_label(record):
     return ' '.join(dict.fromkeys(labels)) or REVIEWED_HANDLE_LABELS.get(record.get('url'), '')
 
 def handle_photo_request(text, history):
+    text = request_text(text)
+    if re.search(r'אשלח|אצרף|שולח|שולחת|מצרף|מצרפת',text) and not re.search(r'(?<!\w)ו?ש?(?:תשלח|שלח|תראה|אפשר\s+לראות|רוצה\s+לראות|יש\s+לכם)',text):
+        return False
     if declines_visuals(text) or not re.search(r'תמונ|דוגמ|לראות|תראה|תראי|תשלח', text):
         return False
     if re.search(r'ידית|ידיות|כפתור|מגבת', text):
@@ -51,7 +55,7 @@ def declines_visuals(text):
 
 
 def implicit_visual_request(text):
-    text = str(text or '')
+    text = request_text(text)
     if declines_visuals(text):
         return False
     return bool(re.search(
