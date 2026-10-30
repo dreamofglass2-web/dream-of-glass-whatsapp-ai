@@ -274,6 +274,8 @@ def is_callback_request(body):
     normalized = re.sub(r'[\u200e\u200f]', '', body).strip()
     if any(phrase in normalized for phrase in CALLBACK_TRIGGERS):
         return True
+    if re.search(r'(?:תוכל|תוכלי|תוכלו|יכול|יכולה|יכולים)\s+לדבר\s+איתי.{0,60}(?:שתתפנ|בזמנך\s+הפנוי|בזמנכם\s+הפנוי|בטלפון)',normalized):
+        return True
     return bool(re.search(
         r'(?:\b(?:אלירן|נציג|מישהו)\s+)?(?:י?ת?תקשר|יחזור|תחזור|תחזרו|חזרו|להתקשר|לחזור)'
         r'\s+(?:אליי|אלי|אלינו|אלינו\s+בטלפון|בטלפון)' 
@@ -901,8 +903,9 @@ def customer_written_text(body):
     questions about the showroom. Generated form labels are not customer requests.
     A caption and explicit text added to a form remain part of the user request.
     """
-    text = re.sub(r'\[לקוח צירף (?:תמונה|מסמך) שנותח בפועל\..*?\]', ' ', form_intent.request_text(body), flags=re.DOTALL)
+    text = re.sub(r'\[לקוח צירף (?:תמונה|מסמך) שנותח בפועל\..*?\]', ' ', str(body), flags=re.DOTALL)
     text = re.sub(r'\[נשלחה [^\]]+\]', ' ', text)
+    text = form_intent.request_text(text)
     return re.sub(r'\s+', ' ', text).strip()
 
 
@@ -2632,8 +2635,9 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior or {}))
             return True
-        # Acknowledge customer attachments truthfully until a real media/vision pipeline exists.
-        if '[נשלחה ' in body and ' שלא נותחה]' in body:
+        # One unsupported video must not discard successfully analyzed photos in the same batch.
+        if ('[נשלחה ' in body and ' שלא נותחה]' in body
+                and not ('[לקוח צירף ' in body and ' שנותח בפועל.' in body)):
             if has_new_messages(phone, batch_rows):
                 return False
             reply = ('קיבלתי את הקובץ ששלחת. כרגע אני לא יכול לפתוח ולבדוק אותו כאן, '
@@ -2854,6 +2858,8 @@ def process_message(phone, body, batch_rows=None):
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
         if form_intent.is_form_payload(body):
             instructions += '\n' + form_intent.POLICY
+        if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
+            instructions += '\nבחבילת ההודעות הזו התמונות או המסמכים המסומנים כנותחו אכן נותחו. השתמש בממצאיהם בזהירות ואל תטען שאינך יכול לראות את כל הקבצים. קובץ המסומן כלא נותח לא נצפה; אל תמציא את תוכנו ואל תטען שצפית בסרטון. המשך מבירור הפרט הבא שחסר בלי לבקש שוב תיאור של התמונות שכבר נותחו.'
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name', 'customer_budget')
