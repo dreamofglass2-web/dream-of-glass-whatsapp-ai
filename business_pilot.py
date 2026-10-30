@@ -79,6 +79,11 @@ def admit(cur,config,phone,timestamp):
     identity,start,limit=config
     if inbound<start:
         return False
+    from handoff_store import phone_lock, read_state
+    phone_lock(cur,phone)
+    cur.execute("SELECT to_regclass('yossi_handoffs')")
+    if cur.fetchone()[0] and read_state(cur,phone)['owner']=='operator':
+        return False
     configure(cur,config)  # Campaign row lock serializes all concurrent admissions.
     if allows(cur,config,phone):
         return True
