@@ -3,7 +3,7 @@ import json
 import os
 import re
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import business_pilot
 from handoff_store import phone_lock, read_state
 from handoff_state import automatic_reply_allowed
@@ -43,7 +43,11 @@ def ensure_tables(cur):
 def pristine(cur, phone, start, revision=None):
     cur.execute('SELECT created_at,context,last_inbound_at,conversation FROM glass_leads WHERE phone=%s', (phone,))
     row = cur.fetchone()
-    if not row or row[0] < start or row[2] or row[3]:
+    if not row or row[0] < start or row[3]:
+        return None
+    # A weekend can outlast the free-form window before the first answer.
+    # Reopen only this unanswered, verified form with the approved template.
+    if row[2] and row[2] + timedelta(hours=24) > datetime.now(timezone.utc):
         return None
     context = row[1] or {}
     if context.get('simulation_recipient_id') or str(context.get('no_followups', '')).lower() == 'true':
@@ -160,7 +164,8 @@ def dispatch(connect, http, token, number_id, business_hours, logger):
                 JOIN glass_leads l ON l.context->'meta_leads' ? e.lead_id
                 WHERE e.state='details_saved' AND e.received_at >= %s
                 AND e.page_id=%s AND (%s OR e.form_id=ANY(%s))
-                AND l.last_inbound_at IS NULL AND l.conversation='[]'::jsonb
+                AND (l.last_inbound_at IS NULL OR l.last_inbound_at <= now()-interval '24 hours')
+                AND l.conversation='[]'::jsonb
                 ORDER BY e.received_at LIMIT 100''', (start, BUSINESS_PAGE_ID, forms == ['*'], forms))
             candidates = cur.fetchall()
     for lead_id, phone in candidates:

@@ -16,7 +16,7 @@ def connect():
 class FormOutreachDatabaseTests(unittest.TestCase):
     def setUp(self):
         self.campaign='TEST_FORM_'+uuid.uuid4().hex
-        self.start=datetime.now(timezone.utc)-timedelta(minutes=5)
+        self.start=datetime.now(timezone.utc)-timedelta(days=3)
         self.env={'BUSINESS_PILOT_ID':self.campaign,'BUSINESS_PILOT_START_AT':self.start.isoformat(),'BUSINESS_PILOT_LIMIT':'3','FORM_OUTREACH_ENABLED':'true','FORM_OUTREACH_FORM_IDS':'4321'}
         self.phones=['9725'+str(80000000+int(uuid.uuid4().hex[:6],16)+i) for i in range(8)]
         self.ids=['TEST_FORM_'+uuid.uuid4().hex for _ in self.phones]
@@ -108,3 +108,16 @@ class FormOutreachDatabaseTests(unittest.TestCase):
             write_state(cur,self.phones[0],dict(new_state(),owner='operator',revision=1))
             cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
         self.assertFalse(self.dispatch());self.http.post.assert_not_called()
+
+    def test_weekend_expired_inbound_gets_one_template_without_faking_a_new_window(self):
+        with connect() as conn,conn.cursor() as cur:
+            cur.execute("UPDATE glass_leads SET created_at=now()-interval '2 days',last_inbound_at=now()-interval '25 hours' WHERE phone=%s",(self.phones[0],))
+            cur.execute("UPDATE meta_leadgen_events SET received_at=now()-interval '2 days',meta_created_time=extract(epoch from now()-interval '2 days')::bigint WHERE lead_id=%s",(self.ids[0],))
+            cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
+        self.assertFalse(self.dispatch(False));self.http.post.assert_not_called()
+        self.assertTrue(self.dispatch());self.assertFalse(self.dispatch())
+        self.http.post.assert_called_once()
+        inbound,history=self.rows('SELECT last_inbound_at,conversation FROM glass_leads WHERE phone=%s',(self.phones[0],))[0]
+        self.assertLess(inbound,datetime.now(timezone.utc)-timedelta(hours=24))
+        self.assertEqual(history[0]['content'],f.BODY)
+        self.assertEqual(self.http.post.call_args.kwargs['json']['type'],'template')
