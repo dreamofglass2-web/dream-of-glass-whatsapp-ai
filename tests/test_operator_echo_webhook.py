@@ -55,3 +55,14 @@ class OperatorWebhookTests(unittest.TestCase):
             self.assertEqual(record.call_args.args[2]['role'],'customer')
             self.assertEqual(record.call_args.args[2]['at'],'2026-10-12T15:00:00+00:00')
             queue.assert_not_called();send.assert_not_called()
+
+    def test_media_during_operator_ownership_is_recorded_without_bot_queue_or_admission(self):
+        from handoff_state import new_state
+        state=dict(new_state(),owner='operator')
+        for kind in ('image','audio','document','video'):
+            payload={'entry':[{'changes':[{'field':'messages','value':{'metadata':{'phone_number_id':str(yossi.PHONE_NUMBER_ID)},'messages':[{'from':'972501234567','id':'wamid.manual-'+kind,'timestamp':'1791817200','type':kind,kind:{'id':'test-media','caption':'פרטי הלקוח'}}]}}]}]}
+            with self.subTest(kind=kind),patch.object(yossi,'HANDOFF_ENABLED',True),patch.object(yossi,'ensure_worker_started'),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch.object(yossi,'verified_business_lead',return_value=True),patch.object(yossi,'phone_lock'),patch.object(yossi,'read_handoff_state',return_value=state),patch.object(yossi,'record_message') as record,patch.object(yossi,'queue_message') as queue,patch.object(yossi,'admit_business_pilot') as admit,patch.object(yossi,'send_whatsapp') as send:
+                self.assertEqual(self.post(payload).status_code,200)
+                self.assertIn('התוכן לא נותח',record.call_args.args[2]['text'])
+                self.assertIn('פרטי הלקוח',record.call_args.args[2]['text'])
+                queue.assert_not_called();admit.assert_not_called();send.assert_not_called()

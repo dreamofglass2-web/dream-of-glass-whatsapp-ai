@@ -4409,7 +4409,7 @@ def webhook():
                 pending = []
                 for incoming in value.get('messages', []):
                     phone = incoming.get('from')
-                    if incoming.get('type') == 'text' and phone and verified_business_lead(phone):
+                    if incoming.get('type') in ('text','image','document','audio','video') and phone and verified_business_lead(phone):
                         try:
                             ensure_db()
                             with db_connection() as conn:
@@ -4418,8 +4418,17 @@ def webhook():
                                     state = read_handoff_state(cur, phone)
                                     if state['owner'] == 'operator':
                                         at = datetime.fromtimestamp(int(incoming['timestamp']), timezone.utc).isoformat()
+                                        if incoming.get('type')=='text':
+                                            manual_text=(incoming.get('text') or {})['body']
+                                        else:
+                                            kind=incoming['type']
+                                            media_names={'image':'תמונה','document':'מסמך','audio':'הודעה קולית','video':'סרטון'}
+                                            manual_text='[הלקוח שלח '+media_names[kind]+' במהלך הטיפול הידני; התוכן לא נותח על ידי יוסי]'
+                                            caption=str((incoming.get(kind) or {}).get('caption') or '').strip()
+                                            if caption:
+                                                manual_text+=' '+caption[:3000]
                                         record_message(cur, phone, {'id':incoming['id'],'role':'customer',
-                                            'text':(incoming.get('text') or {})['body'],'at':at})
+                                            'text':manual_text,'at':at})
                                         received += 1
                                         continue
                         except Exception as error:

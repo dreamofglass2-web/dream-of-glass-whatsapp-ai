@@ -107,3 +107,13 @@ class PilotDatabaseTests(unittest.TestCase):
         with connect() as db,db.cursor() as cur:
             self.assertEqual(business_pilot.activate_selected_existing(cur,self.config,self.selected_env(2)),'conversation_changed')
             self.assertFalse(business_pilot.allows(cur,self.config,self.phones[0]))
+
+    def test_operator_owned_lead_never_consumes_a_fresh_pilot_slot(self):
+        from handoff_store import ensure_tables,write_state
+        from handoff_state import new_state
+        with connect() as db,db.cursor() as cur:
+            ensure_tables(cur)
+            write_state(cur,self.phones[0],dict(new_state(),owner='operator'))
+        self.assertFalse(self.admit(self.phones[0]))
+        for phone in self.phones[1:4]:self.assertTrue(self.admit(phone))
+        self.assertFalse(self.admit(self.phones[4]))
