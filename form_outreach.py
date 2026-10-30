@@ -46,7 +46,7 @@ def pristine(cur, phone, start, revision=None):
     if not row or row[0] < start or row[3]:
         return None
     # A weekend can outlast the free-form window before the first answer.
-    # Reopen only this unanswered, verified form with the approved template.
+    # Reopen only this unanswered, verified inquiry with the approved template.
     if row[2] and row[2] + timedelta(hours=24) > datetime.now(timezone.utc):
         return None
     context = row[1] or {}
@@ -92,6 +92,31 @@ def enqueue(cur, cfg, lead_id, phone):
     cur.execute('''INSERT INTO yossi_form_outreach(campaign_id,phone,lead_id,form_id,revision)
         VALUES(%s,%s,%s,%s,%s) ON CONFLICT(campaign_id,phone) DO NOTHING''',
         (campaign, phone, lead_id, event[0], state['revision']))
+    return cur.rowcount == 1
+
+
+def enqueue_website(cur, cfg, phone):
+    """Reopen an unanswered signed website inquiry, already inside this pilot."""
+    if os.getenv('BUSINESS_PILOT_ALLOW_WEBSITE', '').lower() != 'true':
+        return False
+    pilot, _ = cfg
+    campaign, start, _ = pilot
+    phone_lock(cur, phone)
+    state = pristine(cur, phone, start)
+    if state is None or not business_pilot.allows(cur, pilot, phone):
+        return False
+    cur.execute('SELECT context,last_inbound_at FROM glass_leads WHERE phone=%s', (phone,))
+    context, inbound = cur.fetchone()
+    referral = (context or {}).get('whatsapp_referral') or {}
+    message_id = referral.get('entry_message_id', '')
+    if (referral.get('source') != 'meta_whatsapp_website_inbound'
+            or not isinstance(message_id, str) or not message_id.startswith('wamid.')
+            or not inbound or inbound < start):
+        return False
+    # Empty form_id explicitly denotes a website message, never a Meta form.
+    cur.execute("""INSERT INTO yossi_form_outreach(campaign_id,phone,lead_id,form_id,revision)
+        VALUES(%s,%s,%s,'',%s) ON CONFLICT(campaign_id,phone) DO NOTHING""",
+        (campaign, phone, message_id, state['revision']))
     return cur.rowcount == 1
 
 
@@ -158,20 +183,34 @@ def dispatch(connect, http, token, number_id, business_hours, logger):
     with closing(connect()) as conn, conn:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('meta_leadgen_events')")
-            if not cur.fetchone()[0]:
-                return False
-            cur.execute('''SELECT e.lead_id,l.phone FROM meta_leadgen_events e
+            has_form_events = bool(cur.fetchone()[0])
+            candidates = []
+            if has_form_events:
+                cur.execute('''SELECT e.lead_id,l.phone FROM meta_leadgen_events e
                 JOIN glass_leads l ON l.context->'meta_leads' ? e.lead_id
                 WHERE e.state='details_saved' AND e.received_at >= %s
                 AND e.page_id=%s AND (%s OR e.form_id=ANY(%s))
                 AND (l.last_inbound_at IS NULL OR l.last_inbound_at <= now()-interval '24 hours')
                 AND l.conversation='[]'::jsonb
                 ORDER BY e.received_at LIMIT 100''', (start, BUSINESS_PAGE_ID, forms == ['*'], forms))
-            candidates = cur.fetchall()
+                candidates = cur.fetchall()
     for lead_id, phone in candidates:
         with closing(connect()) as conn, conn:
             with conn.cursor() as cur:
                 enqueue(cur, cfg, lead_id, phone)
+    if os.getenv('BUSINESS_PILOT_ALLOW_WEBSITE', '').lower() == 'true':
+        with closing(connect()) as conn, conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT l.phone FROM glass_leads l
+                    JOIN yossi_pilot_members m ON m.phone=l.phone AND m.campaign_id=%s
+                    WHERE l.context->'whatsapp_referral'->>'source'='meta_whatsapp_website_inbound'
+                    AND l.last_inbound_at <= now()-interval '24 hours'
+                    AND l.conversation='[]'::jsonb ORDER BY l.last_inbound_at LIMIT 100""", (campaign,))
+                website_candidates = cur.fetchall()
+        for (phone,) in website_candidates:
+            with closing(connect()) as conn, conn:
+                with conn.cursor() as cur:
+                    enqueue_website(cur, cfg, phone)
     with closing(connect()) as conn, conn:
         with conn.cursor() as cur:
             cur.execute('''UPDATE yossi_form_outreach SET status='uncertain',reason='interrupted_send'
