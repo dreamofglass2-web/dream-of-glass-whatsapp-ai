@@ -2,6 +2,7 @@ import os
 import business_pilot
 import automatic_echo
 import form_intent
+import website_inquiry
 import form_outreach
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
@@ -609,6 +610,7 @@ def verified_business_lead(phone):
                               OR context->'whatsapp_referral'->>'source'='meta_click_to_whatsapp_ad'
                               OR context->'whatsapp_referral'->>'source'='meta_whatsapp_direct_inbound'
                               OR context->'whatsapp_referral'->>'source'='meta_whatsapp_form_message'
+                              OR context->'whatsapp_referral'->>'source'='meta_whatsapp_website_inbound'
                           )
                           AND COALESCE(context->>'no_followups','false') <> 'true'
                     )
@@ -628,12 +630,15 @@ def persist_verified_direct_inbound(phone, message):
     """
     form_only=os.getenv('BUSINESS_PILOT_REQUIRE_FORM','').lower()=='true'
     all_inbound=os.getenv('BUSINESS_PILOT_ALL_INBOUND','').lower()=='true'
-    if not finite_business_pilot_requested() or not (all_inbound or form_only):
+    website_enabled=os.getenv('BUSINESS_PILOT_ALLOW_WEBSITE','').lower()=='true'
+    if not finite_business_pilot_requested() or not (all_inbound or form_only or website_enabled):
         return False
     form_message=business_pilot.is_customer_form_message(phone,message)
-    if not all_inbound and not form_message:
+    website_message=(website_enabled and message.get('type')=='text' and website_inquiry.arrives_from_website((message.get('text') or {}).get('body')))
+    if not all_inbound and not form_message and not website_message:
         return False
-    source='meta_whatsapp_form_message' if form_message else 'meta_whatsapp_direct_inbound'
+    source=('meta_whatsapp_form_message' if form_message else
+            'meta_whatsapp_website_inbound' if website_message else 'meta_whatsapp_direct_inbound')
     timestamp = message.get('timestamp')
     if not re.fullmatch(r'9725\d{8}', str(phone or '')) or not isinstance(timestamp, str) or not timestamp.isdigit():
         return False
@@ -641,12 +646,12 @@ def persist_verified_direct_inbound(phone, message):
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO glass_leads(phone,context)
-                VALUES(%s,jsonb_build_object('whatsapp_referral',jsonb_build_object('source',%s::text)))
+                VALUES(%s,jsonb_build_object('whatsapp_referral',jsonb_build_object('source',%s::text,'entry_message_id',%s::text)))
                 ON CONFLICT(phone) DO UPDATE SET context=CASE
                   WHEN COALESCE(glass_leads.context->'whatsapp_referral'->>'source','')=''
-                    OR %s='meta_whatsapp_form_message' THEN
-                    jsonb_set(COALESCE(glass_leads.context,'{}'::jsonb),'{whatsapp_referral}',EXCLUDED.context->'whatsapp_referral')
-                  ELSE glass_leads.context END""", (phone,source,source))
+                    OR %s IN ('meta_whatsapp_form_message','meta_whatsapp_website_inbound') THEN
+                    jsonb_set(COALESCE(glass_leads.context,'{}'::jsonb),'{whatsapp_referral}',COALESCE(glass_leads.context->'whatsapp_referral','{}'::jsonb) || EXCLUDED.context->'whatsapp_referral')
+                  ELSE glass_leads.context END""", (phone,source,str(message.get('id') or ''),source))
     return True
 
 
@@ -2567,6 +2572,16 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'קיבלתי את הבקשה לחזור אליך מחר, אבל כרגע לא הצלחתי לשמור אותה. אפשר לנסות שוב?'
             send_whatsapp(phone, body=reply)
             return True
+        # A website greeting is a routine opening, not an unknown professional question.
+        # Known form facts continue through consultation instead of being asked again.
+        if (website_inquiry.greeting_only(body) and not prior.get('meta_leads')
+                and not prior.get('product') and not any(m.get('role')=='assistant' for m in history[:-1])):
+            if has_new_messages(phone,batch_rows):
+                return False
+            reply='היי, אני יוסי מחלומות מזכוכית. איזו עבודת זכוכית מעניינת אותך?'
+            send_whatsapp(phone,body=reply)
+            save_conversation(phone,history+[{'role':'assistant','content':reply}],dict(prior,needs_human=False))
+            return True
         # Social chat is handled before callbacks/AI to avoid stale needs_human state.
         social_reply = simple_social_reply(body, history)
         if social_reply is not None:
@@ -4023,10 +4038,11 @@ def batch_worker():
     app.logger.info("BATCH_WORKER_STARTED pid=%s", os.getpid())
     app.logger.info("OWNER_ALERT_CONFIGURATION channel=%s ready=%s",
                     os.getenv("OWNER_ALERT_CHANNEL", "whatsapp"), bool(alert_configuration()))
-    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s form_message_only=%s',
+    app.logger.info('LEAD_ENTRY_CONFIGURATION direct=%s forms=%s form_message_only=%s website=%s',
                     os.getenv('BUSINESS_PILOT_ALL_INBOUND', '').lower() == 'true',
                     os.getenv('FORM_OUTREACH_ENABLED', '').lower() == 'true',
-                    os.getenv('BUSINESS_PILOT_REQUIRE_FORM', '').lower() == 'true')
+                    os.getenv('BUSINESS_PILOT_REQUIRE_FORM', '').lower() == 'true',
+                    os.getenv('BUSINESS_PILOT_ALLOW_WEBSITE', '').lower() == 'true')
     try:
         if form_outreach.configuration():
             app.logger.info('FORM_OPENING_TEMPLATE_APPROVED ready=%s',

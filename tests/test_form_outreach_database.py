@@ -121,3 +121,46 @@ class FormOutreachDatabaseTests(unittest.TestCase):
         self.assertLess(inbound,datetime.now(timezone.utc)-timedelta(hours=24))
         self.assertEqual(history[0]['content'],f.BODY)
         self.assertEqual(self.http.post.call_args.kwargs['json']['type'],'template')
+
+    def seed_website(self, member=True, expired=True, message_id='wamid.website-test'):
+        phone=self.phones[0]
+        with connect() as conn,conn.cursor() as cur:
+            cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids,))
+            context={'whatsapp_referral':{'source':'meta_whatsapp_website_inbound','entry_message_id':message_id}}
+            cur.execute("UPDATE glass_leads SET created_at=now()-interval '2 days',context=%s::jsonb,last_inbound_at=now()-(%s*interval '1 hour') WHERE phone=%s",(json.dumps(context),25 if expired else 1,phone))
+            business_pilot.configure(cur,f.configuration()[0])
+            if member:
+                cur.execute('INSERT INTO yossi_pilot_members(campaign_id,phone,ordinal,first_inbound_at) SELECT %s,%s,1,last_inbound_at FROM glass_leads WHERE phone=%s',(self.campaign,phone,phone))
+        return phone
+
+    def test_website_weekend_uses_approved_template_once_in_existing_quota(self):
+        with patch.dict(os.environ,{'BUSINESS_PILOT_ALLOW_WEBSITE':'true'}):
+            phone=self.seed_website()
+            self.assertFalse(self.dispatch(False));self.http.post.assert_not_called()
+            self.assertTrue(self.dispatch());self.assertFalse(self.dispatch())
+            self.http.post.assert_called_once()
+            self.assertEqual(self.http.post.call_args.kwargs['json']['type'],'template')
+            self.assertEqual(self.rows('SELECT count(*) FROM yossi_pilot_members WHERE campaign_id=%s',(self.campaign,))[0][0],1)
+            self.assertEqual(self.rows('SELECT form_id FROM yossi_form_outreach WHERE campaign_id=%s',(self.campaign,))[0][0],'')
+            self.assertLess(self.rows('SELECT last_inbound_at FROM glass_leads WHERE phone=%s',(phone,))[0][0],datetime.now(timezone.utc)-timedelta(hours=24))
+
+    def test_website_nonmember_recent_inbound_missing_proof_and_owner_cannot_send(self):
+        with patch.dict(os.environ,{'BUSINESS_PILOT_ALLOW_WEBSITE':'true'}):
+            phone=self.seed_website(member=False)
+            self.assertFalse(self.dispatch())
+            with connect() as conn,conn.cursor() as cur:
+                cur.execute('INSERT INTO yossi_pilot_members(campaign_id,phone,ordinal) VALUES(%s,%s,1)',(self.campaign,phone))
+                cur.execute('UPDATE glass_leads SET last_inbound_at=now() WHERE phone=%s',(phone,))
+            self.assertFalse(self.dispatch())
+            with connect() as conn,conn.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET last_inbound_at=now()-interval '25 hours',context=context #- '{whatsapp_referral,entry_message_id}' WHERE phone=%s",(phone,))
+            self.assertFalse(self.dispatch())
+            with connect() as conn,conn.cursor() as cur:
+                cur.execute("UPDATE glass_leads SET context=jsonb_set(context,'{whatsapp_referral,entry_message_id}','\"wamid.website-test\"'::jsonb) WHERE phone=%s",(phone,))
+                write_state(cur,phone,dict(new_state(),owner='operator'))
+            self.assertFalse(self.dispatch());self.http.post.assert_not_called()
+
+    def test_website_feature_disabled_does_not_reopen_old_inbound(self):
+        self.seed_website()
+        with patch.dict(os.environ,{'BUSINESS_PILOT_ALLOW_WEBSITE':'false'}):
+            self.assertFalse(self.dispatch());self.http.post.assert_not_called()

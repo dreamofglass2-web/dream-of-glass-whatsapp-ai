@@ -96,9 +96,10 @@ def admit(cur,config,phone,timestamp):
     has_form=isinstance(forms,dict) and any(isinstance(v,dict) and v.get('source')=='meta_instant_form' for v in forms.values())
     source=(context.get('whatsapp_referral') or {}).get('source')
     form_message=source=='meta_whatsapp_form_message'
-    if os.getenv('BUSINESS_PILOT_REQUIRE_FORM','').lower()=='true' and not (has_form or form_message):
+    website_message=(os.getenv('BUSINESS_PILOT_ALLOW_WEBSITE','').lower()=='true' and source=='meta_whatsapp_website_inbound')
+    if os.getenv('BUSINESS_PILOT_REQUIRE_FORM','').lower()=='true' and not (has_form or form_message or website_message):
         return False
-    verified=has_form or source in ('meta_click_to_whatsapp_ad','meta_whatsapp_direct_inbound','meta_whatsapp_form_message')
+    verified=has_form or website_message or source in ('meta_click_to_whatsapp_ad','meta_whatsapp_direct_inbound','meta_whatsapp_form_message')
     if not verified or context.get('simulation_recipient_id') or str(context.get('no_followups','false')).lower()=='true':
         return False
     cur.execute('SELECT count(*) FROM yossi_pilot_members WHERE campaign_id=%s',(identity,))

@@ -117,3 +117,13 @@ class PilotDatabaseTests(unittest.TestCase):
         self.assertFalse(self.admit(self.phones[0]))
         for phone in self.phones[1:4]:self.assertTrue(self.admit(phone))
         self.assertFalse(self.admit(self.phones[4]))
+
+    def test_website_inquiries_share_form_quota_and_require_explicit_enablement(self):
+        with connect() as db,db.cursor() as cur:
+            for phone in self.phones[:4]:
+                cur.execute("UPDATE glass_leads SET context='{\"whatsapp_referral\":{\"source\":\"meta_whatsapp_website_inbound\"}}'::jsonb WHERE phone=%s",(phone,))
+        with patch.dict(os.environ,{'BUSINESS_PILOT_REQUIRE_FORM':'true','BUSINESS_PILOT_ALLOW_WEBSITE':'false'}):
+            self.assertFalse(self.admit(self.phones[0]))
+        with patch.dict(os.environ,{'BUSINESS_PILOT_REQUIRE_FORM':'true','BUSINESS_PILOT_ALLOW_WEBSITE':'true'}):
+            for phone in self.phones[:3]:self.assertTrue(self.admit(phone))
+            self.assertFalse(self.admit(self.phones[3]))
