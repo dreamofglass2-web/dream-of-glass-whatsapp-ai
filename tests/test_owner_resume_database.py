@@ -380,3 +380,11 @@ class OwnerReturnPostgres(unittest.TestCase):
                 self.assertEqual(replay['revision'],current['revision'])
                 with self.assertRaises(HandoffError):
                     record_message(cur,self.phone,dict(messages[0],text='conflicting content'),operator=True)
+
+    def test_resolve_alert_never_creates_a_resume_job_or_changes_conversation_owner(self):
+        with connect() as db,db.cursor() as cur:
+            from handoff_store import read_state
+            state=read_state(cur,self.phone);state['escalation']={'id':'a'*32,'active':True,'notificationStatus':'accepted'};write_state(cur,self.phone,state)
+            result=owner_action(cur,self.phone,state['revision'],{'type':'resolveEscalation','escalationId':'a'*32},datetime.now(timezone.utc).isoformat())
+            self.assertEqual(result['owner'],'operator');self.assertFalse(result['escalation']['active'])
+            cur.execute('SELECT count(*) FROM yossi_resume_jobs WHERE phone=%s',(self.phone,));self.assertEqual(cur.fetchone()[0],0)
