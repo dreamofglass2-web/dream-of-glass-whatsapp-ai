@@ -4,6 +4,7 @@ import automatic_echo
 import form_intent
 import website_inquiry
 import form_outreach
+import crm_task_reminders
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -4050,8 +4051,15 @@ def batch_worker():
     except Exception:
         app.logger.error('FORM_OPENING_TEMPLATE_CHECK_FAILED')
     last_alert_check = 0.0
+    last_task_check = 0.0
     while True:
         try:
+            if time.monotonic() - last_task_check >= 60:
+                last_task_check = time.monotonic()
+                try:
+                    crm_task_reminders.dispatch(db_connection, requests, app.logger)
+                except Exception:
+                    app.logger.error('CRM_TASK_REMINDERS_DISPATCH_FAILED')
             if HANDOFF_ENABLED and time.monotonic() - last_alert_check >= 15:
                 last_alert_check = time.monotonic()
                 try:
