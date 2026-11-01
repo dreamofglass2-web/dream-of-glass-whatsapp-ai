@@ -56,3 +56,20 @@ class HandoffTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ResolveEscalationTests(unittest.TestCase):
+    def state(self):
+        return dict(new_state(),owner='operator',revision=4,summary='ההצעה נשלחה',instructions='אני מטפל',handoff_generation=2,
+            escalation={'id':'a'*32,'active':True,'notificationStatus':'accepted'})
+    def test_resolve_removes_alert_without_resuming_or_losing_context(self):
+        state=self.state();result=transition(state,4,{'type':'resolveEscalation','escalationId':'a'*32},NOW)
+        self.assertFalse(result['escalation']['active']);self.assertEqual(result['escalation']['resolvedAt'],NOW)
+        self.assertEqual(result['owner'],'operator');self.assertEqual(result['revision'],5)
+        self.assertEqual(result['summary'],state['summary']);self.assertEqual(result['instructions'],state['instructions'])
+        self.assertEqual(result['messages'],state['messages']);self.assertEqual(result['handoff_generation'],2)
+        self.assertFalse(automatic_reply_allowed(result,NOW));self.assertTrue(state['escalation']['active'])
+    def test_stale_revision_or_different_alert_cannot_be_dismissed(self):
+        state=self.state()
+        for revision,identity in [(3,'a'*32),(4,'b'*32),(4,'invalid')]:
+            with self.assertRaises(HandoffError):transition(state,revision,{'type':'resolveEscalation','escalationId':identity},NOW)

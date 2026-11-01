@@ -90,6 +90,15 @@ def transition(state, expected_revision, action, now):
             raise HandoffError('Owner summary required before saving notes')
         next_state['summary'] = action.get('summary')
         next_state['instructions'] = action.get('instructions')
+    elif kind == 'resolveEscalation':
+        alert=state.get('escalation') or {}
+        if (set(action)!={'type','escalationId'} or state['owner']!='operator'
+                or not alert.get('active') or not isinstance(action.get('escalationId'),str)
+                or not re.fullmatch(r'[a-f0-9]{32}',action['escalationId'])
+                or action['escalationId']!=alert.get('id')):
+            raise HandoffError('Conversation changed; reload before resolving alert')
+        next_state['escalation']['active']=False
+        next_state['escalation']['resolvedAt']=now
     elif kind == 'returnToYossi':
         if state['owner'] != 'operator':
             raise HandoffError('Conversation is not assigned to operator')
