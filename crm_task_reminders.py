@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
 from owner_notifications import alert_configuration
-SITE='https://yossi-david-crm-demo.abloompetal2.chatgpt.site'
+SITE='https://yossi-david-crm-demo.dream-of-glass2.chatgpt.site'
 TARGET='/api/task-reminders'
 _ready_logged=False
 
