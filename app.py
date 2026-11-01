@@ -84,7 +84,7 @@ def business_auto_reply_allowed(phone):
         ensure_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
-                return business_pilot.allows(cur,config,phone)
+                return business_pilot.allows(cur,config,phone) or business_pilot.continues(cur,phone)
     except Exception:
         app.logger.error('BUSINESS_PILOT_AUTHORIZATION_UNAVAILABLE')
         return False
@@ -4046,7 +4046,7 @@ def batch_worker():
     try:
         if form_outreach.configuration():
             app.logger.info('FORM_OPENING_TEMPLATE_APPROVED ready=%s',
-                            form_outreach.template_approved(requests, WHATSAPP_TOKEN))
+                            form_outreach.approval_ready(requests, WHATSAPP_TOKEN, app.logger))
     except Exception:
         app.logger.error('FORM_OPENING_TEMPLATE_CHECK_FAILED')
     last_alert_check = 0.0
@@ -4056,8 +4056,9 @@ def batch_worker():
                 last_alert_check = time.monotonic()
                 try:
                     form_outreach.dispatch(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
-                except Exception:
-                    app.logger.error('FORM_OUTREACH_DISPATCH_FAILED')
+                except Exception as exc:
+                    app.logger.error('FORM_OUTREACH_DISPATCH_FAILED exception=%s sqlstate=%s',
+                                     type(exc).__name__, getattr(exc, 'pgcode', None))
                 try:
                     dispatch_owner_alerts(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, app.logger)
                 except Exception:
