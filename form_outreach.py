@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import time
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 import business_pilot
@@ -133,6 +134,39 @@ def template_approved(http, token):
             and components[0].get('text') == BODY)
 
 
+_approval_retry_after = {}
+
+
+def approval_ready(http, token, logger):
+    """Fail closed and back off provider failures without logging secrets or bodies."""
+    key = hash(token)
+    now = time.monotonic()
+    if now < _approval_retry_after.get(key, 0):
+        return False
+    try:
+        ready = template_approved(http, token)
+    except Exception as exc:
+        response = getattr(exc, 'response', None)
+        status = getattr(response, 'status_code', None)
+        code = subcode = None
+        try:
+            error = response.json().get('error', {})
+            code, subcode = error.get('code'), error.get('error_subcode')
+        except Exception:
+            pass
+        numeric = lambda value: value if isinstance(value, int) else None
+        logger.error('FORM_TEMPLATE_CHECK_FAILED exception=%s http_status=%s graph_code=%s graph_subcode=%s',
+                     type(exc).__name__, numeric(status), numeric(code), numeric(subcode))
+        _approval_retry_after[key] = now + 300
+        return False
+    if not ready:
+        _approval_retry_after[key] = now + 300
+        logger.warning('FORM_TEMPLATE_NOT_APPROVED')
+    else:
+        _approval_retry_after.pop(key, None)
+    return ready
+
+
 def deliver(connect, http, token, number_id, cfg, phone, revision, business_hours, logger):
     pilot, _ = cfg
     campaign, start, _ = pilot
@@ -175,9 +209,6 @@ def dispatch(connect, http, token, number_id, business_hours, logger):
     cfg = configuration()
     if not cfg or not business_hours() or not token or str(number_id) != BUSINESS_NUMBER_ID:
         return False
-    # No free-form 24-hour exception: only this exact approved template may initiate.
-    if not template_approved(http, token):
-        return False
     pilot, forms = cfg
     campaign, start, _ = pilot
     with closing(connect()) as conn, conn:
@@ -211,10 +242,17 @@ def dispatch(connect, http, token, number_id, business_hours, logger):
             with closing(connect()) as conn, conn:
                 with conn.cursor() as cur:
                     enqueue_website(cur, cfg, phone)
+    # Do not poll Meta every 15 seconds when this finite pilot has no work.
     with closing(connect()) as conn, conn:
         with conn.cursor() as cur:
             cur.execute('''UPDATE yossi_form_outreach SET status='uncertain',reason='interrupted_send'
                 WHERE status='sending' AND started_at < now()-interval '2 minutes' ''')
+            cur.execute("SELECT EXISTS(SELECT 1 FROM yossi_form_outreach WHERE campaign_id=%s AND status='pending')", (campaign,))
+            waiting = cur.fetchone()[0]
+    if not waiting or not approval_ready(http, token, logger):
+        return False
+    with closing(connect()) as conn, conn:
+        with conn.cursor() as cur:
             cur.execute('''SELECT phone,revision FROM yossi_form_outreach
                 WHERE campaign_id=%s AND status='pending' ORDER BY created_at
                 FOR UPDATE SKIP LOCKED LIMIT 1''', (campaign,))

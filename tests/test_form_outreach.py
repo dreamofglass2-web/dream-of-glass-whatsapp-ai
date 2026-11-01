@@ -17,7 +17,7 @@ class FormOpeningTests(unittest.TestCase):
             http.get.return_value.json.return_value=dict(approved,**changed)
             self.assertFalse(f.template_approved(http,'fake-token'))
     def test_night_disabled_and_pending_never_touch_database_or_send(self):
-        for enabled,hours,approved in [(False,True,True),(True,False,True),(True,True,False)]:
+        for enabled,hours,approved in [(False,True,True),(True,False,True)]:
             with self.subTest(enabled=enabled,hours=hours,approved=approved),patch.dict('os.environ',dict(ENV,FORM_OUTREACH_ENABLED=str(enabled).lower()),clear=True),patch.object(f,'template_approved',return_value=approved):
                 db,http=Mock(),Mock()
                 self.assertFalse(f.dispatch(db,http,'fake',f.BUSINESS_NUMBER_ID,lambda:hours,Mock()))
@@ -29,3 +29,17 @@ class FormOpeningTests(unittest.TestCase):
             http,db=Mock(),Mock()
             self.assertFalse(f.dispatch(db,http,'fake','wrong-number',lambda:True,Mock()))
             approval.assert_not_called();http.post.assert_not_called();db.assert_not_called()
+
+    def test_approval_failure_backs_off_and_never_logs_provider_body_or_credentials(self):
+        import requests
+        http=Mock();response=Mock();response.status_code=400
+        response.json.return_value={'error':{'code':4,'error_subcode':99,'message':'sensitive-body'}}
+        http.get.side_effect=requests.HTTPError('sensitive-url',response=response)
+        logger=Mock()
+        with patch.dict(f._approval_retry_after,{},clear=True),patch.object(f.time,'monotonic',side_effect=[10,20,311]):
+            self.assertFalse(f.approval_ready(http,'fake-only-token',logger))
+            self.assertFalse(f.approval_ready(http,'fake-only-token',logger))
+            self.assertFalse(f.approval_ready(http,'fake-only-token',logger))
+        self.assertEqual(http.get.call_count,2)
+        self.assertNotIn('sensitive',str(logger.mock_calls));self.assertNotIn('fake-only-token',str(logger.mock_calls))
+        self.assertIn('400',str(logger.mock_calls));self.assertIn('99',str(logger.mock_calls))

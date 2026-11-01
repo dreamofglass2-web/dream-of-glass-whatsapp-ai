@@ -161,3 +161,25 @@ def activate_selected_existing(cur, config, env=None, now=None):
     },now.isoformat())
     owner_action(cur,phone,noted['revision'],{'type':'returnToYossi','resume_at':resume.isoformat()},now.isoformat())
     return 'scheduled'
+
+
+def continues(cur, phone, env=None):
+    """Owner-selected prior member may reply without consuming a new cohort slot."""
+    env = os.environ if env is None else env
+    selected = [v.strip() for v in env.get('BUSINESS_PILOT_CONTINUATIONS', '').split(',') if v.strip()]
+    if len(selected) > 3:
+        return False
+    for item in selected:
+        match = re.fullmatch(r'([a-zA-Z0-9_-]{1,100}):(9725\d{8})', item)
+        if not match or match[2] != phone:
+            continue
+        cur.execute("""SELECT EXISTS(SELECT 1 FROM yossi_pilot_members m
+            JOIN yossi_form_outreach o ON o.campaign_id=m.campaign_id AND o.phone=m.phone
+            JOIN glass_leads l ON l.phone=m.phone
+            LEFT JOIN yossi_handoffs h ON h.phone=m.phone
+            WHERE m.campaign_id=%s AND m.phone=%s AND o.status='accepted'
+            AND COALESCE(h.state->>'owner','yossi')='yossi'
+            AND COALESCE(l.context->>'no_followups','false')<>'true'
+            AND NOT (l.context ? 'simulation_recipient_id'))""", (match[1], phone))
+        return bool(cur.fetchone()[0])
+    return False

@@ -164,3 +164,31 @@ class FormOutreachDatabaseTests(unittest.TestCase):
         self.seed_website()
         with patch.dict(os.environ,{'BUSINESS_PILOT_ALLOW_WEBSITE':'false'}):
             self.assertFalse(self.dispatch());self.http.post.assert_not_called()
+
+    def test_idle_pilot_never_polls_meta_and_pending_unapproved_never_sends(self):
+        with connect() as conn,conn.cursor() as cur:
+            cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids,))
+        with patch.object(f,'template_approved') as approved:
+            self.assertFalse(self.dispatch());approved.assert_not_called()
+        with connect() as conn,conn.cursor() as cur:
+            cur.execute("UPDATE meta_leadgen_events SET form_id='4321' WHERE lead_id=%s",(self.ids[0],))
+        with patch.dict(f._approval_retry_after,{},clear=True),patch.object(f,'template_approved',return_value=False):
+            self.assertFalse(self.dispatch());self.http.post.assert_not_called()
+        with patch.dict(f._approval_retry_after,{},clear=True):
+            self.assertTrue(self.dispatch())
+
+    def test_selected_prior_member_continues_without_new_slot_but_owner_can_stop_it(self):
+        self.assertTrue(self.enqueue(0))
+        with connect() as conn,conn.cursor() as cur:
+            cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
+        self.assertTrue(self.dispatch())
+        phone=self.phones[0]
+        with patch.dict(os.environ,{'BUSINESS_PILOT_CONTINUATIONS':self.campaign+':'+phone}):
+            with connect() as conn,conn.cursor() as cur:
+                self.assertTrue(business_pilot.continues(cur,phone))
+                self.assertFalse(business_pilot.continues(cur,self.phones[1]))
+                write_state(cur,phone,dict(new_state(),owner='operator'))
+                self.assertFalse(business_pilot.continues(cur,phone))
+        with patch.dict(os.environ,{'BUSINESS_PILOT_CONTINUATIONS':''}):
+            with connect() as conn,conn.cursor() as cur:
+                self.assertFalse(business_pilot.continues(cur,phone))
