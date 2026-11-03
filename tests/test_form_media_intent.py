@@ -54,3 +54,23 @@ class FormMediaDeliveryTests(unittest.TestCase):
     def test_form_plus_actual_sample_request_can_send_catalog_images(self):
         self.h.step(FORM+'\nאפשר לראות דוגמאות של עבודות מקלחונים שלכם?',self.h.model('מצרף דוגמאות'))
         self.assertIn('[TEST_IMAGE]',self.h.sent)
+
+
+class FormOpeningQualityTests(unittest.TestCase):
+    def setUp(self):
+        from tests.test_conversation_simulator import ConversationSimulation
+        self.h=ConversationSimulation();self.h.setUp();self.addCleanup(self.h.doCleanups)
+    def test_first_form_monologue_is_repaired_and_next_fact_matches_actual_question(self):
+        reply=self.h.step(FORM,self.h.model('היי, אני יוסי מחלומות מזכוכית. אנחנו מרמלה ומודדים ומתקינים בעצמנו ללא קבלני משנה. אם היה לך מקלחון קודם, מה אהבת בו ומה תרצה לשפר?'))
+        self.assertIn('כבר יש לך כיוון לסגנון',reply);self.assertNotIn('מרמלה',reply);self.assertNotIn('מקלחון קודם',reply)
+        self.assertEqual(reply.count('?'),1);self.assertLess(len(reply),230)
+        self.assertEqual(self.h.memory[self.h.phone][1]['next_missing_fact'],'כיוון וסגנון המקלחון הרצוי')
+    def test_good_short_opening_and_actual_customer_questions_are_preserved(self):
+        import form_intent
+        good='היי, אני יוסי מחלומות מזכוכית. המקלחון מיועד לפינה או בין שני קירות?'
+        data={'stage':'discovery','product':'מקלחון'};history=[{'role':'user','content':FORM}]
+        self.assertEqual(form_intent.concise_first_opening(good,FORM,history,data),good)
+        long='אנחנו מרמלה. '+('הסבר ארוך '*40)
+        self.assertEqual(form_intent.concise_first_opening(long,FORM+'\nמה שעות הפעילות שלכם?',history,data),long)
+        self.assertEqual(form_intent.concise_first_opening(long,FORM,[{'role':'assistant','content':'נעים להכיר'},history[0]],data),long)
+        self.assertEqual(form_intent.concise_first_opening(long,FORM,history,dict(data,needs_human=True)),long)
