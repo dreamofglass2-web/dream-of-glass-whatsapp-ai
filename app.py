@@ -3350,6 +3350,11 @@ def process_message(phone, body, batch_rows=None):
                                          callback_requested or callback_followup or automatic_handoff):
                 # Pending quote intent is retained, but cannot replace today's material question.
                 reply = thickness_advice
+            if not (callback_requested or callback_followup or automatic_handoff):
+                opening = form_intent.concise_first_opening(reply, body, history, data, draft=data.get('reply'))
+                if opening != reply:
+                    reply = opening
+                    data['next_missing_fact'] = 'כיוון וסגנון המקלחון הרצוי'
             # If the customer sent a correction while we were composing, retry
             # with the new messages rather than sending a stale response.
             delay = min(TYPING_MAX, max(TYPING_MIN, len(reply) / 23.0))
