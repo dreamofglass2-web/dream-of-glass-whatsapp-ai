@@ -57,7 +57,10 @@ def dispatch(connect,http,token,number_id,business_hours,logger,env=None):
                 phone_lock(cur,phone)
                 target=eligible(cur,campaign,phone)
                 if target is None:continue
-        if not form_outreach.approval_ready(http,token,logger):return False
+        opening=form_outreach.current_opening()
+        ready=(form_outreach.approval_ready(http,token,logger,opening) if form_outreach.opening_greetings.enabled()
+               else form_outreach.approval_ready(http,token,logger))
+        if not ready:return False
         with closing(connect()) as db,db:
             with db.cursor() as cur:
                 phone_lock(cur,phone)
@@ -74,11 +77,15 @@ def dispatch(connect,http,token,number_id,business_hours,logger,env=None):
                 if not business_hours() or eligible(cur,campaign,phone,revision) is None:
                     cur.execute("UPDATE yossi_outreach_recoveries SET status='canceled',completed_at=now() WHERE campaign_id=%s AND phone=%s",(campaign,phone))
                     return False
+                if form_outreach.current_opening()!=opening:
+                    cur.execute("DELETE FROM yossi_outreach_recoveries WHERE campaign_id=%s AND phone=%s AND status='reserved'",(campaign,phone))
+                    return False  # No provider attempt occurred; re-evaluate the new time slot.
+                template_name,_,opening_body=opening
                 status,new_mid,codes='uncertain',None,[]
                 try:
                     response=http.post('https://graph.facebook.com/v26.0/'+str(number_id)+'/messages',
                         headers={'Authorization':'Bearer '+token},json={'messaging_product':'whatsapp','to':phone,'type':'template',
-                        'template':{'name':form_outreach.TEMPLATE,'language':{'code':'he'}}},timeout=20)
+                        'template':{'name':template_name,'language':{'code':'he'}}},timeout=20)
                     payload=response.json()
                     if response.status_code>=400:
                         status='failed'
@@ -93,7 +100,7 @@ def dispatch(connect,http,token,number_id,business_hours,logger,env=None):
                     WHERE campaign_id=%s AND phone=%s""",(status,new_mid,json.dumps(codes),campaign,phone))
                 if status=='accepted':
                     at=datetime.now(timezone.utc).isoformat()
-                    message={'role':'assistant','content':form_outreach.BODY,'at':at,'message_id':new_mid}
+                    message={'role':'assistant','content':opening_body,'at':at,'message_id':new_mid}
                     cur.execute("UPDATE glass_leads SET conversation=conversation || %s::jsonb,context=context || %s::jsonb,updated_at=now() WHERE phone=%s",
                         (json.dumps([message],ensure_ascii=False),json.dumps({'outreach_recovery':{'message_id':new_mid,'source_campaign':campaign,'at':at}}),phone))
                 logger.info('OUTREACH_RECOVERY_RESULT status=%s phone_suffix=%s',status,phone[-4:])

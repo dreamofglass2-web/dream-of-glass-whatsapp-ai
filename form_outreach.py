@@ -6,6 +6,7 @@ import time
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 import business_pilot
+import opening_greetings
 from handoff_store import phone_lock, read_state
 from handoff_state import automatic_reply_allowed
 
@@ -121,30 +122,35 @@ def enqueue_website(cur, cfg, phone):
     return cur.rowcount == 1
 
 
-def template_approved(http, token):
-    response = http.get('https://graph.facebook.com/v26.0/' + TEMPLATE_ID,
+def current_opening():
+    return opening_greetings.selected() if opening_greetings.enabled() else (TEMPLATE,TEMPLATE_ID,BODY)
+
+
+def template_approved(http, token, opening=None):
+    name,identity,body=opening or current_opening()
+    response = http.get('https://graph.facebook.com/v26.0/' + identity,
         params={'fields': 'name,status,language,components'},
         headers={'Authorization': 'Bearer ' + token}, timeout=12)
     response.raise_for_status()
     item = response.json()
     components = item.get('components') or []
-    return (item.get('name') == TEMPLATE and item.get('status') == 'APPROVED'
+    return (item.get('name') == name and item.get('status') == 'APPROVED'
             and item.get('language') == 'he'
             and len(components) == 1 and components[0].get('type') == 'BODY'
-            and components[0].get('text') == BODY)
+            and components[0].get('text') == body)
 
 
 _approval_retry_after = {}
 
 
-def approval_ready(http, token, logger):
+def approval_ready(http, token, logger, opening=None):
     """Fail closed and back off provider failures without logging secrets or bodies."""
-    key = hash(token)
+    key = (hash(token),(opening or current_opening())[0])
     now = time.monotonic()
     if now < _approval_retry_after.get(key, 0):
         return False
     try:
-        ready = template_approved(http, token)
+        ready = template_approved(http, token, opening) if opening is not None else template_approved(http, token)
     except Exception as exc:
         response = getattr(exc, 'response', None)
         status = getattr(response, 'status_code', None)
@@ -179,12 +185,17 @@ def deliver(connect, http, token, number_id, cfg, phone, revision, business_hour
                 cur.execute('''UPDATE yossi_form_outreach SET status='canceled',reason='conversation_changed',completed_at=now()
                     WHERE campaign_id=%s AND phone=%s''', (campaign, phone))
                 return False
+            opening=current_opening()
+            if opening_greetings.enabled() and not approval_ready(http,token,logger,opening):
+                cur.execute("UPDATE yossi_form_outreach SET status='pending',started_at=NULL,reason='awaiting_time_template' WHERE campaign_id=%s AND phone=%s",(campaign,phone))
+                return False
+            template_name,_,opening_body=opening
             status, message_id, reason = 'uncertain', None, 'provider_outcome_unknown'
             try:
                 response = http.post('https://graph.facebook.com/v26.0/' + str(number_id) + '/messages',
                     headers={'Authorization': 'Bearer ' + token},
                     json={'messaging_product': 'whatsapp', 'to': phone, 'type': 'template',
-                          'template': {'name': TEMPLATE, 'language': {'code': 'he'}}}, timeout=20)
+                          'template': {'name': template_name, 'language': {'code': 'he'}}}, timeout=20)
                 if response.status_code >= 400:
                     status, reason = 'failed', 'provider_rejected'
                 else:
@@ -197,11 +208,11 @@ def deliver(connect, http, token, number_id, cfg, phone, revision, business_hour
             cur.execute('''UPDATE yossi_form_outreach SET status=%s,message_id=%s,reason=%s,completed_at=now()
                 WHERE campaign_id=%s AND phone=%s''', (status, message_id, reason, campaign, phone))
             if status == 'accepted':
-                message = {'role': 'assistant', 'content': BODY, 'at': datetime.now(timezone.utc).isoformat()}
+                message = {'role': 'assistant', 'content': opening_body, 'at': datetime.now(timezone.utc).isoformat()}
                 cur.execute('''UPDATE glass_leads SET conversation=conversation || %s::jsonb,
                     context=context || %s::jsonb,updated_at=now() WHERE phone=%s''',
                     (json.dumps([message], ensure_ascii=False),
-                     json.dumps({'form_outreach': {'message_id': message_id, 'template': TEMPLATE}}), phone))
+                     json.dumps({'form_outreach': {'message_id': message_id, 'template': template_name}}), phone))
             return status == 'accepted'
 
 

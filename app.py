@@ -7,6 +7,7 @@ import form_outreach
 import crm_task_reminders
 import whatsapp_delivery
 import outreach_recovery
+import active_sales_hours
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -725,6 +726,30 @@ def is_yossi_business_hours(now=None):
     return local.weekday() in (6, 0, 1, 2, 3) and 8 <= local.hour < 20
 
 
+
+_after_hours_snapshots = {}
+
+
+def active_sales_reply_allowed(phone, now=None):
+    instant=now or datetime.now(timezone.utc)
+    if is_yossi_business_hours(instant):return True
+    try:
+        cached=_after_hours_snapshots.get(phone)
+        if not cached or time.monotonic()-cached[0]>=10:
+            with db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT conversation,context FROM glass_leads WHERE phone=%s',(phone,))
+                    row=cur.fetchone()
+            if not row:return False
+            cached=(time.monotonic(),row)
+            if len(_after_hours_snapshots)>2000:_after_hours_snapshots.clear()
+            _after_hours_snapshots[phone]=cached
+        return active_sales_hours.active_session(cached[1][0],cached[1][1],instant)
+    except Exception:
+        app.logger.error('ACTIVE_SALES_HOURS_CHECK_FAILED')
+        return False
+
+
 def next_yossi_business_open(now=None):
     local = (now or datetime.now(ZoneInfo('Asia/Jerusalem'))).astimezone(
         ZoneInfo('Asia/Jerusalem'))
@@ -753,7 +778,7 @@ def next_batch():
         for phone, messages in list(pending.items()):
             if not business_auto_reply_allowed(phone) and not is_simulation_contact(phone):
                 continue
-            if (not is_yossi_business_hours() and not is_simulation_contact(phone)
+            if (not active_sales_reply_allowed(phone) and not is_simulation_contact(phone)
                     and phone not in BUSINESS_REPLY_TEST_SENDERS):
                 continue
             if phone in processing or not messages or now - messages[-1][2] < BATCH_SECONDS:

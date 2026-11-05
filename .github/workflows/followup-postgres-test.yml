@@ -58,6 +58,8 @@ jobs:
           python -m unittest tests.test_whatsapp_delivery_database -v
           python -m unittest tests.test_whatsapp_delivery -v
           python -m unittest tests.test_outreach_recovery -v
+          python -m unittest tests.test_opening_greetings -v
+          python -m unittest tests.test_active_sales_hours -v
           python -m unittest tests.test_outreach_recovery_database -v
           python -m unittest discover -s tests -p test_verified_inbound_gate.py -v
 
