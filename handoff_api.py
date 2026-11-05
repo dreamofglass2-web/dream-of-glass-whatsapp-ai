@@ -5,6 +5,7 @@ from flask import request, Response
 from contextlib import closing
 from handoff_state import HandoffError
 from handoff_store import read_state, owner_action
+from whatsapp_delivery import outreach_status
 
 
 def register_routes(app, *, connect, ensure, enabled, key_hex):
@@ -64,6 +65,8 @@ def register_routes(app, *, connect, ensure, enabled, key_hex):
                         now = datetime.now(timezone.utc).isoformat()
                         state = owner_action(cursor, phone, payload['expectedRevision'], action, now) if action else read_state(cursor,phone)
                         result = {'phone':phone,'state':state}
+                        if request.method == 'GET':
+                            result['outreachDelivery'] = outreach_status(cursor,phone)
             result.update(source_scope='handoff-v1', request_nonce=nonce)
             body = json.dumps(result,ensure_ascii=False,separators=(',',':')).encode()
             sig = 'sha256='+hmac.new(key,b'response\n'+nonce.encode()+b'\n'+body,hashlib.sha256).hexdigest()
