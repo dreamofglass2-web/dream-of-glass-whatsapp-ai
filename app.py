@@ -6,6 +6,7 @@ import website_inquiry
 import form_outreach
 import crm_task_reminders
 import whatsapp_delivery
+import outreach_recovery
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -183,6 +184,7 @@ def ensure_db():
                 business_pilot.ensure_tables(cur)
                 form_outreach.ensure_tables(cur)
                 whatsapp_delivery.ensure_tables(cur)
+                outreach_recovery.ensure_tables(cur)
                 pilot_config=business_pilot.configuration()
                 if pilot_config is not None:
                     business_pilot.configure(cur,pilot_config)
@@ -4074,6 +4076,10 @@ def batch_worker():
                     app.logger.error('CRM_TASK_REMINDERS_DISPATCH_FAILED')
             if HANDOFF_ENABLED and time.monotonic() - last_alert_check >= 15:
                 last_alert_check = time.monotonic()
+                try:
+                    outreach_recovery.dispatch(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
+                except Exception:
+                    app.logger.error('OUTREACH_RECOVERY_DISPATCH_FAILED')
                 try:
                     form_outreach.dispatch(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
                 except Exception as exc:

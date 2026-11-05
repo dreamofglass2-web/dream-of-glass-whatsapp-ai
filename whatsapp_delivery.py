@@ -63,8 +63,9 @@ def record(cur, events):
 
 def outreach_status(cur, phone):
     cur.execute("""SELECT o.status,o.completed_at,o.message_id,r.status,r.event_at,r.error_codes
-        FROM yossi_form_outreach o LEFT JOIN yossi_message_receipts r
-        ON r.message_id=o.message_id AND r.phone=o.phone
+        FROM (SELECT status,completed_at,message_id,phone,created_at FROM yossi_form_outreach
+              UNION ALL SELECT status,completed_at,message_id,phone,created_at FROM yossi_outreach_recoveries) o
+        LEFT JOIN yossi_message_receipts r ON r.message_id=o.message_id AND r.phone=o.phone
         WHERE o.phone=%s ORDER BY o.created_at DESC,r.event_at DESC LIMIT 20""",(phone,))
     rows=cur.fetchall()
     if not rows:
