@@ -5,6 +5,7 @@ import form_intent
 import website_inquiry
 import form_outreach
 import crm_task_reminders
+import whatsapp_delivery
 from sliding_policy import bind_spatial_measurement, spatial_measurement_field, FIT_REVIEW_REPLY, spatial_answer, respect_missing_customer_photo, narrow_opening, disallowed_slider, clear_disallowed_slider, sliding_limit_reply, POLICY as SLIDING_MIN_POLICY
 from consultation_options import contextual_options_reply, asks_for_options
 from layout_consultation import missing_layout_detail, layout_consultation_reply, POLICY as LAYOUT_CONSULTATION_POLICY
@@ -181,6 +182,7 @@ def ensure_db():
                 cur.execute('ALTER TABLE glass_leads ADD COLUMN IF NOT EXISTS callback_request_inbound_at TIMESTAMPTZ')
                 business_pilot.ensure_tables(cur)
                 form_outreach.ensure_tables(cur)
+                whatsapp_delivery.ensure_tables(cur)
                 pilot_config=business_pilot.configuration()
                 if pilot_config is not None:
                     business_pilot.configure(cur,pilot_config)
@@ -4062,6 +4064,11 @@ def batch_worker():
             if time.monotonic() - last_task_check >= 60:
                 last_task_check = time.monotonic()
                 try:
+                    ensure_db()
+                    whatsapp_delivery.dispatch_probe(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
+                except Exception:
+                    app.logger.error("DELIVERY_PROBE_DISPATCH_FAILED")
+                try:
                     crm_task_reminders.dispatch(db_connection, requests, app.logger)
                 except Exception:
                     app.logger.error('CRM_TASK_REMINDERS_DISPATCH_FAILED')
@@ -4435,6 +4442,18 @@ def webhook():
             if recipient_id != str(PHONE_NUMBER_ID) and not simulation_inbound:
                 ignored += len(value.get('messages', []))
                 continue
+            receipt_events = whatsapp_delivery.parse_statuses(value, PHONE_NUMBER_ID)
+            if receipt_events:
+                try:
+                    ensure_db()
+                    with db_connection() as conn:
+                        with conn.cursor() as cur:
+                            whatsapp_delivery.record(cur, receipt_events)
+                    for _, _, receipt_status, _, codes in receipt_events:
+                        app.logger.info('WHATSAPP_RECEIPT_STORED status=%s codes=%s', receipt_status, codes)
+                except Exception:
+                    app.logger.error('WHATSAPP_RECEIPT_STORAGE_FAILED')
+                    return 'Receipt storage unavailable', 503
             if HANDOFF_ENABLED and recipient_id == str(PHONE_NUMBER_ID):
                 pending = []
                 for incoming in value.get('messages', []):

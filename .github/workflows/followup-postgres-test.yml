@@ -6,6 +6,8 @@ on:
       - 'business_pilot.py'
       - 'automatic_echo.py'
       - 'form_outreach.py'
+      - 'whatsapp_delivery.py'
+      - 'tests/test_whatsapp_delivery_database.py'
       - 'tests/test_form_outreach_database.py'
       - 'tests/test_business_pilot_database.py'
       - 'tests/test_followup_database.py'
@@ -51,6 +53,8 @@ jobs:
           python -m unittest tests.test_business_pilot_database -v
           python -m unittest tests.test_form_outreach_database -v
           python -m unittest tests.test_crm_task_reminders_database -v
+          python -m unittest tests.test_whatsapp_delivery_database -v
+          python -m unittest tests.test_whatsapp_delivery -v
           python -m unittest discover -s tests -p test_verified_inbound_gate.py -v
 
           python -m unittest discover -s tests -p test_operator_echo_webhook.py -v
