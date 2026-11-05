@@ -192,3 +192,22 @@ class FormOutreachDatabaseTests(unittest.TestCase):
         with patch.dict(os.environ,{'BUSINESS_PILOT_CONTINUATIONS':''}):
             with connect() as conn,conn.cursor() as cur:
                 self.assertFalse(business_pilot.continues(cur,phone))
+
+    def test_time_greeting_uses_verified_variant_and_records_actual_body(self):
+        import opening_greetings as g
+        self.enqueue(0)
+        with connect() as conn,conn.cursor() as cur:cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
+        with patch.dict(os.environ,{'FORM_TIME_GREETINGS_ENABLED':'true'}),patch.object(g,'selected',return_value=g.VARIANTS['morning']),patch.object(f,'approval_ready',return_value=True):
+            self.assertTrue(self.dispatch())
+        self.assertEqual(self.http.post.call_args.kwargs['json']['template']['name'],g.VARIANTS['morning'][0])
+        history,context=self.rows('SELECT conversation,context FROM glass_leads WHERE phone=%s',(self.phones[0],))[0]
+        self.assertEqual(history[0]['content'],g.VARIANTS['morning'][2])
+        self.assertEqual(context['form_outreach']['template'],g.VARIANTS['morning'][0])
+
+    def test_new_time_slot_without_approval_returns_unsent_job_to_pending(self):
+        self.enqueue(0)
+        with connect() as conn,conn.cursor() as cur:cur.execute("UPDATE meta_leadgen_events SET form_id='other' WHERE lead_id=ANY(%s)",(self.ids[1:],))
+        with patch.dict(os.environ,{'FORM_TIME_GREETINGS_ENABLED':'true'}),patch.object(f,'approval_ready',side_effect=[True,False]):
+            self.assertFalse(self.dispatch())
+        self.http.post.assert_not_called()
+        self.assertEqual(self.rows('SELECT status FROM yossi_form_outreach WHERE campaign_id=%s',(self.campaign,))[0][0],'pending')
