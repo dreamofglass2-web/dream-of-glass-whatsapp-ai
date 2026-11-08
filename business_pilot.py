@@ -13,21 +13,31 @@ def configuration(environ=None):
         raise ValueError('Invalid pilot identity')
     limit=int(env.get('BUSINESS_PILOT_LIMIT','0'))
     start=datetime.fromisoformat(env.get('BUSINESS_PILOT_START_AT','').replace('Z','+00:00'))
-    if not 1<=limit<=3 or start.tzinfo is None:
+    if not 1<=limit<=5 or start.tzinfo is None:
         raise ValueError('Invalid finite pilot configuration')
     return identity,start.astimezone(timezone.utc),limit
 
 
 def ensure_tables(cur):
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext('yossi_pilot_schema'))")
     cur.execute('''CREATE TABLE IF NOT EXISTS yossi_pilot_campaigns (
         id TEXT PRIMARY KEY, started_at TIMESTAMPTZ NOT NULL,
-        max_leads INTEGER NOT NULL CHECK(max_leads BETWEEN 1 AND 3),
+        max_leads INTEGER NOT NULL CONSTRAINT yossi_pilot_campaigns_max_leads_range CHECK(max_leads BETWEEN 1 AND 5),
         configured_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
     cur.execute('''CREATE TABLE IF NOT EXISTS yossi_pilot_members (
         campaign_id TEXT NOT NULL REFERENCES yossi_pilot_campaigns(id),
-        phone TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 3),
+        phone TEXT NOT NULL, ordinal INTEGER NOT NULL CONSTRAINT yossi_pilot_members_ordinal_range CHECK(ordinal BETWEEN 1 AND 5),
         first_inbound_at TIMESTAMPTZ NOT NULL, admitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY(campaign_id,phone), UNIQUE(campaign_id,ordinal))''')
+
+    for table, column in (('yossi_pilot_campaigns', 'max_leads'),
+                          ('yossi_pilot_members', 'ordinal')):
+        old_check = f'{table}_{column}_check'
+        cur.execute('SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s',
+                    (table, old_check))
+        if cur.fetchone():
+            cur.execute(f'ALTER TABLE {table} DROP CONSTRAINT {old_check}, '
+                        f'ADD CONSTRAINT {table}_{column}_range CHECK ({column} BETWEEN 1 AND 5)')
 
 
 def configure(cur,config):

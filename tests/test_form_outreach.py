@@ -6,7 +6,7 @@ ENV={'BUSINESS_PILOT_ID':'unit-test','BUSINESS_PILOT_START_AT':'2026-10-27T09:45
 class FormOpeningTests(unittest.TestCase):
     def test_off_by_default_and_requires_finite_pilot_and_verified_forms(self):
         self.assertIsNone(f.configuration({}))
-        for changed in ({'BUSINESS_PILOT_ID':''},{'BUSINESS_PILOT_LIMIT':'4'},{'FORM_OUTREACH_FORM_IDS':''},{'FORM_OUTREACH_FORM_IDS':'anything'}):
+        for changed in ({'BUSINESS_PILOT_ID':''},{'BUSINESS_PILOT_LIMIT':'6'},{'FORM_OUTREACH_FORM_IDS':''},{'FORM_OUTREACH_FORM_IDS':'anything'}):
             with self.subTest(changed=changed),self.assertRaises(ValueError):
                 f.configuration(dict(ENV,**changed))
     def test_only_exact_approved_hebrew_body_is_allowed(self):

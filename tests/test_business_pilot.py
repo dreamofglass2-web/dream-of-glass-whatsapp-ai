@@ -8,7 +8,7 @@ class FinitePilotTests(unittest.TestCase):
     def test_configuration_is_off_by_default_and_never_allows_more_than_three(self):
         self.assertIsNone(business_pilot.configuration({}))
         self.assertEqual(business_pilot.configuration(ENV)[2],3)
-        for key,value in [('BUSINESS_PILOT_LIMIT','4'),('BUSINESS_PILOT_LIMIT','0'),('BUSINESS_PILOT_START_AT','2026-10-27T09:45:44')]:
+        for key,value in [('BUSINESS_PILOT_LIMIT','6'),('BUSINESS_PILOT_LIMIT','0'),('BUSINESS_PILOT_START_AT','2026-10-27T09:45:44')]:
             with self.subTest(key=key,value=value),self.assertRaises(ValueError):business_pilot.configuration(dict(ENV,**{key:value}))
     def test_pilot_membership_overrides_accidental_global_enable_and_fails_closed(self):
         with patch.dict(os.environ,ENV),patch.object(yossi,'BUSINESS_AUTO_REPLY_ENABLED',True),patch.object(yossi,'BUSINESS_REPLY_TEST_SENDERS',frozenset()),patch.object(yossi,'ensure_db'),patch.object(yossi,'db_connection',return_value=MagicMock()),patch('business_pilot.allows',return_value=False):
