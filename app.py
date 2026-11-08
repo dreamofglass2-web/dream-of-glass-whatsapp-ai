@@ -79,7 +79,7 @@ BUSINESS_REPLY_TEST_SENDERS = frozenset(
 
 
 def business_auto_reply_allowed(phone):
-    if phone in BUSINESS_REPLY_TEST_SENDERS:
+    if phone in BUSINESS_REPLY_TEST_SENDERS or business_pilot.temporary_conversation_allowed(phone):
         return True
     try:
         config=business_pilot.configuration()
@@ -732,7 +732,8 @@ _after_hours_snapshots = {}
 
 def active_sales_reply_allowed(phone, now=None):
     instant=now or datetime.now(timezone.utc)
-    if is_yossi_business_hours(instant):return True
+    if is_yossi_business_hours(instant) or business_pilot.temporary_conversation_allowed(phone, instant):
+        return True
     try:
         cached=_after_hours_snapshots.get(phone)
         if not cached or time.monotonic()-cached[0]>=10:
