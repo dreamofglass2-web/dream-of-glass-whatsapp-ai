@@ -40,6 +40,15 @@ class PilotDatabaseTests(unittest.TestCase):
                 for phone,_ in members:self.assertTrue(business_pilot.allows(cur,self.config,phone))
         for phone,_ in members:self.assertTrue(self.admit(phone))
         self.assertEqual(sum(self.admit(phone) for phone in self.phones),3)
+    def test_parallel_new_leads_admit_exactly_five(self):
+        with connect() as db, db.cursor() as cur:
+            cur.execute('DELETE FROM yossi_pilot_campaigns WHERE id=%s', (self.config[0],))
+        self.config = (*self.config[:2], 5)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            admitted = list(pool.map(self.admit, self.phones))
+        self.assertEqual(sum(admitted), 5)
+        self.assertEqual(sum(self.admit(phone) for phone in self.phones), 5)
+
     def test_old_private_opted_out_test_and_pre_cutoff_leads_do_not_consume_slots(self):
         with connect() as db:
             with db.cursor() as cur:
