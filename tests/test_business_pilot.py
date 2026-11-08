@@ -5,6 +5,17 @@ import app as yossi
 import business_pilot
 ENV={'BUSINESS_PILOT_ID':'test-three','BUSINESS_PILOT_START_AT':'2026-10-27T09:45:44Z','BUSINESS_PILOT_LIMIT':'3'}
 class FinitePilotTests(unittest.TestCase):
+    def test_temporary_conversation_is_scoped_and_expires(self):
+        from datetime import datetime, timezone
+        phone = '972501234567'
+        expires = 1794196800
+        before = datetime.fromtimestamp(expires - 1, timezone.utc)
+        at_expiry = datetime.fromtimestamp(expires, timezone.utc)
+        with patch.dict(os.environ, {'BUSINESS_TEMPORARY_CONVERSATION': f'{phone}:{expires}'}):
+            self.assertTrue(business_pilot.temporary_conversation_allowed(phone, before))
+            self.assertFalse(business_pilot.temporary_conversation_allowed('972501234568', before))
+            self.assertFalse(business_pilot.temporary_conversation_allowed(phone, at_expiry))
+
     def test_configuration_is_off_by_default_and_never_allows_more_than_three(self):
         self.assertIsNone(business_pilot.configuration({}))
         self.assertEqual(business_pilot.configuration(ENV)[2],3)

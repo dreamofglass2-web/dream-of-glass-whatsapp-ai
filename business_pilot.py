@@ -18,6 +18,16 @@ def configuration(environ=None):
     return identity,start.astimezone(timezone.utc),limit
 
 
+def temporary_conversation_allowed(phone, now=None):
+    """An expiring single-conversation exception outside the pilot quota."""
+    setting = os.getenv('BUSINESS_TEMPORARY_CONVERSATION', '').strip()
+    match = re.fullmatch(r'(9725\d{8}):(\d{10})', setting)
+    if not match or phone != match[1]:
+        return False
+    instant = now or datetime.now(timezone.utc)
+    return instant.timestamp() < int(match[2])
+
+
 def ensure_tables(cur):
     cur.execute("SELECT pg_advisory_xact_lock(hashtext('yossi_pilot_schema'))")
     cur.execute('''CREATE TABLE IF NOT EXISTS yossi_pilot_campaigns (
