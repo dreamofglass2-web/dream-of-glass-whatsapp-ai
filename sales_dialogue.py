@@ -226,6 +226,18 @@ def consultation_plan(history, prior, customer):
     project=bool(re.search(r'בית חדש|דירה חדשה|שיפוץ|משפץ|משפצ(?:ת|ים|ות)|מחליף|מחליפ(?:ה|ים|ות)|להחליף|החלפה|קיים|היה לי|הייה לי|יש לי מקלחון|אין לי מקלחון|מקלחון ראשון',project_users)) or bool(prior.get('project_context_evidence'))
     needs_pattern=r'חשוב לי|מפריע לי|לא אהבתי|אהבתי|נמאס לי.{0,30}(?:לנקות|לכלוך|חריצ)|חריצ.{0,25}לכלוך|קשה.{0,20}(?:לנקות|לפתוח)|נזיל|נוח לנק|נוחות|פרטיות|רוצה.{0,30}קל לנקות|כניסה נוחה|להפריד.{0,15}(?:חלל|חדר)'
     needs=bool(re.search(needs_pattern,users))
+    replacing_bath = (re.search(r'אמבטיה', text) and re.search(r'מקלחון', text)
+                      and re.search(r'מפרק|פירוק|להחליף|החלפה|במקום|מחליפ', text))
+    if replacing_bath and not re.search(r'\[(?:לקוח צירף|נשלח)', text):
+        shape = prior.get('configuration') or re.search(r'חזית|פינת|מקיר לקיר|בין שני קירות', text)
+        width = prior.get('width_cm') or re.search(r'\d+(?:[.,]\d+)?\s*(?:ס[״"]?מ|מטר)|\d{2,3}\s*[/x×]\s*\d{2,3}', text)
+        if not shape or not width:
+            question = ('המקלחון יהיה חזית מקיר לקיר או פינתי? ואם יש לך מידה משוערת של הפתח, מה היא?'
+                        if not shape and not width else
+                        'המקלחון יהיה חזית מקיר לקיר או פינתי?' if not shape else
+                        'מה המידה המשוערת של הפתח? אם זה פינתי, מה האורך של כל צד?')
+            return {'step':'bath_replacement_layout','question':question}
+
     # An explicitly shared project need precedes the per-item specifications.
     # A need stated only inside the first item must not be copied to the second.
     for message in history:
@@ -266,6 +278,10 @@ def preserves_consultation_step(reply, plan):
         return False
     if re.search(r'₪|ש[״"]ח|שקלים|קבענו|תיאמתי|מבטיח|אחריות מלאה|מתאים בוודאות',text):
         return False
+    if plan.get('step')=='bath_replacement_layout':
+        question = plan['question']
+        return (('פינתי' not in question or bool(re.search(r'פינת|חזית|מקיר לקיר', text)))
+                and ('מידה' not in question or bool(re.search(r'מידה|רוחב|אורך', text))))
     if plan.get('step')=='customer_name':
         return bool(re.search(r'מה שמך',text))
     if plan.get('step')=='project_context':
