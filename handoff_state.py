@@ -6,6 +6,7 @@ transaction lock. These records are distinct from conversational model context.
 from copy import deepcopy
 from datetime import datetime, timezone
 import re
+from owner_escalation import RAILING_REVIEW
 
 
 class HandoffError(ValueError):
@@ -92,7 +93,7 @@ def transition(state, expected_revision, action, now):
         next_state['instructions'] = action.get('instructions')
     elif kind == 'resolveEscalation':
         alert=state.get('escalation') or {}
-        if (set(action)!={'type','escalationId'} or state['owner']!='operator'
+        if (set(action)!={'type','escalationId'} or (state['owner']!='operator' and alert.get('reason') != RAILING_REVIEW)
                 or not alert.get('active') or not isinstance(action.get('escalationId'),str)
                 or not re.fullmatch(r'[a-f0-9]{32}',action['escalationId'])
                 or action['escalationId']!=alert.get('id')):

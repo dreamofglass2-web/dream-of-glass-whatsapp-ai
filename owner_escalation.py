@@ -2,6 +2,21 @@
 import re
 
 
+RAILING_REVIEW = 'בדיקת מעקה בלבד — יוסי ממשיך בשיחה'
+
+
+def mixed_railing_products(text):
+    """Recognize a railing plus independently requested standard glass work."""
+    if not re.search(r'מעק(?:ה|ות)', text):
+        return ()
+    if re.search(r'(?:בלי|ללא|לא צריך|לא צריכה)\s+מעק(?:ה|ות)|אסיד|acid|CNC|קונסטרוקצי|חיתוך מיוחד', text, re.I):
+        return ()
+    return tuple(label for pattern, label in (
+        (r'מקלחו(?:ן|נים)', 'המקלחונים'),
+        (r'מרא(?:ה|ות)', 'המראות'),
+    ) if re.search(pattern, text))
+
+
 def simple_name_correction(text):
     """A factual name reminder is recoverable; combined complaints are not exempt."""
     return bool(re.fullmatch(
@@ -28,7 +43,7 @@ def escalation_reason(customer, data=None, reply=None, history=()):
         return 'בקשת אסיד או אסיד קליר לטיפול ידני של אלירן'
     if not simple_name_correction(text) and re.search(r'נציג אנושי|לדבר עם בן אדם|רוצה לדבר עם (?:אלירן|בעל העסק)|אתה לא מבין|לא הבנת אותי|חוזר על עצמך|אתה לא עונה לעניין|את לא עונה לעניין|לא עונה לי לעניין|כבר אמרתי לך', text):
         return 'הלקוח ביקש אדם או דיווח שהשיחה אינה מתקדמת'
-    if re.search(r'מעקה|קונסטרוקצי|חישוב עומס|אישור מהנדס|\bCNC\b|חיתוך מיוחד|זכוכית קונסטרוקטיבית', text, re.I):
+    if re.search(r'מעק(?:ה|ות)|קונסטרוקצי|חישוב עומס|אישור מהנדס|\bCNC\b|חיתוך מיוחד|זכוכית קונסטרוקטיבית', text, re.I):
         return 'נדרשת בדיקה מקצועית של בעל העסק'
     if data is None:
         return None

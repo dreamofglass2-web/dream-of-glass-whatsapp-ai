@@ -175,3 +175,12 @@ class ApprovedOrderAlertTests(unittest.TestCase):
         self.assertIn('הצעת מחיר מאושרת',payload['text'])
         self.assertNotIn('972501234567',str(payload))
         self.assertNotIn('פרטי הלקוח',str(payload))
+
+
+class MixedRailingTests(unittest.TestCase):
+    def test_only_explicit_mixed_standard_products_continue(self):
+        from owner_escalation import mixed_railing_products
+        self.assertEqual(mixed_railing_products('מקלחון פינתי 100 על 140, מראה ומעקה לגג'),
+                         ('המקלחונים', 'המראות'))
+        self.assertEqual(mixed_railing_products('מעקה לגג'), ())
+        self.assertEqual(mixed_railing_products('מקלחון אסיד וגם מעקה'), ())
