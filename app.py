@@ -4137,7 +4137,11 @@ def batch_worker():
                 last_task_check = time.monotonic()
                 try:
                     ensure_db()
-                    whatsapp_delivery.dispatch_probe(db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID, is_yossi_business_hours, app.logger)
+                    whatsapp_delivery.dispatch_probe(
+                        db_connection, requests, WHATSAPP_TOKEN, PHONE_NUMBER_ID,
+                        lambda: is_yossi_business_hours() or business_pilot.temporary_conversation_allowed(
+                            os.getenv('WHATSAPP_DELIVERY_PROBE_PHONE')),
+                        app.logger)
                 except Exception:
                     app.logger.error("DELIVERY_PROBE_DISPATCH_FAILED")
                 try:
