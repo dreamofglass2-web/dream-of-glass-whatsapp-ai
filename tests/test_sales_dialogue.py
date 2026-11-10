@@ -4,6 +4,14 @@ from sales_dialogue import dialogue_context, sales_turn_context, api_usage_metri
 
 
 class ConsultationStateTests(unittest.TestCase):
+    def test_bath_replacement_asks_for_missing_layout_and_rough_width(self):
+        from sales_dialogue import consultation_plan
+        text = 'דירת קבלן מפרקים את האמבטיה ורוצים מקלחון'
+        self.assertIn('חזית מקיר לקיר או פינתי', consultation_plan([], {}, text)['question'])
+        plan = consultation_plan([], {}, text + ', מקיר לקיר')
+        self.assertIn('המידה המשוערת', plan['question'])
+        self.assertNotIn('חזית מקיר לקיר או פינתי', plan['question'])
+
     def test_replacement_and_renovation_context_is_not_reasked_in_feminine_or_plural(self):
         from sales_dialogue import consultation_plan
         for project in ('מחליפה מקלחון ישן','מחליפים מקלחון ישן','מחליפות מקלחון ישן','משפצת את הבית','משפצים את הבית'):

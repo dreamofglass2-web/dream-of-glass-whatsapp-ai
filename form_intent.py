@@ -1,15 +1,9 @@
 """Separate generated lead-form question labels from customer action requests."""
 import re
 
-POLICY = ('הודעת טופס היא מסירת פרטים לצורך בירור צרכים. שאלות הטופס הן תוויות, לא בקשות של הלקוח. '
-          'התשובה כן, אשלח בוואטסאפ מתייחסת לחומרי הפרויקט שהלקוח ישלח אלינו; היא אינה בקשה לתמונות מהקטלוג. '
-          'השתמש בשם, בעיר, בסוג העבודה ובהעדפות שכבר נמסרו בלי לשאול עליהם שוב. '
-          'המשפט האוטומטי ברצוני לדעת יותר על העסק אינו בקשה לסקירה על העסק. '
-          'פתח בברכה אישית קצרה, היכרות בשם יוסי, התייחסות לפרטי הפרויקט ושאלה טבעית אחת. '
-          'לדוגמה: היי חן, אני יוסי מחלומות מזכוכית. ראיתי שאתה מחפש מקלחון בראשון לציון. כבר יש לך כיוון לסגנון שתרצה, או שנבדוק יחד מה מתאים למקום? '
-          'זו דוגמת סגנון בלבד; אין להעתיק שם, עיר או עובדות שלא נמסרו. '
-          'בפתיחה אל תפרט על רמלה, מדידה, התקנה או קבלני משנה בלי שנשאלת, ואל תשאל על מקלחון קודם שלא הוזכר. '
-          'אל תשלח דוגמאות או תכתוב שמצורפות תמונות בלי בקשה ממשית של הלקוח לראות אותן.')
+POLICY = ('הטופס הוא הודעה אוטומטית. אל תצטט את פרטיו ואל תשתמש בהם להמלצה. '
+          'אם צורפה בקשה במילות הלקוח, ענה עליה אחרי ברכה קצרה. אחרת פתח: היי, מה קורה? איך אוכל לעזור? '
+          'אל תציע דוגמאות או תמונות בלי בקשה אמיתית. את היתרון של המדידה וההתקנה בידי אלירן שמור לשלב ההצעה או להתנגדות.')
 
 
 def is_form_payload(text):
@@ -43,32 +37,19 @@ def request_text(text):
 
 
 def concise_first_opening(reply, body, history, data, draft=None):
-    """Repair a sales monologue only for a first, plain shower form submission."""
-    if (not is_form_payload(body) or any(m.get('role')=='assistant' for m in history[:-1])
-            or data.get('needs_human') or data.get('quote_requested')
-            or data.get('stage') not in ('discovery',None)):
+    """Open a plain form lead in the customer's own words."""
+    if (not is_form_payload(body) or data.get('needs_human')
+            or any(m.get('role') == 'user' or (m.get('role') == 'assistant'
+                   and 'נוח לך שנמשיך כאן בוואטסאפ' not in str(m.get('content') or ''))
+                   for m in history[:-1])):
         return reply
-    fields={}
     for line in str(body).splitlines():
-        line=line.strip()
-        if not line:continue
-        field=re.fullmatch(r'([^:\n]{1,220}):\s*(.*)',line)
-        if field:
-            label,value=field.groups();label=label.replace('_',' ').strip()
-            if not re.fullmatch(r'Full name|Phone number|City|שם מלא|מספר טלפון|עיר|מה הכי חשוב לכם בפרויקט\?|יש לכם תמונות / תוכניות / מידות של הפרויקט\?|באיזה שלב נמצא הפרויקט\?|אילו עבודות אתם מחפשים\?|מהו סוג הנכס שלכם\?',label,re.I):return reply
-            fields[label.lower()]=value.strip()
-        elif not re.fullmatch(r'ה[יי]{1,2}[!. ]*\s*השלמתי את הטופס שלך,?\s*וברצוני לדעת יותר על העסק שלך[!. ]*',line):
-            return reply
-    product=fields.get('אילו עבודות אתם מחפשים?','')
-    if product!='מקלחון':return reply
-    original=str(draft or reply)
-    if max(len(reply),len(original))<=230 and not re.search(r'מקלחון קודם|מקלחון הקודם|מה אהבת|אנחנו מרמלה|ללא קבלני משנה',original+' '+reply):return reply
-    name=(fields.get('full name') or fields.get('שם מלא') or '').split()
-    first=name[0] if name and re.fullmatch(r"[א-תA-Za-z'-]{2,24}",name[0]) else ''
-    city=fields.get('city') or fields.get('עיר') or ''
-    city=re.sub(r'[\"״׳\x27]','',city).strip()
-    if city=='ראשלצ':city='ראשון לציון'
-    location=' ב'+city if re.fullmatch(r'[א-ת -]{2,40}',city) else ''
-    return ('היי'+(' '+first if first else '')+', אני יוסי מחלומות מזכוכית. '
-            +'ראיתי שאתה מחפש מקלחון'+location+'. '
-            +'כבר יש לך כיוון לסגנון שתרצה, או שנבדוק יחד מה מתאים למקום?')
+        line = line.strip()
+        if not line:
+            continue
+        if re.fullmatch(r'(?:Full name|Phone number|City|שם מלא|מספר טלפון|עיר|מה הכי חשוב לכם בפרויקט\?|יש לכם תמונות / תוכניות / מידות של הפרויקט\?|באיזה שלב נמצא הפרויקט\?|אילו עבודות אתם מחפשים\?|מהו סוג הנכס שלכם\?)\s*:.*', line, re.I):
+            continue
+        if re.search(r'השלמתי את הטופס שלך|(?:completed|filled out) your form', line, re.I):
+            continue
+        return reply
+    return 'היי, מה קורה? איך אוכל לעזור?'
