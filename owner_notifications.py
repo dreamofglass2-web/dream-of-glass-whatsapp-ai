@@ -1,6 +1,7 @@
 """Owner-only Telegram or WhatsApp alerts; durable claim prevents duplicate/ambiguous retries."""
 import os
 import re
+from owner_escalation import RAILING_REVIEW
 from handoff_store import phone_lock, read_state, write_state
 
 
@@ -68,6 +69,9 @@ def dispatch_owner_alerts(connect, http, token, number_id, logger):
                     'link_preview_options':{'is_disabled':True},
                     'reply_markup':{'inline_keyboard':[
                         [{'text':'פתיחת ה־CRM','url':'https://yossi-david-crm-demo.abloompetal2.chatgpt.site'}]]}}
+                if reason == RAILING_REVIEW:
+                    payload['text'] = 'יש מעקה לבדיקה בכרטיס הלקוח. יוסי ממשיך בשיחה על יתר העבודות.'
+                    payload['reply_markup']['inline_keyboard'][0][0]['url'] = link
                 if reason in ('הכנת הצעת מחיר על ידי אלירן', 'משימת חזרה ללקוח'):
                     payload['text'] = reason + '\n' + customer_text + '\nהסיכום והמשימה בכרטיס הלקוח ב־CRM.'
                     payload['reply_markup']['inline_keyboard'][0][0]['url'] = link

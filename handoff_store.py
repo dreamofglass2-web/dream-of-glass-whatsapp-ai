@@ -224,7 +224,7 @@ def parse_echoes(change, business_number_id):
     return result
 
 
-def escalate_to_owner(cursor, phone, reason, customer_text, now, *, record_customer=True):
+def escalate_to_owner(cursor, phone, reason, customer_text, now, *, record_customer=True, keep_yossi=False):
     """Persist pause and owner request atomically, without customer sends."""
     import hashlib
     phone_lock(cursor, phone)
@@ -240,6 +240,18 @@ def escalate_to_owner(cursor, phone, reason, customer_text, now, *, record_custo
                           'role','user','content',%s::text,'at',%s::text))
             END WHERE phone=%s""", (str(customer_text),str(customer_text),now,phone))
     state = read_state(cursor, phone)
+    if keep_yossi:
+        previous = state.get('escalation') or {}
+        same_request = (previous.get('reason') == reason
+                        and previous.get('customerText') == str(customer_text)[:1800])
+        if state['owner'] != 'yossi' or previous.get('active') or same_request:
+            return state
+        identity = hashlib.sha256((phone + ':' + reason + ':' + now).encode()).hexdigest()[:32]
+        state['escalation'] = {'id': identity, 'active': True, 'reason': reason,
+            'customerText': str(customer_text)[:1800], 'requestedAt': now,
+            'notificationStatus': 'not_configured'}
+        write_state(cursor, phone, state)
+        return state
     if state['owner'] == 'operator' and (state.get('escalation') or {}).get('active'):
         return state
     if state['owner'] == 'operator':

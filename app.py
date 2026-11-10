@@ -23,7 +23,7 @@ import secrets
 from mirror_policy import FRAME_POLICY, curved_frame_request, guard_mirror_frame
 from owner_requests import conversation_summary, unavailable_quote, QUOTE_REASON, CALLBACK_REASON
 from callback_store import save_callback_record
-from owner_escalation import escalation_reason, planning_clarification, planning_explanation, simple_name_correction
+from owner_escalation import RAILING_REVIEW, mixed_railing_products, escalation_reason, planning_clarification, planning_explanation, simple_name_correction
 from owner_notifications import dispatch_owner_alerts, alert_configuration
 from handoff_store import escalate_to_owner, write_state as write_handoff_state
 from audio_transcription import transcribe_audio, AUDIO_FAILURE
@@ -2511,6 +2511,37 @@ def process_message(phone, body, batch_rows=None):
             reply = FRAME_POLICY + ' תרצה מראה ללא מסגרת או מראה ישרה עם מסגרת?'
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant','content':reply}], dict(prior, needs_human=False))
+            return True
+        written = customer_written_text(body)
+        products = mixed_railing_products(written)
+        if (HANDOFF_ENABLED and products and not refuses_further_contact(written)
+                and not refuses_phone_calls(written) and not is_callback_request(written)
+                and escalation_reason(written) in (None, 'נדרשת בדיקה מקצועית של בעל העסק')):
+            if has_new_messages(phone, batch_rows):
+                return False
+            with db_connection() as conn, conn.cursor() as cur:
+                phone_lock(cur, phone)
+                current = read_handoff_state(cur, phone)
+                if (current['revision'] != (scope or {}).get('handoff_revision')
+                        or not automatic_reply_allowed(current, datetime.now(timezone.utc).isoformat())):
+                    return False
+                escalate_to_owner(cur, phone, RAILING_REVIEW, written,
+                                  datetime.now(timezone.utc).isoformat(),
+                                  record_customer=False, keep_yossi=True)
+            greeting = '' if any(m.get('role') == 'assistant' for m in history[:-1]) else (
+                'היי, נעים מאוד, אני יוסי מחלומות מזכוכית. ')
+            location = 'אנחנו מרמלה. ' if re.search(r'מאיפה אתם|מהיכן אתם', written) else ''
+            work = ' ו'.join(products)
+            if 'המקלחונים' in products and not re.search(r'שקופ|חלבי|פפיטה|גלינה|אנטיסן', written):
+                question = 'יש לך העדפה לסוג הזכוכית במקלחונים?'
+            elif 'המראות' in products:
+                question = 'איזו צורה ומידה חשבת על המראות?'
+            else:
+                question = 'איזה גוון פרזול תרצה למקלחונים?'
+            reply = (greeting + location + 'לגבי המעקה, אלירן יחזור אליך כדי לעבור על הפרטים. '
+                     + f'בינתיים אפשר להתקדם עם {work}. ' + question)
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role':'assistant', 'content':reply}], prior)
             return True
         early_reason = escalation_reason(body)
         if early_reason and HANDOFF_ENABLED and not refuses_further_contact(body):
