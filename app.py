@@ -1459,7 +1459,7 @@ def sales_turn_guidance(customer_request, history):
         info.append('זו תחילת השיחה: קבל את הלקוח בנעימות בלי נאום או שיחת חולין מאולצת.')
         info.append('ברר את שם הלקוח מוקדם ובטבעיות, אבל אל תדחה מענה לשאלת המחיר. אם הוא כבר הציג את עצמו אל תשאל שוב.')
     if re.search(r'מחיר|כמה\s+עול|כמה\s+יצא', text):
-        if not re.search(r'\\d+\\s*[/×xX]\\s*\\d+', entire):
+        if not re.search(r'\\d+\s*[/×xX]\s*\\d+', entire):
             info.append('הלקוח מבקש מחיר ראשוני, לא ייעוץ טכני. שאל קודם בפשטות האם המקלחון חזיתי או פינתי; אל תשאל בשלב הזה איך מחולקות הזכוכיות והדלתות.')
         info.append('הלקוח שאל מחיר. אל תתחמק. אם חסר נתון קריטי לתמחור, הסבר בקצרה ושאל רק עליו או על המצב התכנוני שמכריע את ההמלצה; אם כל נתוני החישוב מוכנים תן רק מחיר מחושב.')
     if re.search(r'\d+\s*[/×xX]\s*\d+', text):
@@ -2567,8 +2567,24 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role':'assistant', 'content':reply}], safe_context)
             return True
+        # Recover an unanswered accessory question before quote or identity shortcuts.
+        written = customer_written_text(body)
+        towel_price_question = r'(?:תוספת|כמה|מחיר).{0,45}מתלה מגבות|מתלה מגבות.{0,30}(?:תוספת|כמה|מחיר)'
+        complaint = bool(re.search(r'תשפר.{0,20}(?:בוט|תשוב)|לא ענית', written))
+        previous_customer = next((customer_written_text(m.get('content') or '')
+                                  for m in reversed(history[:-1]) if m.get('role') == 'user'), '')
+        if (re.search(towel_price_question, written)
+                or (complaint and re.search(towel_price_question, previous_customer))):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'כשאתה אומר מתלה מגבות, הכוונה לידית הארוכה על דלת המקלחון או למתלה נפרד?'
+            if complaint:
+                reply = 'פספסתי את השאלה על התוספת. ' + reply
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
         # Identity and budget replies outrank quote restatement.
-        if (re.search(r'בוט|דיגיטלי|רובוט|בינה מלאכותית|אדם אמיתי',body)
+        if (re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
             if has_new_messages(phone,batch_rows):
                 return False
@@ -2966,7 +2982,7 @@ def process_message(phone, body, batch_rows=None):
             'landing_page_url': LANDING_PAGE_URL or None,
         }
         conversation_guidance = (
-            'פתח בחום ובקצרה. אם הלקוח כבר כתב מה הוא צריך, המשך מהבקשה. '
+            'פתח בחום פעם אחת. באמצע השיחה המשך ישר מההודעה האחרונה. ציין מיקום עסק רק כששאלו. אם הלקוח מתלונן, חזור לשאלה שלא נענתה. '
             'ברר צרכים מתוך מה שהלקוח מספר בשיחה. אל תשתמש בתשובות הטופס להמלצה '
             'ואל תחזור על שאלות שכבר נענו בשיחה. שמור את העובדה שאלירן מודד ומתקין בעצמו '
             'לשלב שלפני ההצעה או למענה להתנגדות, אלא אם שאלו ישירות. '
@@ -3046,6 +3062,10 @@ def process_message(phone, body, batch_rows=None):
             reply = avoid_repeated_dimensions(reply, facts, body)
             reply = open_finish_question(reply, customer_request)
             reply = guard_mirror_frame(reply, history, data.get('product') or prior.get('product') or '')
+            if any(m.get('role') == 'assistant' for m in history[:-1]):
+                reply = re.sub(r'^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)(?:[ ,]+[א-ת]+)?[.!]\s+|^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)[,،]\s*', '', reply).strip()
+            if not re.search(r'מאיפה|מהיכן|איפה.{0,15}(?:העסק|אתם|נמצאים)|אולם|תצוגה|אזור שירות', customer_request):
+                reply = re.sub(r'(^|(?<=[.!?])\s+)אנחנו מרמלה(?:\s+ומתמחים בעבודות זכוכית בהתאמה אישית[^.!?]*)?[.!]\s*', ' ', reply).strip()
             consultant_reply = reply
             # A repeated assistant reply is a failed consultation, not a valid next turn.
             last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
