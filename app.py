@@ -1459,7 +1459,7 @@ def sales_turn_guidance(customer_request, history):
         info.append('זו תחילת השיחה: קבל את הלקוח בנעימות בלי נאום או שיחת חולין מאולצת.')
         info.append('ברר את שם הלקוח מוקדם ובטבעיות, אבל אל תדחה מענה לשאלת המחיר. אם הוא כבר הציג את עצמו אל תשאל שוב.')
     if re.search(r'מחיר|כמה\s+עול|כמה\s+יצא', text):
-        if not re.search(r'\\d+\s*[/×xX]\s*\\d+', entire):
+        if not re.search(r'\\d+\\s*[/×xX]\\s*\\d+', entire):
             info.append('הלקוח מבקש מחיר ראשוני, לא ייעוץ טכני. שאל קודם בפשטות האם המקלחון חזיתי או פינתי; אל תשאל בשלב הזה איך מחולקות הזכוכיות והדלתות.')
         info.append('הלקוח שאל מחיר. אל תתחמק. אם חסר נתון קריטי לתמחור, הסבר בקצרה ושאל רק עליו או על המצב התכנוני שמכריע את ההמלצה; אם כל נתוני החישוב מוכנים תן רק מחיר מחושב.')
     if re.search(r'\d+\s*[/×xX]\s*\d+', text):
@@ -2584,7 +2584,7 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
             return True
         # Identity and budget replies outrank quote restatement.
-        if (re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
+        if (not complaint and re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|בינה מלאכותית|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
             if has_new_messages(phone,batch_rows):
                 return False
@@ -3062,10 +3062,6 @@ def process_message(phone, body, batch_rows=None):
             reply = avoid_repeated_dimensions(reply, facts, body)
             reply = open_finish_question(reply, customer_request)
             reply = guard_mirror_frame(reply, history, data.get('product') or prior.get('product') or '')
-            if any(m.get('role') == 'assistant' for m in history[:-1]):
-                reply = re.sub(r'^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)(?:[ ,]+[א-ת]+)?[.!]\s+|^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)[,،]\s*', '', reply).strip()
-            if not re.search(r'מאיפה|מהיכן|איפה.{0,15}(?:העסק|אתם|נמצאים)|אולם|תצוגה|אזור שירות', customer_request):
-                reply = re.sub(r'(^|(?<=[.!?])\s+)אנחנו מרמלה(?:\s+ומתמחים בעבודות זכוכית בהתאמה אישית[^.!?]*)?[.!]\s*', ' ', reply).strip()
             consultant_reply = reply
             # A repeated assistant reply is a failed consultation, not a valid next turn.
             last_assistant = next((str(m.get('content') or '') for m in reversed(history[:-1])
@@ -3694,6 +3690,10 @@ def process_message(phone, body, batch_rows=None):
                 return owner_work_request(phone, body, history, quote_state, QUOTE_REASON,
                                           'אוקי, אני מכין לך הצעת מחיר.')
             reply = guard_mirror_frame(reply, history, data.get('product') or prior.get('product') or '')
+            if any(m.get('role') == 'assistant' for m in history[:-1]):
+                reply = re.sub(r'^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)(?:[ ,]+[א-ת]+)?[.!]\s+|^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)[,،]\s*', '', reply).strip()
+            if not re.search(r'מאיפה|מהיכן|איפה.{0,15}(?:העסק|אתם|נמצאים)|אולם|תצוגה|אזור שירות', customer_request):
+                reply = re.sub(r'(^|(?<=[.!?])\s+)אנחנו מרמלה(?:\s+ומתמחים בעבודות זכוכית בהתאמה אישית[^.!?]*)?[.!]\s*', ' ', reply).strip()
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
