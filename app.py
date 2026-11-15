@@ -2656,6 +2656,21 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}],
                               dict(prior, quote_requested=True))
             return True
+        asked_for_discount = re.search(
+            r'(?:יש מצב|יש אפשרות|אפשר(?: לקבל)?|יש|תעשה לי)\s+(?:ל)?הנחה[?!. ]*$',
+            written)
+        if (asked_for_discount and not refuses_further_contact(written)
+                and not refuses_phone_calls(written) and not is_callback_request(written)
+                and any(m.get('role') == 'assistant' and 'זה אומדן לפי' in m.get('content', '')
+                        for m in history[:-1])):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = ('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר. '
+                     'המחיר כולל מדידה, הובלה והתקנה. אם התקציב הוא מה שעוצר אותך, '
+                     'אפשר לבדוק אם מפרט אחר יתאים לך.')
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
         starts_with_customer_photo = re.search(
             r'אפשר\s+(?:להתחיל|להתקדם)\s+(?:מ|עם\s+)(?:ה)?תמונ(?:ה|ות)|אפשר\s+(?:לשלוח|שאשלח)\s+(?:לך\s+)?תמונ(?:ה|ות)',
             written)
