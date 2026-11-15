@@ -3114,6 +3114,10 @@ def process_message(phone, body, batch_rows=None):
             order_state={'sales_items':{'1':dict(prior,solution_agreed=True)}}
         complete_order=bundle_offer(order_state,calculate_quote,allow_single=not prior.get('sales_items')) if SEND_QUOTES else None
         offered_order=prior.get('combined_offer') or {}
+        revising_order = bool(offered_order.get('issued')
+            and re.search(r'תשנ[הי]|תעדכ[ןני]|להחליף|להחלפ|במקום|תשאיר|נחליף|נשנה|(?:רוצה|מעדיפ[הים]+|מעדיף).{0,32}(?:זכוכית|פרזול|ידית|ידיות|דלת|גובה|רוחב)|(?:רגע|בעצם|תיקון).{0,40}(?:מידה|רוחב|גובה|זכוכית|פרזול|ידית)', customer_request)
+            and re.search(r'זכוכית|פרזול|ידית|ידיות|דלת|חזית|פינתי|גובה|רוחב|מיד[הות]+|חלבי|שקופ|שקוף|ניקל|כפתור|מגבת|שחור|ברונזה', customer_request)
+            and not re.search(r'מה ההבדל|מה יקרה|אם נחליף|אם אשנה|כדאי|אולי', customer_request))
         last_reply=next((str(m.get('content') or '') for m in reversed(history[:-1]) if m.get('role')=='assistant'),'')
         approving_order=(explicit_quote_approval(customer_request) or
             bool(re.fullmatch(r'\s*(?:כן|כן תודה|מאשר|מאשרת|מתאים)\s*[.!?]*\s*',customer_request)
@@ -3121,7 +3125,7 @@ def process_message(phone, body, batch_rows=None):
         bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
                           or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
         explicit_offer_request = bool(re.search(r'(?:תשלח|שלח|שלחי|שלחו|תשלחו|תחשב|תכין|תכיני|להכין|לשלוח).{0,35}(?:הצעה|מחיר|קובץ|שוב|מעודכ)|(?:הצעה|קובץ).{0,20}(?:שוב|מחדש)', customer_request))
-        if complete_order and bundle_requested and (not offered_order.get('issued') or approving_order or explicit_offer_request) and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
+        if complete_order and bundle_requested and not revising_order and (not offered_order.get('issued') or approving_order or explicit_offer_request) and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
             if has_new_messages(phone,batch_rows):
                 return False
             safe_context=dict(prior)
@@ -3891,6 +3895,15 @@ def process_message(phone, body, batch_rows=None):
                         reply=(partial_offer_reply(quote_state,calculate_quote,missing_quote_detail) or
                                ('כדי להציג הצעה מלאה לכל המקלחונים, נשלים את פרטי מקלחון '+missing+'. '+missing_quote_detail(quote_state['sales_items'][missing])))
                         quote_record={}
+            if (revising_order and ordinary_turn and SEND_QUOTES and PDF_QUOTES_ENABLED and not photos
+                    and not price_objection(customer_request)):
+                revised_state = quote_state if quote_state.get('sales_items') else {
+                    'sales_items': {'1': quote_state}}
+                revised_offer = bundle_offer(revised_state, calculate_quote, allow_single=not quote_state.get('sales_items'))
+                if revised_offer and revised_offer['fingerprint'] != offered_order.get('fingerprint'):
+                    complete_order = revised_offer
+                    issuing_order = True
+                    reply = bundle_offer_reply(complete_order)
             if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and quote_record.get('issued')
                     and not quote_state.get('sales_items') and not price_objection(customer_request)
                     and (quote_intent(customer_request) or not prior_quote)):
