@@ -1693,6 +1693,41 @@ def calculate_quote(data):
     return int(amount + 0.5)
 
 
+def quick_shower_estimate(history, customer):
+    """An indicative price for a plain corner shower, never an issued quote."""
+    last_reply = next((m.get('content', '') for m in reversed(history[:-1])
+                       if m.get('role') == 'assistant'), '')
+    waiting_for_glass = last_reply == 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
+    request = customer
+    if waiting_for_glass:
+        if customer not in GLASS_COSTS:
+            return None
+        request = next((customer_written_text(m.get('content', '')) for m in reversed(history[:-1])
+                        if m.get('role') == 'user'), '')
+    if not quote_intent(request) or 'מקלחון' not in request:
+        return None
+    if not re.search(r'בערך|אומדן|סדר גודל|רק מחיר|בלי שאלות|תן כבר|אין לי סבלנות', request):
+        return None
+    if re.search(r'מקלחונים|שני מקלח|שתי מקלח|חזית|מקיר לקיר|הזזה|הרמוניקה|אקורדיון|ווק.?אין|דלת|קבוע|גובה|\d+\s*מ["״]?מ|אסיד', request):
+        return None
+    sizes = re.findall(r'(?<!\d)(\d{2,3})\s*(?:[/×xX]|על)\s*(\d{2,3})(?!\d)', request)
+    if len(sizes) != 1 or not all(60 <= int(side) <= 120 for side in sizes[0]):
+        return None
+    glass = customer if waiting_for_glass else next((kind for kind in GLASS_COSTS if kind in request), None)
+    if not glass:
+        return 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
+    width, depth = sizes[0]
+    amount = calculate_quote({'configuration': 'פינתי 2 דלתות', 'glass_type': glass,
+                              'width_cm': width, 'second_width_cm': depth, 'height_cm': 200,
+                              'finish': 'ניקל', 'handles': ['ידית כפתור', 'ידית כפתור']})
+    if amount is None:
+        return None
+    rounded = ((amount + 25) // 50) * 50
+    return (f'אם הכוונה למקלחון פינתי {width} על {depth}, המחיר הוא בערך {rounded:,} ש״ח לפני מע״מ, '
+            f'כולל מדידה, הובלה והתקנה. זה אומדן לפי זכוכית {glass}, גובה 200 ס״מ ושתי דלתות ציר '
+            'עם ידיות כפתור ופרזול ניקל. סוג הידיות, הפרזול והמידות הסופיות יכולים לשנות את המחיר.')
+
+
 def price_objection(text):
     return is_price_objection(text)
 
@@ -2583,6 +2618,15 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
             return True
+        if SEND_QUOTES and not (price_objection(written) or refuses_further_contact(written)
+                                or refuses_phone_calls(written) or is_callback_request(written)):
+            estimate = quick_shower_estimate(history, written)
+            if estimate:
+                if has_new_messages(phone, batch_rows):
+                    return False
+                send_whatsapp(phone, body=estimate)
+                save_conversation(phone, history + [{'role': 'assistant', 'content': estimate}], prior)
+                return True
         # Identity and budget replies outrank quote restatement.
         if (not complaint and re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|בינה מלאכותית|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
