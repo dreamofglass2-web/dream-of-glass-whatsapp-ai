@@ -2338,3 +2338,17 @@ class CustomerPaceScenarios(unittest.TestCase):
     def test_customer_can_request_direct_phone_contact_naturally(self):
         self.assertTrue(yossi.is_callback_request('אפשר אפשר לדבר ישיר בטלפון'))
         self.assertFalse(yossi.is_callback_request('לא רוצה לדבר בטלפון'))
+
+
+class CustomerUploadScenarios(unittest.TestCase):
+    def test_no_dimensions_customer_offers_photos_of_both_openings(self):
+        sim = ConversationSimulation()
+        sim.setUp()
+        self.addCleanup(sim.doCleanups)
+        sim.memory[sim.phone] = ([
+            {'role': 'user', 'content': 'כמה עולה בערך שני מקלחונים?'},
+            {'role': 'assistant', 'content': 'יש לך מידות בערך לכל אחד?'},
+        ], {})
+        reply = sim.step('אין לי מידות בכלל. אפשר להתחיל מתמונה?')
+        self.assertEqual(reply, 'כן, שלח תמונה של כל פתח ונראה מה מתאים לכל מקלחון.')
+        self.assertEqual(sim.sent, [reply])
