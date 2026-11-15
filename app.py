@@ -1764,9 +1764,14 @@ def small_bath_shower_reply(history, customer):
     if numbered_item(customer) or re.search(r'מקלחון\s+(?:נוסף|אחר)', customer):
         turns = [customer]
     dimensions = next((m.groups() for turn in reversed(turns) if (m := re.search(
-        r'(?:מקלחון(?:\s+(?:ה?פינתי|ה?חזיתי|נוסף|אחר|ה?שני|ה?ראשון|שלישי|בפינה)){0,3}\s*[:,]?\s*(?:במידה\s+של\s+)?|^(?:בערך\s+)?)'
+        r'(?:מקלחון(?:\s+(?:ה?פינתי|ה?חזיתי|נוסף|אחר|ה?שני|ה?ראשון|שלישי|בפינה)){0,3}\s*[:,]?\s*(?:(?:במידה\s+של|בערך)\s+)?|^(?:בערך\s+)?)'
         r'(\d{2,3})\s*(?:על|[×xX/])\s*(\d{2,3})(?!\d)', turn))), None)
     if not dimensions:
+        opening = next((m[1] for turn in reversed(turns) if (m := re.search(
+            r'רוחב\s+הפתח\s*(?:הוא\s+|בערך\s+|כ[־-]?)?(\d{2,3})(?!\d)', turn))), None)
+        if opening:
+            return (f'פתח ברוחב {opening} ס״מ יכול להתאים למקלחון גם בחדר קטן. '
+                    'ההתאמה תלויה בעומק ובמקום לפתיחת הדלת. מה העומק הזמין בתוך המקלחת?')
         return ('מקלחון יכול להתאים גם לחדר קטן, אם משאירים מעבר נוח ומקום לפתיחת הדלת. '
                 'מה המידות המשוערות של השטח שמיועד למקלחון?')
 
