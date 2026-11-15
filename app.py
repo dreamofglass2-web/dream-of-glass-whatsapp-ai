@@ -31,7 +31,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POLICY
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
-from sales_items import item_context, named_shower_room, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
+from sales_items import item_context, order_inventory, pricing_shower_count, named_shower_room, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import product_matched_photos, no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import validated_project_evidence, omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -1692,7 +1692,10 @@ def calculate_quote(data):
             hardware += HARDWARE_COSTS[name] * count
         hardware *= FINISH_MULTIPLIERS[finish]
     area = total_width * height / 10000
-    amount = area * GLASS_COSTS[glass_type] + hardware + 1300
+    is_bath_screen = 'אמבטיון' in str(data.get('product') or '') + configuration
+    count = data.get('pricing_shower_count') or pricing_shower_count(data)
+    base = 1300 if is_bath_screen or count >= 3 else 1400 if count == 2 else 1500
+    amount = area * GLASS_COSTS[glass_type] + hardware + base
     # Owner policy: whole ILS, half-up, without an order minimum.
     return int(amount + 0.5)
 
@@ -1740,7 +1743,7 @@ def scoped_shower_estimate(customer, prior):
     elif not specs.get('handles'):
         count = BOM[configuration].get('ידית כפתור', 0) + BOM[configuration].get('ידית מגבת', 0)
         specs['handles'] = ['ידית כפתור'] * count
-    amount = calculate_quote(specs)
+    amount = calculate_quote(dict(specs, pricing_shower_count=pricing_shower_count(prior)))
     if amount is None:
         return None
 
@@ -1829,7 +1832,7 @@ def confirmed_room_quote_options(data, prior, history, customer):
     return data
 
 
-def quick_shower_estimate(history, customer):
+def quick_shower_estimate(history, customer, prior=None):
     """An indicative price for a plain corner shower, never an issued quote."""
     last_reply = next((m.get('content', '') for m in reversed(history[:-1])
                        if m.get('role') == 'assistant'), '')
@@ -1854,7 +1857,10 @@ def quick_shower_estimate(history, customer):
     if not glass:
         return 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
     width, depth = sizes[0]
+    inventory_count, mixed = order_inventory(history)
+    count = pricing_shower_count(prior) if (prior or {}).get('sales_items') else max(1, inventory_count - bool(mixed))
     amount = calculate_quote({'configuration': 'פינתי 2 דלתות', 'glass_type': glass,
+                              'pricing_shower_count': count,
                               'width_cm': width, 'second_width_cm': depth, 'height_cm': 200,
                               'finish': 'ניקל', 'handles': ['ידית כפתור', 'ידית כפתור']})
     if amount is None:
@@ -2778,7 +2784,7 @@ def process_message(phone, body, batch_rows=None):
             return True
         if SEND_QUOTES and not (price_objection(written) or refuses_further_contact(written)
                                 or refuses_phone_calls(written) or is_callback_request(written)):
-            estimate = scoped_shower_estimate(written, prior) or quick_shower_estimate(history, written)
+            estimate = scoped_shower_estimate(written, prior) or quick_shower_estimate(history, written, prior)
             if estimate:
                 if has_new_messages(phone, batch_rows):
                     return False
@@ -3130,6 +3136,13 @@ def process_message(phone, body, batch_rows=None):
                 return False
             safe_context=dict(prior)
             same_offer=offered_order.get('issued') and offered_order.get('fingerprint')==complete_order['fingerprint']
+            if approving_order and not same_offer and offered_order.get('issued') and offered_order.get('items'):
+                offered_specs = [(item['number'], item['specification']) for item in offered_order['items']]
+                ready_specs = [(item['number'], item['specification']) for item in complete_order['items']]
+                if offered_specs == ready_specs:
+                    # A change to the price list does not change an already sent offer.
+                    complete_order = offered_order
+                    same_offer = True
             if approving_order and same_offer:
                 safe_context['combined_offer']={**complete_order,'issued':True,'approved':True}
                 safe_context['approved_order_summary']=bundle_offer_reply(complete_order).rsplit('\n\n',1)[0]

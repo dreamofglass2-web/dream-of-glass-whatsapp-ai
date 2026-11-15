@@ -321,6 +321,15 @@ def save_item(state):
     return state
 
 
+def pricing_shower_count(state):
+    """Use the full requested quantity, including shower specs still being gathered."""
+    items = state.get('sales_items') or {}
+    requested = max(len(items), int(state.get('expected_sales_item_count') or 1))
+    bath_screens = sum('אמבטיון' in (str(item.get('product') or '') + str(item.get('configuration') or ''))
+                       for item in items.values())
+    return max(1, requested - bath_screens)
+
+
 def combined_quote(state, history, customer, calculator):
     items = state.get('sales_items') or {}
     if len(items) < 2:
@@ -340,7 +349,7 @@ def combined_quote(state, history, customer, calculator):
             missing.append(number)
             continue
         specs['height_cm'] = preliminary_height(specs)
-        amount = calculator(specs)
+        amount = calculator(dict(specs, pricing_shower_count=pricing_shower_count(state)))
         if amount is None:
             missing.append(number)
             continue
@@ -365,7 +374,7 @@ def bundle_offer(state, calculator, allow_single=False):
         if not specs.get('solution_agreed'):
             return None
         specs['height_cm']=preliminary_height(specs)
-        amount=calculator(specs)
+        amount=calculator(dict(specs, pricing_shower_count=pricing_shower_count(state)))
         if amount is None:
             return None
         offers.append({'number':number,'amount_ils_pre_vat':amount,
@@ -423,7 +432,7 @@ def partial_offer_reply(state, calculator, missing_detail):
     active = str(state.get('active_sales_item') or '1')
     specs = dict(items.get(active) or {})
     specs['height_cm'] = preliminary_height(specs)
-    amount = calculator(specs) if specs.get('solution_agreed') else None
+    amount = calculator(dict(specs, pricing_shower_count=pricing_shower_count(state))) if specs.get('solution_agreed') else None
     unfinished = next(((n, s) for n, s in sorted(items.items()) if n != active
                        and (not s.get('solution_agreed') or calculator(dict(s, height_cm=preliminary_height(s))) is None)), None)
     if amount is None or unfinished is None:
