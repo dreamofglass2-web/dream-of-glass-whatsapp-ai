@@ -286,7 +286,7 @@ def personal_service_value(reply, customer, history, product=None):
         additions.append(BUYER_SERVICE_BENEFIT)
     if re.fullmatch(r'(?:זה\s+)?(?:קצת\s+|ממש\s+)?יקר(?:\s+לי)?[.!? ]*', text.strip()):
         known_comparison = any(
-            m.get('role') == 'user' and re.search(r'הציעו לי|קיבלתי הצעה|הצעה אחרת|מתחרה|התקציב שלי|חשבתי על', str(m.get('content') or ''))
+            m.get('role') == 'user' and re.search(r'הציעו לי|קיבלתי הצעה|הצעה אחרת|מתחרה|התקציב שלי|חשבתי על\s+[\d,]+', str(m.get('content') or ''))
             for m in history[-8:])
         already_asked = any(answer.rstrip().endswith('?') and re.search(r'תקציב|הצעה אחרת|ביחס למה', answer) for answer in recent)
         if not known_comparison and not already_asked:
