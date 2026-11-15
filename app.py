@@ -4,6 +4,7 @@ import automatic_echo
 import form_intent
 import website_inquiry
 import form_outreach
+import opening_greetings
 import crm_task_reminders
 import whatsapp_delivery
 import outreach_recovery
@@ -2501,6 +2502,8 @@ def process_message(phone, body, batch_rows=None):
         if opening:
             if has_new_messages(phone, batch_rows):
                 return False
+            greeting = opening_greetings.selected()[2].split(',', 1)[0]
+            opening = f'{greeting}, מה קורה? איך אוכל לעזור?'
             send_whatsapp(phone, body=opening)
             save_conversation(phone, history + [{'role': 'assistant', 'content': opening}],
                               dict(prior, next_missing_fact='מה הלקוח רוצה לעשות'))
@@ -3753,7 +3756,8 @@ def process_message(phone, body, batch_rows=None):
                                 for m in history[:-1])):
                 reply = re.sub(r'^\s*(?:היי|שלום|אהלן)(?:\s*,?\s*מה קורה)?[?!. ,]*', '', reply).strip()
                 reply = re.sub(r'^\s*איך (?:אוכל|אפשר) לעזור(?: לך)?[?!. ]*', '', reply).strip()
-                reply = 'היי, מה קורה?' + (' ' + reply if reply else '')
+                greeting = opening_greetings.selected()[2].split(',', 1)[0]
+                reply = f'{greeting}, מה קורה?' + (' ' + reply if reply else '')
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
