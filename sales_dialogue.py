@@ -250,7 +250,7 @@ def consultation_plan(history, prior, customer):
         introduction=re.split(r'הראשון|המקלחון הראשון',str(message.get('content') or ''),maxsplit=1)[0]
         if re.search(r'(?:שתי|שני|2)\s+(?:מקלחות|מקלחונים|חדרים)',introduction) and re.search(needs_pattern,introduction):
             needs=True
-    previous_shower = bool(re.search(r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|להחליף\s+(?:את\s+)?הישן|(?:היה|יש)\s+(?:לי|לנו)\s+מקלחו|(?:מחליף|מחליפ[היםות]+|להחליף|החלפת)\s+(?:את\s+)?(?:ה)?מקלחו', users))
+    previous_shower = bool(re.search(r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|(?:להחליף|מחליף|מחליפה)\s+(?:את\s+)?ה?ישן|(?:היה|יש)\s+(?:לי|לנו)\s+מקלחו|(?:מחליף|מחליפ[היםות]+|להחליף|החלפת)\s+(?:את\s+)?(?:ה)?מקלחו', users))
     no_previous_shower = bool(re.search(r'לא (?:היה|היו).{0,18}מקלחו|אין (?:לי|לנו).{0,12}מקלחו|מקלחון ראשון|(?:יש|היה) רק וילון', users))
     asked_experience = False
     for i,m in enumerate(messages):
