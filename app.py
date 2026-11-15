@@ -1726,7 +1726,9 @@ def scoped_shower_estimate(customer, prior):
     if configuration not in BOM and configuration not in SLIDING:
         return None
     specs['height_cm'] = preliminary_height(specs)
-    specs['finish'] = specs.get('finish') or 'ניקל'
+    finish = next((name for name in sorted(FINISH_MULTIPLIERS, key=len, reverse=True)
+                   if re.search(r'(?:פרזול|גוון פרזול)\s+' + re.escape(name) + r'(?![א-ת])', customer)), None)
+    specs['finish'] = finish or specs.get('finish') or 'ניקל'
     if configuration in SLIDING:
         specs = slider_specs(specs)
     elif not specs.get('handles'):
@@ -1739,7 +1741,7 @@ def scoped_shower_estimate(customer, prior):
     rounded = ((amount + 25) // 50) * 50
     label = f'למקלחון {target}' if target else 'למקלחון הנוסף'
     return (f'{label} בלבד, האומדן הוא כ־{rounded:,} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. '
-            f'חישבתי לפי {configuration}, זכוכית {specs["glass_type"]}, '
+            f'זה אומדן לפי {configuration}, זכוכית {specs["glass_type"]}, '
             f'פרזול {specs["finish"]} וגובה {specs["height_cm"]} ס״מ. '
             'המידות הסופיות ובחירת הפרזול והידיות יכולות לשנות את המחיר.')
 
