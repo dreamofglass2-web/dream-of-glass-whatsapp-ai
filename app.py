@@ -2762,6 +2762,18 @@ def process_message(phone, body, batch_rows=None):
             return True
         # Recover an unanswered accessory question before quote or identity shortcuts.
         written = customer_written_text(body)
+        if (prior.get('calculated_preliminary_estimate')
+                and not (prior.get('combined_offer') or {}).get('issued')
+                and not (prior.get('validated_quote') or {}).get('issued')
+                and re.search(r'(?:המחיר|האומדן|הסכום).{0,35}סופי|(?:עוד )?(?:יכול|עשוי) להשתנות|זה סופי', written)
+                and not is_callback_request(written)):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = ('זה אומדן ראשוני שחושב לפי המפרט שהיה לנו בשיחה. '
+                     'הסכום יכול להשתנות לפי המידות הסופיות ולפי בחירת הזכוכית, הפרזול והידיות.')
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
         towel_price_question = r'(?:תוספת|כמה|מחיר).{0,45}מתלה מגבות|מתלה מגבות.{0,30}(?:תוספת|כמה|מחיר)'
         complaint = bool(re.search(r'תשפר.{0,20}(?:בוט|תשוב)|לא ענית', written))
         previous_customer = next((customer_written_text(m.get('content') or '')
