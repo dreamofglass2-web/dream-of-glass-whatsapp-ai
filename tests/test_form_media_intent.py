@@ -47,6 +47,13 @@ class FormMediaDeliveryTests(unittest.TestCase):
         self.assertNotIn('[TEST_IMAGE]',self.h.sent)
         self.assertEqual(reply, 'היי, מה קורה? איך אוכל לעזור?')
         self.assertIn('כן, אשלח בוואטסאפ',self.h.memory[self.h.phone][0][0]['content'])
+    def test_english_form_after_outreach_still_gets_natural_opening(self):
+        greeting = 'בוקר טוב, כאן יוסי מחלומות מזכוכית. נוח לך שנמשיך כאן בוואטסאפ?'
+        self.h.memory[self.h.phone] = ([{'role': 'assistant', 'content': greeting}], {})
+        english_form = 'Hello! I filled out your form and would like to know more about your business.' + FORM[FORM.index('\\n'):]
+        reply = self.h.step(english_form, self.h.model('זה לבית חדש או לשיפוץ?'))
+        self.assertEqual(reply, 'היי, מה קורה? איך אוכל לעזור?')
+
     def test_erroneous_model_caption_does_not_trigger_images_or_false_attachment_claim(self):
         reply=self.h.step(FORM,self.h.model('מצרף לך תמונות לדוגמה',send_glass_images=True))
         self.assertNotIn('[TEST_IMAGE]',self.h.sent)

@@ -2497,6 +2497,14 @@ def process_message(phone, body, batch_rows=None):
             if boundary=='complaint' and HANDOFF_ENABLED:
                 return pause_for_owner(phone,body,'הלקוח דיווח על בלבול וחוסר אמון בשיחה')
             return True
+        opening = form_intent.concise_first_opening('', body, history, {})
+        if opening:
+            if has_new_messages(phone, batch_rows):
+                return False
+            send_whatsapp(phone, body=opening)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': opening}],
+                              dict(prior, next_missing_fact='מה הלקוח רוצה לעשות'))
+            return True
         known_name=extract_customer_name(history) or prior.get('customer_name')
         if known_name:
             prior=dict(prior,customer_name=known_name)
