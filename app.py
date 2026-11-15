@@ -1857,7 +1857,8 @@ def quick_shower_estimate(history, customer, prior=None):
     if not glass:
         return 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
     width, depth = sizes[0]
-    count = max(pricing_shower_count(prior or {}), order_inventory(history)[0])
+    inventory_count, mixed = order_inventory(history)
+    count = pricing_shower_count(prior) if (prior or {}).get('sales_items') else max(1, inventory_count - bool(mixed))
     amount = calculate_quote({'configuration': 'פינתי 2 דלתות', 'glass_type': glass,
                               'pricing_shower_count': count,
                               'width_cm': width, 'second_width_cm': depth, 'height_cm': 200,
@@ -3135,6 +3136,13 @@ def process_message(phone, body, batch_rows=None):
                 return False
             safe_context=dict(prior)
             same_offer=offered_order.get('issued') and offered_order.get('fingerprint')==complete_order['fingerprint']
+            if approving_order and not same_offer and offered_order.get('issued') and offered_order.get('items'):
+                offered_specs = [(item['number'], item['specification']) for item in offered_order['items']]
+                ready_specs = [(item['number'], item['specification']) for item in complete_order['items']]
+                if offered_specs == ready_specs:
+                    # A change to the price list does not change an already sent offer.
+                    complete_order = offered_order
+                    same_offer = True
             if approving_order and same_offer:
                 safe_context['combined_offer']={**complete_order,'issued':True,'approved':True}
                 safe_context['approved_order_summary']=bundle_offer_reply(complete_order).rsplit('\n\n',1)[0]
