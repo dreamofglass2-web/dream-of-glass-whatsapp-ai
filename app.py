@@ -2656,6 +2656,21 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}],
                               dict(prior, quote_requested=True))
             return True
+        latest_bot_reply = next((str(m.get('content') or '') for m in reversed(history[:-1])
+                                 if m.get('role') == 'assistant'), '')
+        comparing_estimate = (
+            'לתקציב שתכננת או להצעה נוספת' in latest_bot_reply
+            and re.search(r'הציעו לי|קיבלתי הצעה|הצעה אחרת|מתחרה', written)
+            and not (refuses_further_contact(written) or is_callback_request(written)
+                     or escalation_reason(written)))
+        if comparing_estimate:
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = ('בוא נשווה מה מקבלים בכל הצעה. אצלנו האומדן כולל מדידה, הובלה והתקנה. '
+                     'אם יש לך את ההצעה הכתובה, אפשר לשלוח אותה ונבדוק מה כלול ומה ההבדל במפרט.')
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
         asked_for_discount = re.search(
             r'(?:יש מצב|יש אפשרות|אפשר(?: לקבל)?|יש|תעשה לי)\s+(?:ל)?הנחה[?!. ]*$',
             written)
