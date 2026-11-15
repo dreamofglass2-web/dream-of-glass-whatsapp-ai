@@ -192,6 +192,32 @@ def order_inventory(history):
     return max(count,len(inventory)), mixed
 
 
+def named_shower_room(history, customer, previous):
+    """Resolve two distinct rooms introduced together to separate quote items."""
+    room = r'חדר\s+(?:של\s+)?(?:הילדים|ההורים|שלנו|שלכם)'
+    children = r'חדר\s+(?:של\s+)?הילדים'
+    rooms = None
+    for message in history:
+        if message.get('role') != 'user':
+            continue
+        text = str(message.get('content') or '').split('[לקוח צירף', 1)[0]
+        labels = list(dict.fromkeys('children' if re.search(children, match[0]) else 'parents'
+                                    for match in re.finditer(room, text)))
+        if len(labels) == 2:
+            rooms = {label: str(index) for index, label in enumerate(labels, 1)}
+            break
+    if not rooms:
+        return None
+    for text in (customer, previous):
+        labels = {'children' if re.search(children, match[0]) else 'parents'
+                  for match in re.finditer(room, text)}
+        if len(labels) == 1:
+            return rooms[labels.pop()]
+        if labels:
+            break
+    return None
+
+
 def item_context(prior, history, customer):
     state = deepcopy(prior or {})
     last_reply = next((str(m.get('content') or '') for m in reversed(history[:-1])
@@ -202,6 +228,8 @@ def item_context(prior, history, customer):
     fresh_inventory=bool(seed and state.get('inventory_seed')!=seed)
     count = max(count, int(state.get('expected_sales_item_count') or 1), len(state.get('sales_items') or {}))
     target = numbered_item(str(customer))
+    if not target and count == 2:
+        target = named_shower_room(history, str(customer), last_reply)
     baths=[n for n,s in inventory.items() if s.get('product')=='אמבטיון']
     if len(baths)==1 and ('אמבטיון' in str(customer) or
             re.search(r'נעבור.{0,15}אמבטיון|לאמבטיון|באמבטיון',last_reply) or
