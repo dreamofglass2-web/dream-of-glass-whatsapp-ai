@@ -962,6 +962,8 @@ def customer_boundary(text):
         return None
     if re.search(r'לא רוצה\s+(?:להזמין|לקנות|להמשיך|לסגור)|לא מעוניי[ןנת]+(?:\s|$)|סגרתי עם (?:אחר|מישהו)|אלך עם אחר',value):
         return 'decline'
+    if re.search(r'(?:אחזור|אחזור אליכם|אעדכן|אדבר איתכם)\s+(?:אליך\s+)?(?:אחרי|כש).{0,30}(?:ריצוף|שיפוץ)', value) and not re.search(r'[?？]|כמה|מחיר', value):
+        return 'renovation_pause'
     if re.fullmatch(r'[\s?!.,]*(?:ביי(?:\s+ביי)?|להתראות|תודה ולהתראות|עזוב|עזבי)[\s?!.,]*',value):
         return 'farewell'
     if re.search(r'אתה לא יודע מה אתה מדבר|אתה לא יודע על מה אתה מדבר|מה אתה מפגר|אתה מפגר|מה אתה מדבר בכלל',value):
@@ -1696,7 +1698,10 @@ def calculate_quote(data):
 
 def scoped_shower_estimate(customer, prior):
     """Price a named shower using its own details, without issuing a bundle."""
-    if not re.search(r'אומדן|סדר גודל|בערך|מחיר משוער|הערכ[תה] מחיר', customer):
+    if not (re.search(r'אומדן|מחיר משוער|הערכ[תה] מחיר', customer)
+            or (quote_intent(customer) and re.search(r'בערך|סדר גודל', customer))):
+        return None
+    if re.search(r'(?:לא (?:רוצה|צריך|צריכה)|בלי).{0,12}(?:אומדן|מחיר)', customer):
         return None
     if re.search(r'לכל המקלחונים|לשניהם|לשני המקלחונים|מחיר כולל לשני|אסיד', customer):
         return None
@@ -1750,7 +1755,7 @@ def quick_shower_estimate(history, customer):
     """An indicative price for a plain corner shower, never an issued quote."""
     last_reply = next((m.get('content', '') for m in reversed(history[:-1])
                        if m.get('role') == 'assistant'), '')
-    waiting_for_glass = last_reply == 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
+    waiting_for_glass = last_reply.endswith('כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?')
     request = customer
     if waiting_for_glass:
         customer = customer.strip(' .!?')
@@ -1760,7 +1765,7 @@ def quick_shower_estimate(history, customer):
                         if m.get('role') == 'user'), '')
     if not quote_intent(request) or 'מקלחון' not in request:
         return None
-    if not re.search(r'רק מחיר|רק (?:רוצה לדעת|תן לי|תגיד לי).{0,24}(?:כמה|מחיר)|מחיר בלבד|בלי שאלות|בלי בירור|תן כבר|תגיד כבר|אין לי סבלנות', request):
+    if not re.search(r'רק מחיר|רק (?:רוצה|רוצה לדעת|תן לי|תגיד לי).{0,24}(?:כמה|מחיר)|מחיר בלבד|בלי שאלות|בלי בירור|תן כבר|תגיד כבר|אין לי סבלנות', request):
         return None
     if re.search(r'מקלחונים|שני מקלח|שתי מקלח|חזית|מקיר לקיר|הזזה|הרמוניקה|אקורדיון|ווק.?אין|דלת|קבוע|גובה|\d+\s*מ["״]?מ|אסיד', request):
         return None
@@ -2545,6 +2550,7 @@ def process_message(phone, body, batch_rows=None):
             safe_context['sales_closed']=boundary in ('decline','farewell')
             answer={'decline':'אני מכבד את ההחלטה שלך. מצטער על הבלבול בשיחה.',
                     'farewell':'להתראות, תודה שפנית.',
+                    'renovation_pause':'בשמחה. כשהריצוף יהיה מוכן אפשר להמשיך מאותה נקודה.',
                     'complaint':'סליחה על הבלבול. השיחה לא התקדמה כמו שצריך.'}[boundary]
             send_whatsapp(phone,body=answer)
             save_conversation(phone,history+[{'role':'assistant','content':answer}],safe_context)
@@ -2688,6 +2694,8 @@ def process_message(phone, body, batch_rows=None):
             if estimate:
                 if has_new_messages(phone, batch_rows):
                     return False
+                if not any(m.get('role') == 'assistant' for m in history):
+                    estimate = 'היי, מה קורה? ' + estimate
                 send_whatsapp(phone, body=estimate)
                 save_conversation(phone, history + [{'role': 'assistant', 'content': estimate}], prior)
                 return True
@@ -3107,6 +3115,13 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role':'assistant','content':compare_reply}], compare_context)
             return True
         deferred_reply = deferred_measurement_reply(history, customer_request)
+        if (not deferred_reply and tiling_status(history) is False
+                and current_product_from_history(history) == 'מקלחון'
+                and re.search(r'מה כדאי לעשות|מה אפשר לעשות|מה עושים', customer_request)
+                and not quote_intent(customer_request)):
+            deferred_reply = ('בשלב הזה כדאי לתכנן את כיוון פתיחת הדלת לפי מה שיש ליד הפתח. '
+                              'למידה סופית נחכה שהריצוף והחיפוי יסתיימו. '
+                              'כשתהיה תמונה או מידה משוערת, אפשר לבדוק מה יתאים למקום.')
         if deferred_reply:
             if has_new_messages(phone, batch_rows):
                 return False
@@ -3147,6 +3162,7 @@ def process_message(phone, body, batch_rows=None):
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
+        instructions += '\nאל תציע אומדן מיוזמתך. מידה משוערת אינה בקשת אומדן. ענה קודם על השאלה ששאלו והתקדם מהפרטים שכבר נמסרו.'
         if form_intent.is_form_payload(body):
             instructions += '\n' + form_intent.POLICY + ' אם נוספה בקשה פרטית, ברך בהיי, מה קורה? והגב ישירות לבקשה בלי לשאול איך אוכל לעזור.'
         if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
