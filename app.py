@@ -1809,11 +1809,14 @@ def confirmed_room_quote_options(data, prior, history, customer):
     """Prevent an inferred finish, glass or handle choice from crossing rooms."""
     previous = next((str(m.get('content') or '') for m in reversed(history[:-1])
                      if m.get('role') == 'assistant'), '')
-    if len(prior.get('sales_items') or {}) != 2 or not named_shower_room(history, customer, previous):
+    if len(prior.get('sales_items') or {}) != 2 or not named_shower_room(history, 'חדר הילדים', ''):
         return data
     agreed = re.fullmatch(r'(?:כן|בסדר|נשמע טוב|מעולה|מאשר(?:ת)?)\s*[.!]*', customer)
     # A yes confirms a stated choice, never a menu of alternatives.
-    source = customer + ' ' + (previous if agreed and not re.search(r'\sאו\s', previous) else '')
+    previous_room = named_shower_room(history, '', previous)
+    source = customer
+    if agreed and previous_room == prior.get('active_sales_item') and not re.search(r'\sאו\s', previous):
+        source += ' ' + previous
     patterns = {
         'glass_type': lambda value: r'שקופ[הו]?|שקוף' if value == 'שקופה' else re.escape(value),
         'finish': re.escape,
