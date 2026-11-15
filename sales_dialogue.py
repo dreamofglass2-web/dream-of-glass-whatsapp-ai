@@ -207,7 +207,11 @@ def consultation_plan(history, prior, customer):
         return {'step':'respect_choice','question':None}
     price_only=any(re.search(r'רק מחיר|מחיר בלבד|בלי שאלות|לא משנה למה|יותר מדי שאלות|תן כבר מחיר|תן מחיר לכל|שאלה לא טובה.{0,60}מחיר',str(m.get('content') or ''),re.S)
                    for m in history if m.get('role')=='user')
-    if price_only:
+    asks_price_directly = bool(re.search(
+        r'(?:כמה\s+(?:זה\s+)?(?:עול[היםות]+|יעל[הו]|יוצא)|מה\s+המחיר|תגידו?\s+לי\s+כמה|(?:תן|תני|תשלח|תשלחי)\s+לי\s+(?:מחיר|הצעת מחיר))',
+        text))
+    already_in_conversation = any(m.get('role') == 'assistant' for m in history)
+    if price_only or (asks_price_directly and already_in_conversation):
         return {'step':'price_preparation','question':None}
     if prior.get('sales_discovery_completed') or (prior.get('validated_quote') or {}).get('issued'):
         return {'step':'consult_and_progress','question':None}
