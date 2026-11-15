@@ -3883,7 +3883,7 @@ def process_message(phone, body, batch_rows=None):
             issuing_order=False
             if ordinary_turn and SEND_QUOTES and not discovery_question and not price_objection(customer_request) and not answer_current_question and not current_consultation_answer and not photos:
                 complete_order=bundle_offer(quote_state,calculate_quote)
-                if complete_order and (data.get('quote_requested') or (not offered_order.get('issued') and (quote_intent(customer_request) or closing_intent(customer_request)))):
+                if complete_order and not revising_order and (data.get('quote_requested') or (not offered_order.get('issued') and (quote_intent(customer_request) or closing_intent(customer_request)))):
                     reply=bundle_offer_reply(complete_order)
                     issuing_order=True
                 elif len(quote_state.get('sales_items') or {})>=2 and (quote_intent(customer_request) or data.get('quote_requested') or
@@ -3904,7 +3904,7 @@ def process_message(phone, body, batch_rows=None):
                     complete_order = revised_offer
                     issuing_order = True
                     reply = bundle_offer_reply(complete_order)
-            if (PDF_QUOTES_ENABLED and ordinary_turn and is_shower and quote_record.get('issued')
+            if (PDF_QUOTES_ENABLED and not revising_order and ordinary_turn and is_shower and quote_record.get('issued')
                     and not quote_state.get('sales_items') and not price_objection(customer_request)
                     and (quote_intent(customer_request) or not prior_quote)):
                 complete_order=bundle_offer({'sales_items':{'1':dict(merged_pricing,solution_agreed=True)}},calculate_quote,allow_single=True)
