@@ -1708,7 +1708,7 @@ def quick_shower_estimate(history, customer):
                         if m.get('role') == 'user'), '')
     if not quote_intent(request) or 'מקלחון' not in request:
         return None
-    if not re.search(r'בערך|אומדן|סדר גודל|רק מחיר|בלי שאלות|תן כבר|אין לי סבלנות', request):
+    if not re.search(r'רק מחיר|רק (?:רוצה לדעת|תן לי|תגיד לי).{0,24}(?:כמה|מחיר)|מחיר בלבד|בלי שאלות|בלי בירור|תן כבר|תגיד כבר|אין לי סבלנות', request):
         return None
     if re.search(r'מקלחונים|שני מקלח|שתי מקלח|חזית|מקיר לקיר|הזזה|הרמוניקה|אקורדיון|ווק.?אין|דלת|קבוע|גובה|\d+\s*מ["״]?מ|אסיד', request):
         return None
@@ -2668,6 +2668,23 @@ def process_message(phone, body, batch_rows=None):
             reply = ('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר. '
                      'המחיר כולל מדידה, הובלה והתקנה. אם התקציב הוא מה שעוצר אותך, '
                      'אפשר לבדוק אם מפרט אחר יתאים לך.')
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
+        asks_if_sliding_required = (
+            'הזזה' in written and re.search(r'אסלה|ארון', written)
+            and re.search(r'חייב(?:ים)?|מחייב(?:ת)?|חובה', written))
+        if (asks_if_sliding_required and not quote_intent(written)
+                and not is_callback_request(written) and not refuses_further_contact(written)):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = ('לא בהכרח. זה תלוי במיקום ובמרווח לפתיחה. '
+                     'אפשר לבדוק דלת ציר שנפתחת פנימה אם יש לה מקום. '
+                     'איפה האסלה או הארון ביחס לפתח?')
+            if 'אסלה' in written and 'ארון' not in written:
+                reply = reply.replace('האסלה או הארון', 'האסלה')
+            elif 'ארון' in written and 'אסלה' not in written:
+                reply = reply.replace('האסלה או הארון', 'הארון')
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
             return True
