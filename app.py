@@ -2659,15 +2659,17 @@ def process_message(phone, body, batch_rows=None):
         asked_for_discount = re.search(
             r'(?:יש מצב|יש אפשרות|אפשר(?: לקבל)?|יש|תעשה לי)\s+(?:ל)?הנחה[?!. ]*$',
             written)
-        if (asked_for_discount and not refuses_further_contact(written)
+        estimate_objection = bool(re.fullmatch(r'(?:זה\s+)?(?:קצת\s+|ממש\s+)?יקר(?:\s+לי)?[.!? ]*', written))
+        if ((asked_for_discount or estimate_objection) and not refuses_further_contact(written)
                 and not refuses_phone_calls(written) and not is_callback_request(written)
                 and any(m.get('role') == 'assistant' and 'זה אומדן לפי' in m.get('content', '')
                         for m in history[:-1])):
             if has_new_messages(phone, batch_rows):
                 return False
-            reply = ('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר. '
-                     'המחיר כולל מדידה, הובלה והתקנה. אם התקציב הוא מה שעוצר אותך, '
-                     'אפשר לבדוק אם מפרט אחר יתאים לך.')
+            reply = ('אין לי אפשרות לעשות הנחה, קיבלת אחלה מחיר.' if asked_for_discount
+                     else 'מבין, זו הוצאה שצריך להרגיש איתה בנוח.')
+            reply += ' האומדן כולל מדידה, הובלה והתקנה.'
+            reply = personal_service_value(reply, 'יקר לי', history, product='מקלחון')
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
             return True
