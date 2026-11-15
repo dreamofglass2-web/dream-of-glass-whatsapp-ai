@@ -31,7 +31,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POLICY
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
-from sales_items import item_context, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
+from sales_items import item_context, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import product_matched_photos, no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import validated_project_evidence, omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -1694,6 +1694,58 @@ def calculate_quote(data):
     return int(amount + 0.5)
 
 
+def scoped_shower_estimate(customer, prior):
+    """Price a named shower using its own details, without issuing a bundle."""
+    if not re.search(r'אומדן|סדר גודל|בערך|מחיר משוער|הערכ[תה] מחיר', customer):
+        return None
+    if re.search(r'לכל המקלחונים|לשניהם|לשני המקלחונים|מחיר כולל לשני|אסיד', customer):
+        return None
+
+    target = numbered_item(customer)
+    additional = re.search(r'מקלחון (?:אחר|נוסף)', customer)
+    if not target and not additional:
+        return None
+    specs = dict((prior.get('sales_items') or {}).get(target, {}))
+    sizes = re.findall(r'(?<!\d)(\d{2,3})\s*(?:[/×xX]|על)\s*(\d{2,3})(?!\d)', customer)
+    if len(sizes) > 1:
+        return None
+    # A fresh two-side description can supply a simple corner estimate.
+    # Preserve any stated variant and defer unrecognized layouts to consultation.
+    if sizes and re.search(r'פינתי', customer) and not re.search(
+            r'חזית|הזזה|הרמוניקה|אקורדיון|ווק.?אין|קבוע|דלת|גובה|\d+\s*מ["״]?מ', customer):
+        specs.update(configuration=specs.get('configuration') or 'פינתי 2 דלתות',
+                     width_cm=int(sizes[0][0]), second_width_cm=int(sizes[0][1]))
+        if not specs['configuration'].startswith('פינתי'):
+            return None
+    elif sizes or re.search(r'חזית|פינתי|הזזה|הרמוניקה|דלת|קבוע|גובה', customer):
+        return None
+    glass = next((kind for kind in GLASS_COSTS if kind in customer), None)
+    if glass:
+        specs['glass_type'] = glass
+    configuration = specs.get('configuration')
+    if configuration not in BOM and configuration not in SLIDING:
+        return None
+    specs['height_cm'] = preliminary_height(specs)
+    finish = next((name for name in sorted(FINISH_MULTIPLIERS, key=len, reverse=True)
+                   if re.search(r'(?:פרזול|גוון פרזול)\s+' + re.escape(name) + r'(?![א-ת])', customer)), None)
+    specs['finish'] = finish or specs.get('finish') or 'ניקל'
+    if configuration in SLIDING:
+        specs = slider_specs(specs)
+    elif not specs.get('handles'):
+        count = BOM[configuration].get('ידית כפתור', 0) + BOM[configuration].get('ידית מגבת', 0)
+        specs['handles'] = ['ידית כפתור'] * count
+    amount = calculate_quote(specs)
+    if amount is None:
+        return None
+
+    rounded = ((amount + 25) // 50) * 50
+    label = f'למקלחון {target}' if target else 'למקלחון הנוסף'
+    return (f'{label} בלבד, האומדן הוא כ־{rounded:,} ש״ח לפני מע״מ, כולל מדידה, הובלה והתקנה. '
+            f'זה אומדן לפי {configuration}, זכוכית {specs["glass_type"]}, '
+            f'פרזול {specs["finish"]} וגובה {specs["height_cm"]} ס״מ. '
+            'המידות הסופיות ובחירת הפרזול והידיות יכולות לשנות את המחיר.')
+
+
 def quick_shower_estimate(history, customer):
     """An indicative price for a plain corner shower, never an issued quote."""
     last_reply = next((m.get('content', '') for m in reversed(history[:-1])
@@ -2632,7 +2684,7 @@ def process_message(phone, body, batch_rows=None):
             return True
         if SEND_QUOTES and not (price_objection(written) or refuses_further_contact(written)
                                 or refuses_phone_calls(written) or is_callback_request(written)):
-            estimate = quick_shower_estimate(history, written)
+            estimate = scoped_shower_estimate(written, prior) or quick_shower_estimate(history, written)
             if estimate:
                 if has_new_messages(phone, batch_rows):
                     return False
