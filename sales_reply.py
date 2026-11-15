@@ -266,7 +266,7 @@ def personal_service_value(reply, customer, history, product=None):
             facts.append('7 שנות אחריות על הפרזול')
         if not any(re.search(r'(?:שנה|שנת|1\s*שנ(?:ה|ת)).{0,20}אחריות.{0,20}התקנה|אחריות.{0,20}התקנה.{0,15}(?:שנה|שנת)|שנה.{0,10}(?:על\s+ההתקנה|ל?התקנה)', answer) for answer in answers):
             facts.append('שנה אחריות על ההתקנה')
-        if not any('מחוסמת' in answer and 'תקן ישראלי' in answer for answer in answers):
+        if facts and not any('מחוסמת' in answer and 'תקן ישראלי' in answer for answer in answers):
             facts.append('זכוכית מחוסמת לפי תו תקן ישראלי מחמיר')
     if facts:
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
