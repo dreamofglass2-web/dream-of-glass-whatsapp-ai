@@ -1754,7 +1754,7 @@ def scoped_shower_estimate(customer, prior):
 
 def small_bath_shower_reply(history, customer):
     """Answer the fit question before general discovery, using customer facts only."""
-    if not (re.search(r'(?:חדר(?:\s+רחצה)?|אמבטיה|מקלחת)\s+(?:ממש\s+|די\s+)?(?:קטנ[הן]|צפופ[הף])', customer)
+    if not (re.search(r'(?:חדר(?:\s+רחצה)?|אמבטיה|מקלחת)\s+(?:ממש\s+|די\s+)?(?:קט(?:ן|נה)|צפו(?:ף|פה))', customer)
             and re.search(r'מתאי[םמ]|יתאי[םמ]|ייכנס|יכנס|מסתדר|יסתדר|צפוף מדי', customer)
             and current_product_from_history(history) == 'מקלחון'):
         return None
