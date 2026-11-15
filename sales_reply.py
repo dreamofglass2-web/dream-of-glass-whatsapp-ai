@@ -238,7 +238,7 @@ BUYER_SERVICE_BENEFIT = ('הסיבה שאני ממליץ לבחור אצלנו �
                          'בלי שתצטרך לתאם בין מודד למתקין.')
 
 PERSONAL_SERVICE_FACTS = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה ובלי לשלוח מודד אחר. '
-                          'הוא מודד במדויק ומלווה אותך מתחילת העבודה ועד אחרי ההתקנה, אם נדרש שירות.')
+                          'הוא מודד במדויק ומלווה אותך מההתחלה ועד הסוף, וגם אם נדרש שירות אחרי ההתקנה.')
 PERSONAL_SERVICE_VALUE = PERSONAL_SERVICE_FACTS + ' ' + BUYER_SERVICE_BENEFIT
 
 
@@ -267,7 +267,7 @@ def personal_service_value(reply, customer, history, product=None):
         if not any(re.search(r'(?:שנה|שנת|1\s*שנ(?:ה|ת)).{0,20}אחריות.{0,20}התקנה|אחריות.{0,20}התקנה.{0,15}(?:שנה|שנת)|שנה.{0,10}(?:על\s+ההתקנה|ל?התקנה)', answer) for answer in answers):
             facts.append('שנה אחריות על ההתקנה')
         if not any('מחוסמת' in answer and 'תקן ישראלי' in answer for answer in answers):
-            facts.append('זכוכית מחוסמת לפי תו תקן ישראלי')
+            facts.append('זכוכית מחוסמת לפי תו תקן ישראלי מחמיר')
     if facts:
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
     personal_execution=any('אלירן' in answer and ('קבלני משנה' in answer or
@@ -288,7 +288,7 @@ def personal_service_value(reply, customer, history, product=None):
         known_comparison = any(
             m.get('role') == 'user' and re.search(r'הציעו לי|קיבלתי הצעה|הצעה אחרת|מתחרה|התקציב שלי|חשבתי על', str(m.get('content') or ''))
             for m in history[-8:])
-        already_asked = any(re.search(r'תקציב|הצעה אחרת|ביחס למה', answer) for answer in recent)
+        already_asked = any(answer.rstrip().endswith('?') and re.search(r'תקציב|הצעה אחרת|ביחס למה', answer) for answer in recent)
         if not known_comparison and not already_asked:
             value = str(reply or '').strip()
             if not value.endswith('?'):
