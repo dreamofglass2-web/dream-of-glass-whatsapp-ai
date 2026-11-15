@@ -2656,6 +2656,21 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}],
                               dict(prior, quote_requested=True))
             return True
+        starts_with_customer_photo = re.search(
+            r'אפשר\s+(?:להתחיל|להתקדם)\s+(?:מ|עם\s+)(?:ה)?תמונ(?:ה|ות)|אפשר\s+(?:לשלוח|שאשלח)\s+(?:לך\s+)?תמונ(?:ה|ות)',
+            written)
+        if (starts_with_customer_photo and '[לקוח צירף' not in body
+                and not (is_callback_request(written) or refuses_further_contact(written)
+                         or refuses_phone_calls(written)
+                         or re.search(r'(?:תשלח|תשלחי|תשלחו|תראה|אפשר לראות).{0,30}(?:תמונ|דוגמ|קטלוג)', written))):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'כן, אפשר. שלח תמונה של המקום ונראה מה יכול להתאים.'
+            if re.search(r'(?:שני|שתי|2)\s+מקלחונ', ' '.join(spoken + [written])):
+                reply = 'כן, שלח תמונה של כל פתח ונראה מה מתאים לכל מקלחון.'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
         # Identity and budget replies outrank quote restatement.
         if (not complaint and re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|בינה מלאכותית|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
