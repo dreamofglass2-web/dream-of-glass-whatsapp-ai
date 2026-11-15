@@ -297,7 +297,7 @@ def item_context(prior, history, customer):
     if target != active:
         for key in FIELDS:
             state.pop(key, None)
-        state.update(deepcopy(items.get(target, {})))
+    state.update(deepcopy(items.get(target, {})))
     state['active_sales_item'] = target
     if count > 1 and len((state.get('combined_offer') or {}).get('items') or []) < count:
         state.pop('combined_offer', None)
