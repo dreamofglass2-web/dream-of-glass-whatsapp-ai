@@ -288,7 +288,7 @@ def is_callback_request(body):
         r'(?:\b(?:אלירן|נציג|מישהו)\s+)?(?:י?ת?תקשר|יחזור|תחזור|תחזרו|חזרו|להתקשר|לחזור)'
         r'\s+(?:אליי|אלי|אלינו|אלינו\s+בטלפון|בטלפון)' 
         r'|(?:שיחה\s+טלפונית|שיחזור\s+אליי|שאלירן\s+(?:יתקשר|יחזור)|'
-        r'תוכל\s+לחזור\s+אליי|אפשר\s+שיחה\s+בטלפון)',
+        r'תוכל\s+לחזור\s+אליי|אפשר\s+שיחה\s+בטלפון|אפשר\s+לדבר\s+(?:(?:ישיר|ישירות)\s+)?בטלפון)',
         normalized
     ))
 
@@ -1701,6 +1701,7 @@ def quick_shower_estimate(history, customer):
     waiting_for_glass = last_reply == 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
     request = customer
     if waiting_for_glass:
+        customer = customer.strip(' .!?')
         if customer not in GLASS_COSTS:
             return None
         request = next((customer_written_text(m.get('content', '')) for m in reversed(history[:-1])
@@ -2638,6 +2639,23 @@ def process_message(phone, body, batch_rows=None):
                 send_whatsapp(phone, body=estimate)
                 save_conversation(phone, history + [{'role': 'assistant', 'content': estimate}], prior)
                 return True
+        spoken = [customer_written_text(m.get('content') or '') for m in history[:-1]
+                  if m.get('role') == 'user' and not form_intent.is_form_payload(m.get('content'))]
+        if (SEND_QUOTES and re.search(r'(?:שני|שתי|2)\s+מקלחונ', written)
+                and quote_intent(written) and not form_intent.is_form_payload(body)
+                and not (price_objection(written) or is_callback_request(written) or refuses_phone_calls(written)
+                         or refuses_further_contact(written) or prior.get('sales_items')
+                         or any(prior.get(k) for k in ('width_cm', 'second_width_cm', 'validated_quote', 'combined_offer')))
+                and not re.search(r'\d{2,}|אין.{0,15}מידות|לא יודע.{0,15}מידות', ' '.join(spoken + [written]))
+                and not any(m.get('role') == 'assistant' and 'מידות בערך לכל אחד' in m.get('content', '')
+                            for m in history[:-1])):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'יש לך מידות בערך לכל אחד?'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}],
+                              dict(prior, quote_requested=True))
+            return True
         # Identity and budget replies outrank quote restatement.
         if (not complaint and re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|בינה מלאכותית|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
