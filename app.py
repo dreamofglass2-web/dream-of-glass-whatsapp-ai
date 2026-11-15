@@ -1752,6 +1752,38 @@ def scoped_shower_estimate(customer, prior):
             'המידות הסופיות ובחירת הפרזול והידיות יכולות לשנות את המחיר.')
 
 
+def small_bath_shower_reply(history, customer):
+    """Answer the fit question before general discovery, using customer facts only."""
+    if not (re.search(r'(?:חדר(?:\s+רחצה)?|אמבטיה|מקלחת)\s+(?:ממש\s+|די\s+)?(?:קטנ[הן]|צפופ[הף])', customer)
+            and re.search(r'מתאי[םמ]|יתאי[םמ]|ייכנס|יכנס|מסתדר|יסתדר|צפוף מדי', customer)
+            and current_product_from_history(history) == 'מקלחון'):
+        return None
+
+    turns = [customer_written_text(m.get('content', '')) for m in history if m.get('role') == 'user']
+    # Another shower must not inherit dimensions from the previous one.
+    if numbered_item(customer) or re.search(r'מקלחון\s+(?:נוסף|אחר)', customer):
+        turns = [customer]
+    dimensions = next((m.groups() for turn in reversed(turns) if (m := re.search(
+        r'(?:מקלחון(?:\s+(?:ה?פינתי|ה?חזיתי|נוסף|אחר|ה?שני|ה?ראשון|שלישי|בפינה)){0,3}\s*[:,]?\s*(?:במידה\s+של\s+)?|^(?:בערך\s+)?)'
+        r'(\d{2,3})\s*(?:על|[×xX/])\s*(\d{2,3})(?!\d)', turn))), None)
+    if not dimensions:
+        return ('מקלחון יכול להתאים גם לחדר קטן, אם משאירים מעבר נוח ומקום לפתיחת הדלת. '
+                'מה המידות המשוערות של השטח שמיועד למקלחון?')
+
+    width, depth = dimensions
+    answer = (f'{width} על {depth} ס״מ יכול להתאים לחדר קטן, כל עוד נשאר מעבר נוח '
+              'ויש מקום לפתוח את הדלת בלי לפגוע במה שלידה.')
+    space_fact = next((turn for turn in reversed(turns)
+                       if re.search(r'ארון|אסלה|מרווח|מעבר פנוי', turn)), '')
+    if re.search(r'אין.{0,15}(?:ארון|אסלה|מכשול)|מעבר פנוי', space_fact):
+        return answer + ' לפי מה שתיארת, זה כיוון הגיוני. במדידה בשטח נוודא את הפתיחה.'
+    if re.search(r'(?:מרווח|נשאר|במרחק).{0,15}\d{1,3}\s*(?:ס[״"]?מ|סנטימטר)', space_fact):
+        return answer + ' את כיוון הפתיחה נצטרך לבדוק לפי המרווח שציינת ומיקום הצירים.'
+    if re.search(r'ארון|אסלה', space_fact):
+        return answer + ' כמה מרווח בערך נשאר בין הפתח למה שנמצא לידו?'
+    return answer + ' יש ארון או אסלה צמודים לפתח?'
+
+
 def quick_shower_estimate(history, customer):
     """An indicative price for a plain corner shower, never an issued quote."""
     last_reply = next((m.get('content', '') for m in reversed(history[:-1])
@@ -2688,6 +2720,16 @@ def process_message(phone, body, batch_rows=None):
                 reply = 'פספסתי את השאלה על התוספת. ' + reply
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
+            return True
+        fit_reply = small_bath_shower_reply(history, written)
+        if (fit_reply and not (quote_intent(written) or is_callback_request(written)
+                               or refuses_further_contact(written))):
+            if has_new_messages(phone, batch_rows):
+                return False
+            if not any(m.get('role') == 'assistant' for m in history):
+                fit_reply = 'היי, מה קורה? ' + fit_reply
+            send_whatsapp(phone, body=fit_reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': fit_reply}], prior)
             return True
         if SEND_QUOTES and not (price_objection(written) or refuses_further_contact(written)
                                 or refuses_phone_calls(written) or is_callback_request(written)):
