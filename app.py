@@ -1700,7 +1700,12 @@ def calculate_quote(data):
     return int(amount + 0.5)
 
 
-def scoped_shower_estimate(customer, prior):
+def estimate_shower_count(history, prior):
+    inventory_count, mixed = order_inventory(history)
+    return max(pricing_shower_count(prior or {}), inventory_count - bool(mixed))
+
+
+def scoped_shower_estimate(customer, prior, history=()):
     """Price a named shower using its own details, without issuing a bundle."""
     if not (re.search(r'אומדן|מחיר משוער|הערכ[תה] מחיר', customer)
             or (quote_intent(customer) and re.search(r'בערך|סדר גודל', customer))):
@@ -1743,7 +1748,7 @@ def scoped_shower_estimate(customer, prior):
     elif not specs.get('handles'):
         count = BOM[configuration].get('ידית כפתור', 0) + BOM[configuration].get('ידית מגבת', 0)
         specs['handles'] = ['ידית כפתור'] * count
-    amount = calculate_quote(dict(specs, pricing_shower_count=pricing_shower_count(prior)))
+    amount = calculate_quote(dict(specs, pricing_shower_count=estimate_shower_count(history, prior)))
     if amount is None:
         return None
 
@@ -1857,8 +1862,7 @@ def quick_shower_estimate(history, customer, prior=None):
     if not glass:
         return 'כדי לתת לך מחיר בערך, איזו זכוכית תרצה למקלחון?'
     width, depth = sizes[0]
-    inventory_count, mixed = order_inventory(history)
-    count = pricing_shower_count(prior) if (prior or {}).get('sales_items') else max(1, inventory_count - bool(mixed))
+    count = estimate_shower_count(history, prior)
     amount = calculate_quote({'configuration': 'פינתי 2 דלתות', 'glass_type': glass,
                               'pricing_shower_count': count,
                               'width_cm': width, 'second_width_cm': depth, 'height_cm': 200,
@@ -2784,7 +2788,7 @@ def process_message(phone, body, batch_rows=None):
             return True
         if SEND_QUOTES and not (price_objection(written) or refuses_further_contact(written)
                                 or refuses_phone_calls(written) or is_callback_request(written)):
-            estimate = scoped_shower_estimate(written, prior) or quick_shower_estimate(history, written, prior)
+            estimate = scoped_shower_estimate(written, prior, history) or quick_shower_estimate(history, written, prior)
             if estimate:
                 if has_new_messages(phone, batch_rows):
                     return False
