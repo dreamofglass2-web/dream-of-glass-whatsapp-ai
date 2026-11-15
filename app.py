@@ -965,7 +965,7 @@ def customer_boundary(text):
     if re.search(r'(?:אחזור|אחזור אליכם|אעדכן|אדבר איתכם)\s+(?:אליך\s+)?(?:אחרי|כש).{0,30}(?:ריצוף|שיפוץ)', value) and not re.search(r'[?？]|כמה|מחיר', value):
         return 'renovation_pause'
     if (re.fullmatch(r'[\s?!.,]*(?:ביי(?:\s+ביי)?|להתראות|תודה ולהתראות|עזוב|עזבי)[\s?!.,]*', value)
-            or re.search(r'[.!]\s*(?:להתראות|ביי(?:\s+ביי)?)\s*[!.]*
+            or re.search(r'[.!]\s*(?:להתראות|ביי(?:\s+ביי)?)\s*[!.]*$', value)):
         return 'farewell'
     if re.search(r'אתה לא יודע מה אתה מדבר|אתה לא יודע על מה אתה מדבר|מה אתה מפגר|אתה מפגר|מה אתה מדבר בכלל',value):
         return 'complaint'
