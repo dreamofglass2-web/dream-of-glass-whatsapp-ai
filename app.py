@@ -31,7 +31,7 @@ from audio_transcription import transcribe_audio, AUDIO_FAILURE
 from sales_pro import YOSSI_PRO_GUIDANCE
 YOSSI_PRO_GUIDANCE += "\n" + LAYOUT_CONSULTATION_POLICY + "\n" + SLIDING_MIN_POLICY
 from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detail, POLICY as KITCHEN_POLICY
-from sales_items import item_context, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
+from sales_items import item_context, named_shower_room, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import product_matched_photos, no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
 from sales_dialogue import validated_project_evidence, omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
@@ -1805,6 +1805,30 @@ def small_bath_shower_reply(history, customer):
     return answer + ' יש ארון או אסלה צמודים לפתח?'
 
 
+def confirmed_room_quote_options(data, prior, history, customer):
+    """Prevent an inferred finish, glass or handle choice from crossing rooms."""
+    previous = next((str(m.get('content') or '') for m in reversed(history[:-1])
+                     if m.get('role') == 'assistant'), '')
+    if len(prior.get('sales_items') or {}) != 2 or not named_shower_room(history, 'חדר הילדים', ''):
+        return data
+    agreed = re.fullmatch(r'(?:כן|בסדר|נשמע טוב|מעולה|מאשר(?:ת)?)\s*[.!]*', customer)
+    # A yes confirms a stated choice, never a menu of alternatives.
+    previous_room = named_shower_room(history, '', previous)
+    source = customer
+    if agreed and previous_room == prior.get('active_sales_item') and not re.search(r'\sאו\s', previous):
+        source += ' ' + previous
+    patterns = {
+        'glass_type': lambda value: r'שקופ[הו]?|שקוף' if value == 'שקופה' else re.escape(value),
+        'finish': re.escape,
+        'handles': lambda values: ''.join(r'(?=.*' + re.escape(value.split()[-1]) + ')' for value in set(values)),
+    }
+    for field, pattern in patterns.items():
+        value = data.get(field)
+        if value and value != prior.get(field) and not re.search(pattern(value), source):
+            data[field] = prior.get(field)
+    return data
+
+
 def quick_shower_estimate(history, customer):
     """An indicative price for a plain corner shower, never an issued quote."""
     last_reply = next((m.get('content', '') for m in reversed(history[:-1])
@@ -3301,6 +3325,7 @@ def process_message(phone, body, batch_rows=None):
                                  latency_seconds=round(time.monotonic() - ai_started, 3))
             app.logger.info('AI_USAGE %s', json.dumps(usage_metrics, sort_keys=True))
             data = retain_known_quote_choices(prior, normalize_sales_fields(json.loads(response.output_text), set(SALES_CONFIGURATIONS), GLASS_COSTS, FINISH_MULTIPLIERS), customer_request)
+            data = confirmed_room_quote_options(data, prior, history, customer_request)
             project_evidence = validated_project_evidence(history, data.get('project_context_evidence'))
             if project_evidence:
                 prior = dict(prior, project_context_evidence=project_evidence)
