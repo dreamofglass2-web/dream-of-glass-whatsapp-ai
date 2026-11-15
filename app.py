@@ -3162,7 +3162,7 @@ def process_message(phone, body, batch_rows=None):
         sales_plan = consultation_plan(history, prior, customer_request)
         discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
-        instructions += '\nאל תציע אומדן מיוזמתך. מידה משוערת אינה בקשת אומדן. ענה קודם על השאלה ששאלו והתקדם מהפרטים שכבר נמסרו.'
+        instructions += '\nאומדן רק לפי בקשת הלקוח.'
         if form_intent.is_form_payload(body):
             instructions += '\n' + form_intent.POLICY + ' אם נוספה בקשה פרטית, ברך בהיי, מה קורה? והגב ישירות לבקשה בלי לשאול איך אוכל לעזור.'
         if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
