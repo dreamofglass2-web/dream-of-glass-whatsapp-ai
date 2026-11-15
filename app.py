@@ -3134,6 +3134,7 @@ def process_message(phone, body, batch_rows=None):
             bool(re.fullmatch(r'\s*(?:כן|כן תודה|מאשר|מאשרת|מתאים)\s*[.!?]*\s*',customer_request)
                  and ('לאשר את ההצעה המלאה' in last_reply or 'לאשר את ההצעה לפריט הזה' in last_reply)))
         bundle_requested=(quote_intent(customer_request) or closing_intent(customer_request)
+                          or bool(re.search(r'(?:אפשר|אשמח|תשלח|שלח).{0,25}(?:את ההצעה|את הקובץ)', customer_request))
                           or bool(re.fullmatch(r'\s*תחשב\s*[.!?]*\s*',customer_request)) or approving_order)
         explicit_offer_request = bool(re.search(r'(?:תשלח|שלח|שלחי|שלחו|תשלחו|תחשב|תכין|תכיני|להכין|לשלוח).{0,35}(?:הצעה|מחיר|קובץ|שוב|מעודכ)|(?:הצעה|קובץ).{0,20}(?:שוב|מחדש)', customer_request))
         if complete_order and bundle_requested and not revising_order and (not offered_order.get('issued') or approving_order or explicit_offer_request) and not price_objection(customer_request) and not escalation_reason(customer_request) and not is_callback_request(customer_request):
