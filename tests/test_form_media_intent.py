@@ -45,14 +45,14 @@ class FormMediaDeliveryTests(unittest.TestCase):
     def test_first_form_turn_asks_next_question_and_never_sends_images(self):
         reply=self.h.step(FORM,self.h.model('כדי להתאים את המקלחון, הוא מיועד לפינה או בין שני קירות?',send_glass_images=True))
         self.assertNotIn('[TEST_IMAGE]',self.h.sent)
-        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\\? איך אוכל לעזור\?
+        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\? איך אוכל לעזור\?$')
         self.assertIn('כן, אשלח בוואטסאפ',self.h.memory[self.h.phone][0][0]['content'])
     def test_english_form_after_outreach_still_gets_natural_opening(self):
         greeting = 'בוקר טוב, כאן יוסי מחלומות מזכוכית. נוח לך שנמשיך כאן בוואטסאפ?'
         self.h.memory[self.h.phone] = ([{'role': 'assistant', 'content': greeting}], {})
         english_form = 'Hello! I filled out your form and would like to know more about your business.' + FORM[FORM.index('\n'):]
         reply = self.h.step(english_form, self.h.model('זה לבית חדש או לשיפוץ?'))
-        self.assertEqual(reply, 'היי, מה קורה? איך אוכל לעזור?')
+        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\? איך אוכל לעזור\?$')
 
     def test_erroneous_model_caption_does_not_trigger_images_or_false_attachment_claim(self):
         reply=self.h.step(FORM,self.h.model('מצרף לך תמונות לדוגמה',send_glass_images=True))
@@ -69,84 +69,7 @@ class FormOpeningQualityTests(unittest.TestCase):
         self.h=ConversationSimulation();self.h.setUp();self.addCleanup(self.h.doCleanups)
     def test_first_form_monologue_is_repaired_and_next_fact_matches_actual_question(self):
         reply=self.h.step(FORM,self.h.model('היי, אני יוסי מחלומות מזכוכית. אנחנו מרמלה ומודדים ומתקינים בעצמנו ללא קבלני משנה. אם היה לך מקלחון קודם, מה אהבת בו ומה תרצה לשפר?'))
-        self.assertEqual(reply, 'היי, מה קורה? איך אוכל לעזור?')
-        self.assertEqual(reply.count('?'),2);self.assertLess(len(reply),230)
-        self.assertEqual(self.h.memory[self.h.phone][1]['next_missing_fact'],'מה הלקוח רוצה לעשות')
-    def test_good_short_opening_and_actual_customer_questions_are_preserved(self):
-        import form_intent
-        good='היי, אני יוסי מחלומות מזכוכית. המקלחון מיועד לפינה או בין שני קירות?'
-        data={'stage':'discovery','product':'מקלחון'};history=[{'role':'user','content':FORM}]
-        self.assertEqual(form_intent.concise_first_opening(good,FORM,history,data),'היי, מה קורה? איך אוכל לעזור?')
-        long='אנחנו מרמלה. '+('הסבר ארוך '*40)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM+'\nמה שעות הפעילות שלכם?',history,data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,[{'role':'assistant','content':'נעים להכיר'},history[0]],data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,history,dict(data,needs_human=True)),long)
-)
-        self.assertIn('כן, אשלח בוואטסאפ',self.h.memory[self.h.phone][0][0]['content'])
-    def test_english_form_after_outreach_still_gets_natural_opening(self):
-        greeting = 'בוקר טוב, כאן יוסי מחלומות מזכוכית. נוח לך שנמשיך כאן בוואטסאפ?'
-        self.h.memory[self.h.phone] = ([{'role': 'assistant', 'content': greeting}], {})
-        english_form = 'Hello! I filled out your form and would like to know more about your business.' + FORM[FORM.index('\n'):]
-        reply = self.h.step(english_form, self.h.model('זה לבית חדש או לשיפוץ?'))
-        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\\? איך אוכל לעזור\?
-
-    def test_erroneous_model_caption_does_not_trigger_images_or_false_attachment_claim(self):
-        reply=self.h.step(FORM,self.h.model('מצרף לך תמונות לדוגמה',send_glass_images=True))
-        self.assertNotIn('[TEST_IMAGE]',self.h.sent)
-        self.assertNotIn('מצרף',reply);self.assertNotIn('אין תמונה',reply)
-    def test_form_plus_actual_sample_request_can_send_catalog_images(self):
-        self.h.step(FORM+'\nאפשר לראות דוגמאות של עבודות מקלחונים שלכם?',self.h.model('מצרף דוגמאות'))
-        self.assertIn('[TEST_IMAGE]',self.h.sent)
-
-
-class FormOpeningQualityTests(unittest.TestCase):
-    def setUp(self):
-        from tests.test_conversation_simulator import ConversationSimulation
-        self.h=ConversationSimulation();self.h.setUp();self.addCleanup(self.h.doCleanups)
-    def test_first_form_monologue_is_repaired_and_next_fact_matches_actual_question(self):
-        reply=self.h.step(FORM,self.h.model('היי, אני יוסי מחלומות מזכוכית. אנחנו מרמלה ומודדים ומתקינים בעצמנו ללא קבלני משנה. אם היה לך מקלחון קודם, מה אהבת בו ומה תרצה לשפר?'))
-        self.assertEqual(reply, 'היי, מה קורה? איך אוכל לעזור?')
-        self.assertEqual(reply.count('?'),2);self.assertLess(len(reply),230)
-        self.assertEqual(self.h.memory[self.h.phone][1]['next_missing_fact'],'מה הלקוח רוצה לעשות')
-    def test_good_short_opening_and_actual_customer_questions_are_preserved(self):
-        import form_intent
-        good='היי, אני יוסי מחלומות מזכוכית. המקלחון מיועד לפינה או בין שני קירות?'
-        data={'stage':'discovery','product':'מקלחון'};history=[{'role':'user','content':FORM}]
-        self.assertEqual(form_intent.concise_first_opening(good,FORM,history,data),'היי, מה קורה? איך אוכל לעזור?')
-        long='אנחנו מרמלה. '+('הסבר ארוך '*40)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM+'\nמה שעות הפעילות שלכם?',history,data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,[{'role':'assistant','content':'נעים להכיר'},history[0]],data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,history,dict(data,needs_human=True)),long)
-)
-
-    def test_erroneous_model_caption_does_not_trigger_images_or_false_attachment_claim(self):
-        reply=self.h.step(FORM,self.h.model('מצרף לך תמונות לדוגמה',send_glass_images=True))
-        self.assertNotIn('[TEST_IMAGE]',self.h.sent)
-        self.assertNotIn('מצרף',reply);self.assertNotIn('אין תמונה',reply)
-    def test_form_plus_actual_sample_request_can_send_catalog_images(self):
-        self.h.step(FORM+'\nאפשר לראות דוגמאות של עבודות מקלחונים שלכם?',self.h.model('מצרף דוגמאות'))
-        self.assertIn('[TEST_IMAGE]',self.h.sent)
-
-
-class FormOpeningQualityTests(unittest.TestCase):
-    def setUp(self):
-        from tests.test_conversation_simulator import ConversationSimulation
-        self.h=ConversationSimulation();self.h.setUp();self.addCleanup(self.h.doCleanups)
-    def test_first_form_monologue_is_repaired_and_next_fact_matches_actual_question(self):
-        reply=self.h.step(FORM,self.h.model('היי, אני יוסי מחלומות מזכוכית. אנחנו מרמלה ומודדים ומתקינים בעצמנו ללא קבלני משנה. אם היה לך מקלחון קודם, מה אהבת בו ומה תרצה לשפר?'))
-        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\\? איך אוכל לעזור\?
-        self.assertEqual(reply.count('?'),2);self.assertLess(len(reply),230)
-        self.assertEqual(self.h.memory[self.h.phone][1]['next_missing_fact'],'מה הלקוח רוצה לעשות')
-    def test_good_short_opening_and_actual_customer_questions_are_preserved(self):
-        import form_intent
-        good='היי, אני יוסי מחלומות מזכוכית. המקלחון מיועד לפינה או בין שני קירות?'
-        data={'stage':'discovery','product':'מקלחון'};history=[{'role':'user','content':FORM}]
-        self.assertEqual(form_intent.concise_first_opening(good,FORM,history,data),'היי, מה קורה? איך אוכל לעזור?')
-        long='אנחנו מרמלה. '+('הסבר ארוך '*40)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM+'\nמה שעות הפעילות שלכם?',history,data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,[{'role':'assistant','content':'נעים להכיר'},history[0]],data),long)
-        self.assertEqual(form_intent.concise_first_opening(long,FORM,history,dict(data,needs_human=True)),long)
-)
+        self.assertRegex(reply, r'^(?:בוקר טוב|צהריים טובים|ערב טוב), מה קורה\? איך אוכל לעזור\?$')
         self.assertEqual(reply.count('?'),2);self.assertLess(len(reply),230)
         self.assertEqual(self.h.memory[self.h.phone][1]['next_missing_fact'],'מה הלקוח רוצה לעשות')
     def test_good_short_opening_and_actual_customer_questions_are_preserved(self):
