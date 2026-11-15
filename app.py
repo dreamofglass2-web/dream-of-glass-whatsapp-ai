@@ -2703,6 +2703,15 @@ def process_message(phone, body, batch_rows=None):
             send_whatsapp(phone, body=reply)
             save_conversation(phone, history + [{'role': 'assistant', 'content': reply}], prior)
             return True
+        if (re.search(r'(?:אדבר|אתייעץ|אבדוק|אחשוב|נדבר).{0,45}(?:ואחזור|ונחזור)', written)
+                and not (quote_intent(written) or is_callback_request(written) or '?' in written)):
+            if has_new_messages(phone, batch_rows):
+                return False
+            reply = 'בשמחה, קח את הזמן. כשתרצה להמשיך, אני כאן.'
+            send_whatsapp(phone, body=reply)
+            save_conversation(phone, history + [{'role': 'assistant', 'content': reply}],
+                              dict(prior, quote_requested=False))
+            return True
         # Identity and budget replies outrank quote restatement.
         if (not complaint and re.search(r'(?:אתה|את)\s+(?:בוט|רובוט|נציג דיגיטלי|בינה מלאכותית|אדם אמיתי)|(?:זה|מדבר עם|מדברת עם)\s+(?:בוט|רובוט|אדם אמיתי)|^(?:בוט|רובוט)\s*[?？]', written)
                 and len(body)<160 and not re.search(r'מחיר|אחריות|כמה עולה',body)):
