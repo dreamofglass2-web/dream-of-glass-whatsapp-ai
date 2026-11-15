@@ -361,7 +361,7 @@ class ConversationSimulation(unittest.TestCase):
                     handles=['ידית מגבת'],solution_agreed=True)
         self.step('160',self.model('להכין הצעת מחיר לשני המקלחונים?',**second))
         reply=self.step('כן תודה',self.model('בודק מחיר',**second,quote_requested=True))
-        total=round(yossi.calculate_quote(first))+round(yossi.calculate_quote(second))
+        total=yossi.calculate_quote(dict(first, pricing_shower_count=2)) + yossi.calculate_quote(dict(second, pricing_shower_count=2))
         self.assertEqual(self.documents[-1]['amount_ils_pre_vat'],total)
         self.assertFalse(yossi.contains_ils_amount(reply))
         state=self.memory[self.phone][1]
@@ -441,16 +441,18 @@ class ConversationSimulation(unittest.TestCase):
     def test_owner_pricing_base_buffer_removal_rounding_and_no_minimum(self):
         specs=dict(configuration='חזית קבוע + דלת',width_cm=160,height_cm=200,
                    glass_type='שקופה',finish='שחור',handles=['ידית מגבת'])
-        # Old formula: glass + hardware + 1650. Owner replaces 1650 with 1300.
+        # A single shower uses the single-order tier before VAT.
         price=yossi.calculate_quote(specs)
         self.assertIsInstance(price,int)
-        self.assertEqual(price,2084)
+        self.assertEqual(price,2284)
         specs['width_cm']=160.5
         fractional=yossi.calculate_quote(specs)
         self.assertIsInstance(fractional,int)
         self.assertEqual(fractional,price+1)
         with patch.dict(yossi.GLASS_COSTS,{'שקופה':0}), patch.dict(yossi.HARDWARE_COSTS,dict.fromkeys(yossi.HARDWARE_COSTS,0)):
-            self.assertEqual(yossi.calculate_quote(specs),1300)
+            for count, base in ((1, 1500), (2, 1400), (3, 1300), (5, 1300)):
+                with self.subTest(count=count):
+                    self.assertEqual(yossi.calculate_quote(dict(specs, pricing_shower_count=count)), base)
 
     def test_recalculate_changed_width_keeps_known_choices_and_uses_calculator(self):
         specs=dict(product='מקלחון',configuration='חזית קבוע + דלת',width_cm=120,
@@ -1939,7 +1941,7 @@ class CompleteOrderFlowTests(ConversationSimulation):
             self.step('נשמע טוב, איך מתקדמים')
         ai.assert_not_called()
         self.assertEqual([i['number'] for i in self.documents[-1]['items']],['1','2'])
-        total=sum(yossi.calculate_quote(x) for x in self.items().values())
+        total=sum(yossi.calculate_quote(dict(x, pricing_shower_count=2)) for x in self.items().values())
         self.assertEqual(self.documents[-1]['amount_ils_pre_vat'],total)
         self.assertFalse(yossi.contains_ils_amount(self.sent[-1]))
         self.assertFalse(self.memory[self.phone][1]['combined_offer']['approved'])
