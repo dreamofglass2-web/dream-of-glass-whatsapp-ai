@@ -250,7 +250,7 @@ def consultation_plan(history, prior, customer):
         introduction=re.split(r'הראשון|המקלחון הראשון',str(message.get('content') or ''),maxsplit=1)[0]
         if re.search(r'(?:שתי|שני|2)\s+(?:מקלחות|מקלחונים|חדרים)',introduction) and re.search(needs_pattern,introduction):
             needs=True
-    previous_shower = bool(re.search(r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|(?:היה|יש)\s+(?:לי|לנו)\s+מקלחו|(?:מחליף|מחליפ[היםות]+|להחליף|החלפת)\s+(?:את\s+)?(?:ה)?מקלחו', users))
+    previous_shower = bool(re.search(r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|להחליף\s+(?:את\s+)?הישן|(?:היה|יש)\s+(?:לי|לנו)\s+מקלחו|(?:מחליף|מחליפ[היםות]+|להחליף|החלפת)\s+(?:את\s+)?(?:ה)?מקלחו', users))
     no_previous_shower = bool(re.search(r'לא (?:היה|היו).{0,18}מקלחו|אין (?:לי|לנו).{0,12}מקלחו|מקלחון ראשון|(?:יש|היה) רק וילון', users))
     asked_experience = False
     for i,m in enumerate(messages):
@@ -279,7 +279,8 @@ def consultation_plan(history, prior, customer):
     if not needs:
         if shower and previous_shower and not no_previous_shower:
             return {'step':'experience_and_needs','question':'איך היה לך בשימוש עם המקלחון הקודם, ומה היית רוצה לשפר או לשמר?'}
-        if shower and not no_previous_shower and not asked_experience:
+        if (shower and not no_previous_shower and not asked_experience
+                and not re.search(r'בונ[הים]+.{0,12}בית|בניי?ת בית|בית חדש|דירה חדשה', project_users)):
             return {'step':'prior_shower','question':'היה לכם מקלחון לפני כן?' }
         return {'step':'experience_and_needs','question':'מה הכי חשוב לך במקלחון החדש?' if shower else 'מה הכי חשוב לך בתוצאה?'}
     return {'step':'connect_recommendation_to_customer','question':None}
