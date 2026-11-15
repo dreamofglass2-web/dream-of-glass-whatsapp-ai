@@ -3193,6 +3193,9 @@ def process_message(phone, body, batch_rows=None):
             save_conversation(phone, history + [{'role':'assistant','content':deferred_reply}], dict(prior or {}))
             return True
         media_was_analyzed = '[לקוח צירף ' in body and ' שנותח בפועל.' in body
+        reviewing_customer_photo = ('[לקוח צירף תמונה שנותח בפועל.' in body
+                                    and not (requests_catalog_samples(customer_request)
+                                             or requests_portfolio_photos(customer_request)))
         facts = conversation_constraints(history)
         # Old visual descriptions are historical facts, never a new customer's measurements.
         # If this turn is a generic exploratory price question, don't prime the model with
@@ -3228,6 +3231,8 @@ def process_message(phone, body, batch_rows=None):
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
         if form_intent.is_form_payload(body):
             instructions += '\n' + form_intent.POLICY + ' אם נוספה בקשה פרטית, ברך בהיי, מה קורה? והגב ישירות לבקשה בלי לשאול איך אוכל לעזור.'
+        if reviewing_customer_photo:
+            instructions += '\nהתמונה שהלקוח שלח היא חומר לבדיקת השטח. התייחס לממצאים החזותיים הרלוונטיים בזהירות; אל תעריך מידות מצילום. אם הלקוח ציין חדר, שייך את התמונה רק לחדר הזה וענה גם לבקשה נוספת בהודעה.'
         if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
             instructions += '\nבחבילת ההודעות הזו התמונות או המסמכים המסומנים כנותחו אכן נותחו. השתמש בממצאיהם בזהירות ואל תטען שאינך יכול לראות את כל הקבצים. קובץ המסומן כלא נותח לא נצפה; אל תמציא את תוכנו ואל תטען שצפית בסרטון. המשך מבירור הפרט הבא שחסר בלי לבקש שוב תיאור של התמונות שכבר נותחו.'
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
@@ -3770,6 +3775,10 @@ def process_message(phone, body, batch_rows=None):
                 reply = ('קיבלתי את התמונה. כדי להמליץ על פתרון שמתאים לשטח, '
                          'אעזור לך לבדוק את מיקום הקירות, הכניסה והמרווח לפתיחת הדלת. '
                          'מה חשוב לך יותר, כניסה רחבה או חיסכון במקום?')
+            if reviewing_customer_photo:
+                photos = []
+                if not re.search(r'תמונ|צילום|בתצלום', reply):
+                    reply = 'קיבלתי את התמונה ששלחת. ' + reply
             photos = product_matched_photos(photos, photo_context)
             if photos:
                 # The model must not claim absent catalog types are attached.
