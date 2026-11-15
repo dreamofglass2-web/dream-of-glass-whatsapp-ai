@@ -2329,7 +2329,7 @@ class CustomerPaceScenarios(unittest.TestCase):
         self.assertEqual(reply, 'יש לך מידות בערך לכל אחד?')
 
     def test_quick_estimate_accepts_natural_punctuation_and_has_no_formal_quote(self):
-        self.sim.assertIn('איזו זכוכית', self.sim.step('מקלחון 80/80 כמה עולה בערך?'))
+        self.sim.assertIn('איזו זכוכית', self.sim.step('מקלחון 80/80, רק רוצה לדעת כמה עולה בערך, בלי שאלות.'))
         reply = self.sim.step('שקופה.')
         self.assertIn('לפני מע״מ', reply)
         self.assertIn('ידיות', reply)
@@ -2352,3 +2352,20 @@ class CustomerUploadScenarios(unittest.TestCase):
         reply = sim.step('אין לי מידות בכלל. אפשר להתחיל מתמונה?')
         self.assertEqual(reply, 'כן, שלח תמונה של כל פתח ונראה מה מתאים לכל מקלחון.')
         self.assertEqual(sim.sent, [reply])
+
+
+class SalesIntentBoundaryScenarios(unittest.TestCase):
+    def test_ordinary_rough_price_question_does_not_start_the_shortcut(self):
+        body = 'מקלחון 80/80 כמה עולה בערך?'
+        history = [{'role': 'user', 'content': body}]
+        self.assertIsNone(yossi.quick_shower_estimate(history, body))
+
+    def test_toilet_question_does_not_inherit_a_stale_opening_width(self):
+        sim = ConversationSimulation()
+        sim.setUp()
+        self.addCleanup(sim.doCleanups)
+        sim.memory[sim.phone] = ([], {'width_cm': 60, 'product': 'מקלחון'})
+        reply = sim.step('יש לי אסלה קרובה לפתח, חייבים לעשות דלת הזזה?')
+        self.assertIn('לא בהכרח', reply)
+        self.assertIn('האסלה ביחס לפתח', reply)
+        self.assertNotIn('60', reply)
