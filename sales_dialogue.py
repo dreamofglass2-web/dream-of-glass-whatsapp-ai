@@ -278,7 +278,7 @@ def consultation_plan(history, prior, customer):
         return {'step':'customer_name','question':'מה שמך?'}
     if not needs:
         if shower and previous_shower and not no_previous_shower:
-            return {'step':'experience_and_needs','question':'מה היה לך נוח בשימוש במקלחון הקודם, ומה היית רוצה לשפר או לשמר?'}
+            return {'step':'experience_and_needs','question':'איך היה לך בשימוש עם המקלחון הקודם, ומה היית רוצה לשפר או לשמר?'}
         if shower and not no_previous_shower and not asked_experience:
             return {'step':'prior_shower','question':'היה לכם מקלחון לפני כן?' }
         return {'step':'experience_and_needs','question':'מה הכי חשוב לך במקלחון החדש?' if shower else 'מה הכי חשוב לך בתוצאה?'}
