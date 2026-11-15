@@ -2311,3 +2311,30 @@ class RoseGoldAliasTests(unittest.TestCase):
         reply=self.step('אני לא רוצה רוז גולד',self.model('איזה גוון תעדיף?'))
         self.assertFalse(self.memory[self.phone][1].get('finish'))
         self.assertIn('איזה גוון',reply)
+
+
+class CustomerPaceScenarios(unittest.TestCase):
+    def setUp(self):
+        self.sim = ConversationSimulation()
+        self.sim.setUp()
+        self.addCleanup(self.sim.doCleanups)
+
+    def test_two_showers_price_request_goes_straight_to_measurements(self):
+        self.sim.memory[self.sim.phone] = ([
+            {'role': 'assistant', 'content': 'בוקר טוב, מה קורה? איך אוכל לעזור?'},
+            {'role': 'user', 'content': 'זו מקלחת חדשה'},
+            {'role': 'assistant', 'content': 'מה חשוב לך במקלחון החדש?'},
+        ], {})
+        reply = self.sim.step('לא הבנתי אחי, תגיד לי כמה עולה שני מקלחונים.')
+        self.assertEqual(reply, 'יש לך מידות בערך לכל אחד?')
+
+    def test_quick_estimate_accepts_natural_punctuation_and_has_no_formal_quote(self):
+        self.sim.assertIn('איזו זכוכית', self.sim.step('מקלחון 80/80 כמה עולה בערך?'))
+        reply = self.sim.step('שקופה.')
+        self.assertIn('לפני מע״מ', reply)
+        self.assertIn('ידיות', reply)
+        self.assertFalse(self.sim.documents)
+
+    def test_customer_can_request_direct_phone_contact_naturally(self):
+        self.assertTrue(yossi.is_callback_request('אפשר אפשר לדבר ישיר בטלפון'))
+        self.assertFalse(yossi.is_callback_request('לא רוצה לדבר בטלפון'))
