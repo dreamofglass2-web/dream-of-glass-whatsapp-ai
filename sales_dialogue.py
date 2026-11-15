@@ -210,7 +210,8 @@ def consultation_plan(history, prior, customer):
     asks_price_directly = bool(re.search(
         r'(?:כמה\s+(?:זה\s+)?(?:עול[היםות]+|יעל[הו]|יוצא)|מה\s+המחיר|תגידו?\s+לי\s+כמה|(?:תן|תני|תשלח|תשלחי)\s+לי\s+(?:מחיר|הצעת מחיר))',
         text))
-    if price_only or asks_price_directly:
+    already_in_conversation = any(m.get('role') == 'assistant' for m in history)
+    if price_only or (asks_price_directly and already_in_conversation):
         return {'step':'price_preparation','question':None}
     if prior.get('sales_discovery_completed') or (prior.get('validated_quote') or {}).get('issued'):
         return {'step':'consult_and_progress','question':None}
