@@ -1754,6 +1754,22 @@ def scoped_shower_estimate(customer, prior):
 
 def small_bath_shower_reply(history, customer):
     """Answer the fit question before general discovery, using customer facts only."""
+    previous = next((str(m.get('content') or '') for m in reversed(history[:-1])
+                     if m.get('role') == 'assistant'), '')
+    if 'יכול להתאים לחדר קטן' in previous:
+        if re.search(r'(?:דלת|פתיח|לפתוח|תיפתח).{0,35}פנימה', customer) and re.search(r'אפשר|יכול|ניתן', customer):
+            if re.search(r'אין.{0,15}(?:מכשול|מדף|ברז)|פנוי מבפנים', customer):
+                return 'אפשר לשקול פתיחה פנימה. במדידה נוודא שהדלת עוברת בחופשיות ושנשאר מקום נוח לעמוד ולסגור אותה.'
+            return ('אפשר לשקול פתיחה פנימה, והיא יכולה לעזור כשהאסלה או הארון קרובים לפתח מבחוץ. '
+                    'צריך לוודא שהדלת עוברת בלי לפגוע בברז או במדף ושנשאר מקום לעמוד בפנים. '
+                    'יש משהו בתוך המקלחת שעלול להפריע לפתיחה?')
+        if re.fullmatch(r'(?:לא|אין|לא, אין(?: שם)? (?:ארון או אסלה|כלום))[\s.!]*', customer):
+            return 'אז לפי מה שתיארת, יש כיוון טוב. במדידה נוודא שהמעבר וכיוון פתיחת הדלת נוחים.'
+        if re.search(r'(?:יש|צמוד[ה]?|קרוב[ה]?).{0,35}(?:אסלה|ארון)|(?:אסלה|ארון).{0,24}(?:ליד|קרוב|צמוד)', customer):
+            if re.search(r'\d{1,3}\s*(?:ס[״"]?מ|סנטימטר)', customer):
+                return 'המרווח שציינת עוזר. במדידה נבדוק את מסלול הדלת ואת רוחב הכניסה לפני שנבחר כיוון פתיחה.'
+            return 'זה יכול להשפיע על כיוון הפתיחה. כמה מרווח בערך יש בין הפתח לאסלה או לארון?'
+
     if not (re.search(r'(?:חדר(?:\s+רחצה)?|אמבטיה|מקלחת)\s+(?:ממש\s+|די\s+)?(?:קט(?:ן|נה)|צפו(?:ף|פה))', customer)
             and re.search(r'מתאי[םמ]|יתאי[םמ]|ייכנס|יכנס|מסתדר|יסתדר|צפוף מדי', customer)
             and current_product_from_history(history) == 'מקלחון'):
