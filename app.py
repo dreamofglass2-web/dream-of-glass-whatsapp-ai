@@ -34,7 +34,7 @@ from kitchen_cladding import kitchen_state, kitchen_offer, missing_kitchen_detai
 from sales_items import item_context, order_inventory, pricing_shower_count, named_shower_room, numbered_item, save_item, combined_quote, bundle_offer, bundle_offer_reply, preliminary_height, partial_offer_reply, offer_document_caption, slider_specs, slider_reply, group_choices
 from sales_visuals import referenced_glass_sample, catalog_handle_label, handle_photo_request, handle_photos, implicit_visual_request, consultation_photos, consultation_photo_intro, declines_visuals
 from sales_reply import product_matched_photos, no_discount_reply, EXPENSIVE_WORD, is_price_objection, comparison_turn, sales_output_format, normalize_sales_fields, quote_facts_for_turn, safe_quote_wording, open_finish_question, grounded_price_comparison, retain_known_quote_choices, personal_service_value, shower_thickness_reply, shower_six_mm_choice, canonical_finish_text, ROSE_GOLD
-from sales_dialogue import validated_project_evidence, omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
+from sales_dialogue import has_existing_shower, validated_project_evidence, omit_unasked_readiness, deferred_measurement_reply, preserves_consultation_step, consultation_plan, discovery_before_quote, compact_instructions, dialogue_context, sales_turn_context, api_usage_metrics, warranty_only_request, mixed_warranty_reply, bath_entry_constraint
 from handoff_store import ensure_tables as ensure_handoff_tables, parse_echoes, record_message, read_state as read_handoff_state, authorized_send, phone_lock, reset_sales_handoff, clear_sales_dialogue
 from handoff_state import automatic_reply_allowed, resume_context, HandoffError, requests_new_conversation
 from handoff_api import register_routes as register_handoff_routes
@@ -3944,7 +3944,7 @@ def process_message(phone, body, batch_rows=None):
                     reply='נמשיך עם פרטי העבודה שסיכמנו.'
             if ordinary_turn and is_shower and not quote_record.get('issued'):
                 users=' '.join(customer_written_text(m.get('content') or '') for m in history if m.get('role')=='user')
-                prior_shower=bool(re.search(r'היה לי מקלחון|הייה לי מקלחון|המקלחון הקודם|יש לי מקלחון|מחליף מקלחון|להחליף מקלחון|מקלחון קיים|(?:להחליף|מחליף|מחליפה|מחליפים)\s+(?:את\s+)?(?:הישן|ישן|הקיים|קיים)',users))
+                prior_shower=has_existing_shower(users)
                 if not prior_shower and re.search(r'המקלחון הקודם|המקלחון שהשתמשת|מקלחון שהשתמשת',reply):
                     reply='היה לך מקלחון עד היום, או שהמקלחת הייתה פתוחה או עם וילון?'
                 if (not merged_pricing.get('width_cm') and re.search(r'פינתי|בפינה|פינה',users)
