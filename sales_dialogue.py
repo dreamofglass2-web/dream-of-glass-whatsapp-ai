@@ -198,6 +198,14 @@ def validated_project_evidence(history, evidence):
     return None
 
 
+def has_existing_shower(text):
+    return bool(re.search(
+        r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|'
+        r'(?:היה|הייה|יש)\s+(?:לי|לנו)\s+מקלחו|המקלחון הקודם|'
+        r'(?:להחליף|מחליף|מחליפה|מחליפים|החלפת)\s+(?:את\s+)?(?:ה?ישן|ה?קיים|ה?מקלחו)|'
+        r'המקלחון.{0,25}(?:נוזל|דולף|לנזול|נשבר|להחליף אותו)', text))
+
+
 def consultation_plan(history, prior, customer):
     """All sales openings use customer evidence, not only technical specs."""
     text=str(customer or '')
@@ -250,7 +258,7 @@ def consultation_plan(history, prior, customer):
         introduction=re.split(r'הראשון|המקלחון הראשון',str(message.get('content') or ''),maxsplit=1)[0]
         if re.search(r'(?:שתי|שני|2)\s+(?:מקלחות|מקלחונים|חדרים)',introduction) and re.search(needs_pattern,introduction):
             needs=True
-    previous_shower = bool(re.search(r'מקלחון\s+(?:ישן|קיים|קודם)|מקלחונים\s+(?:ישנים|קיימים|קודמים)|(?:להחליף|מחליף|מחליפה)\s+(?:את\s+)?ה?ישן|(?:היה|יש)\s+(?:לי|לנו)\s+מקלחו|(?:מחליף|מחליפ[היםות]+|להחליף|החלפת)\s+(?:את\s+)?(?:ה)?מקלחו', users))
+    previous_shower = has_existing_shower(users)
     no_previous_shower = bool(re.search(r'לא (?:היה|היו).{0,18}מקלחו|אין (?:לי|לנו).{0,12}מקלחו|מקלחון ראשון|(?:יש|היה) רק וילון', users))
     asked_experience = False
     for i,m in enumerate(messages):
