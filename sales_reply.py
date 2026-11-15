@@ -237,8 +237,8 @@ def comparison_turn(history, prior, customer, calculate, bom, glass_types, finis
 BUYER_SERVICE_BENEFIT = ('הסיבה שאני ממליץ לבחור אצלנו היא שיש לך כתובת אחת שמכירה את העבודה מהמדידה ועד השירות, '
                          'בלי שתצטרך לתאם בין מודד למתקין.')
 
-PERSONAL_SERVICE_FACTS = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה, '
-                          'ומלווה אותך מההתחלה ועד הסוף וגם אם נדרש שירות אחר כך.')
+PERSONAL_SERVICE_FACTS = ('אלירן בעל העסק מגיע בעצמו למדידה ולהתקנה, בלי קבלני משנה ובלי לשלוח מודד אחר. '
+                          'הוא מודד במדויק ומלווה אותך מההתחלה ועד הסוף, וגם אם נדרש שירות אחר כך.')
 PERSONAL_SERVICE_VALUE = PERSONAL_SERVICE_FACTS + ' ' + BUYER_SERVICE_BENEFIT
 
 
@@ -266,6 +266,8 @@ def personal_service_value(reply, customer, history, product=None):
             facts.append('7 שנות אחריות על הפרזול')
         if not any(re.search(r'(?:שנה|שנת|1\s*שנ(?:ה|ת)).{0,20}אחריות.{0,20}התקנה|אחריות.{0,20}התקנה.{0,15}(?:שנה|שנת)|שנה.{0,10}(?:על\s+ההתקנה|ל?התקנה)', answer) for answer in answers):
             facts.append('שנה אחריות על ההתקנה')
+        if facts and not any('מחוסמת' in answer and 'תקן ישראלי' in answer for answer in answers):
+            facts.append('זכוכית מחוסמת לפי תו תקן ישראלי מחמיר')
     if facts:
         additions.append('אצלנו מקבלים ' + ', '.join(facts) + '.')
     personal_execution=any('אלירן' in answer and ('קבלני משנה' in answer or
@@ -282,6 +284,15 @@ def personal_service_value(reply, customer, history, product=None):
         for answer in answers + additions)
     if not benefit_explained:
         additions.append(BUYER_SERVICE_BENEFIT)
+    if re.fullmatch(r'(?:זה\s+)?(?:קצת\s+|ממש\s+)?יקר(?:\s+לי)?[.!? ]*', text.strip()):
+        known_comparison = any(
+            m.get('role') == 'user' and re.search(r'הציעו לי|קיבלתי הצעה|הצעה אחרת|מתחרה|התקציב שלי|חשבתי על', str(m.get('content') or ''))
+            for m in history[-8:])
+        already_asked = any(answer.rstrip().endswith('?') and re.search(r'תקציב|הצעה אחרת|ביחס למה', answer) for answer in recent)
+        if not known_comparison and not already_asked:
+            value = str(reply or '').strip()
+            if not value.endswith('?'):
+                reply = value + ' זה ביחס לתקציב שתכננת או להצעה נוספת שקיבלת?'
     if not additions:
         return reply
     addition = ' '.join(additions)
