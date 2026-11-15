@@ -2795,7 +2795,8 @@ def process_message(phone, body, batch_rows=None):
                 if not any(m.get('role') == 'assistant' for m in history):
                     estimate = 'היי, מה קורה? ' + estimate
                 send_whatsapp(phone, body=estimate)
-                save_conversation(phone, history + [{'role': 'assistant', 'content': estimate}], prior)
+                save_conversation(phone, history + [{'role': 'assistant', 'content': estimate}],
+                                  dict(prior, calculated_preliminary_estimate=True) if contains_ils_amount(estimate) else prior)
                 return True
         spoken = [customer_written_text(m.get('content') or '') for m in history[:-1]
                   if m.get('role') == 'user' and not form_intent.is_form_payload(m.get('content'))]
@@ -3280,6 +3281,8 @@ def process_message(phone, body, batch_rows=None):
             instructions += '\nהתמונה שהלקוח שלח היא חומר לבדיקת השטח. התייחס לממצאים החזותיים הרלוונטיים בזהירות; אל תעריך מידות מצילום. אם הלקוח ציין חדר, שייך את התמונה רק לחדר הזה וענה גם לבקשה נוספת בהודעה.'
         if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
             instructions += '\nבחבילת ההודעות הזו התמונות או המסמכים המסומנים כנותחו אכן נותחו. השתמש בממצאיהם בזהירות ואל תטען שאינך יכול לראות את כל הקבצים. קובץ המסומן כלא נותח לא נצפה; אל תמציא את תוכנו ואל תטען שצפית בסרטון. המשך מבירור הפרט הבא שחסר בלי לבקש שוב תיאור של התמונות שכבר נותחו.'
+        if prior.get('calculated_preliminary_estimate'):
+            instructions += '\nהאומדן שכבר ניתן חושב לפי המפרט שבשיחה. אם צריך להתייחס אליו, אמור שזה אומדן ראשוני שעשוי להשתנות לפי המפרט והמידות הסופיים.'
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
                       'width_cm', 'second_width_cm', 'height_cm', 'glass_type', 'finish',
                       'handles', 'quote_requested', 'solution_agreed', 'validated_quote', 'customer_name', 'customer_budget')
@@ -4045,6 +4048,10 @@ def process_message(phone, body, batch_rows=None):
                 reply = re.sub(r'^\s*איך (?:אוכל|אפשר) לעזור(?: לך)?[?!. ]*', '', reply).strip()
                 greeting = opening_greetings.selected()[2].split(',', 1)[0]
                 reply = f'{greeting}, מה קורה?' + (' ' + reply if reply else '')
+            if prior.get('calculated_preliminary_estimate'):
+                reply = re.sub(r'(?:מצטער[ת]?,\s*)?(?:המחיר|האומדן)[^.!?\n]{0,75}לא (?:התבסס|מבוסס|חושב)[^.!?\n]{0,100}[.!]?',
+                               'זה היה אומדן ראשוני לפי המפרט שהיה לנו, והוא עשוי להשתנות לפי המידות והמפרט הסופיים.',
+                               reply)
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
