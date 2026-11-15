@@ -3002,7 +3002,7 @@ def process_message(phone, body, batch_rows=None):
         discovery_question = sales_plan['question']
         instructions = compact_instructions(WEBSITE_VERIFIED_FACTS, GLASS_COSTS.keys(), SALES_CONFIGURATIONS)
         if form_intent.is_form_payload(body):
-            instructions += '\n' + form_intent.POLICY
+            instructions += '\n' + form_intent.POLICY + ' אם נוספה בקשה פרטית, ברך בהיי, מה קורה? והגב ישירות לבקשה בלי לשאול איך אוכל לעזור.'
         if '[לקוח צירף ' in body and ' שנותח בפועל.' in body and ' שלא נותחה]' in body:
             instructions += '\nבחבילת ההודעות הזו התמונות או המסמכים המסומנים כנותחו אכן נותחו. השתמש בממצאיהם בזהירות ואל תטען שאינך יכול לראות את כל הקבצים. קובץ המסומן כלא נותח לא נצפה; אל תמציא את תוכנו ואל תטען שצפית בסרטון. המשך מבירור הפרט הבא שחסר בלי לבקש שוב תיאור של התמונות שכבר נותחו.'
         state_keys = ('stage', 'action', 'next_missing_fact', 'product', 'configuration',
@@ -3746,6 +3746,14 @@ def process_message(phone, body, batch_rows=None):
                 reply = re.sub(r'^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)(?:[ ,]+[א-ת]+)?[.!]\s+|^\s*(?:בוקר טוב|צהריים טובים|ערב טוב|היי|שלום)[,،]\s*', '', reply).strip()
             if not re.search(r'מאיפה|מהיכן|איפה.{0,15}(?:העסק|אתם|נמצאים)|אולם|תצוגה|אזור שירות', customer_request):
                 reply = re.sub(r'(^|(?<=[.!?])\s+)אנחנו מרמלה(?:\s+ומתמחים בעבודות זכוכית בהתאמה אישית[^.!?]*)?[.!]\s*', ' ', reply).strip()
+            # A form with a written request gets a greeting and an answer to that request.
+            if (reply and form_intent.is_form_payload(body)
+                    and not any(m.get('role') == 'user' or (m.get('role') == 'assistant'
+                                and 'נוח לך שנמשיך כאן בוואטסאפ' not in str(m.get('content') or ''))
+                                for m in history[:-1])):
+                reply = re.sub(r'^\s*(?:היי|שלום|אהלן)(?:\s*,?\s*מה קורה)?[?!. ,]*', '', reply).strip()
+                reply = re.sub(r'^\s*איך (?:אוכל|אפשר) לעזור(?: לך)?[?!. ]*', '', reply).strip()
+                reply = 'היי, מה קורה?' + (' ' + reply if reply else '')
             final_reason = escalation_reason(customer_request, data, reply, history)
             if final_reason and HANDOFF_ENABLED and not issuing_order:
                 if has_new_messages(phone,batch_rows):
