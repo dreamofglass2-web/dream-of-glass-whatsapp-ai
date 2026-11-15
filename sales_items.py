@@ -71,7 +71,7 @@ def explicit_numbered_specs(history):
             height = re.search(r'גובה\s*(\d{2,3})', detail)
             if height:
                 specs['height_cm'] = int(height[1])
-            glasses = ('אקסטרה קליר','אנטיסן אפור','אנטיסן ברונזה','אסיד קליר','גלינה קליר','פיפיטה','חלבי','אסיד','שקופה','שקוף')
+            glasses = ('אקסטרה קליר','אנטיסן אפור','אנטיסן ברונזה','אסיד קליר','גלינה קליר','פיפיטה','חלבית','חלבי','אסיד','שקופה','שקוף')
             glass = next((g for g in glasses if re.search(r'(?<![א-ת])'+g+r'(?![א-ת])',detail)), None)
             finish = next((f for f in ('ניקל מוברש','ניקל','שחור','גרפיט','זהב','לבן') if re.search(r'(?<![א-ת])'+f+r'(?![א-ת])',detail)), None)
             handle = ('ידית כפתור' if re.search(r'ידית כפתור|ידיות כפתור',detail) else
@@ -80,7 +80,7 @@ def explicit_numbered_specs(history):
                 break
             if '2 דלתות' in config and not re.search(r'(?:שתי|2)\s+ידיות', detail):
                 break
-            specs.update(glass_type='שקופה' if glass=='שקוף' else glass, finish=finish,
+            specs.update(glass_type={'שקוף': 'שקופה', 'חלבית': 'חלבי'}.get(glass, glass), finish=finish,
                          handles=[handle]*(2 if '2 דלתות' in config else 1))
             parsed[ORDINALS[marker[1]]] = specs
         if len(parsed) == len(markers) and set(parsed) == {str(n) for n in range(1,len(parsed)+1)}:
