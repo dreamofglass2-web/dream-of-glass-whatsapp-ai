@@ -2661,7 +2661,8 @@ def process_message(phone, body, batch_rows=None):
             written)
         if (starts_with_customer_photo and '[לקוח צירף' not in body
                 and not (is_callback_request(written) or refuses_further_contact(written)
-                         or refuses_phone_calls(written) or requests_portfolio_photos(written))):
+                         or refuses_phone_calls(written)
+                         or re.search(r'(?:תשלח|תשלחי|תשלחו|תראה|אפשר לראות).{0,30}(?:תמונ|דוגמ|קטלוג)', written))):
             if has_new_messages(phone, batch_rows):
                 return False
             reply = 'כן, אפשר. שלח תמונה של המקום ונראה מה יכול להתאים.'
